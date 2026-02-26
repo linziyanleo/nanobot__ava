@@ -38,7 +38,7 @@ class MemoryTool(Tool):
             "- remember: Store a memory note for the current person\n"
             "- list_persons: List all known persons and their IDs\n"
             "- map_identity: Link the current channel:id to a person name\n"
-            "- search_history: Search history logs with a keyword"
+            "- search_history: Search history logs by keyword and/or time range (since/until)"
         )
 
     @property
@@ -53,7 +53,7 @@ class MemoryTool(Tool):
                 },
                 "content": {
                     "type": "string",
-                    "description": "Content to store (for 'remember') or search query (for 'search_history')",
+                    "description": "Content to store (for 'remember') or search keyword (for 'search_history', optional when since/until is set)",
                 },
                 "person": {
                     "type": "string",
@@ -67,6 +67,18 @@ class MemoryTool(Tool):
                 "display_name": {
                     "type": "string",
                     "description": "Display name for the person (for 'map_identity')",
+                },
+                "since": {
+                    "type": "string",
+                    "description": "Start date/datetime filter in ISO format, e.g. '2026-02-25' (only for search_history)",
+                },
+                "until": {
+                    "type": "string",
+                    "description": "End date/datetime filter in ISO format, e.g. '2026-02-26' (only for search_history)",
+                },
+                "channel": {
+                    "type": "string",
+                    "description": "Filter by channel, e.g. 'telegram', 'cli', 'dingtalk' (only for search_history, default: all)",
                 },
             },
             "required": ["action"],
@@ -154,68 +166,126 @@ class MemoryTool(Tool):
         label = display_name or person
         return f"Mapped {self._channel}:{self._chat_id} -> {label} ({person})"
 
-    def _search_history(self, content: str | None = None, person: str | None = None, **_: Any) -> str:
+    def _search_history(
+        self,
+        content: str | None = None,
+        person: str | None = None,
+        since: str | None = None,
+        until: str | None = None,
+        channel: str | None = None,
+        **_: Any,
+    ) -> str:
         """Search history logs, with automatic fallback to raw session files."""
-        if not content:
-            return "Error: 'content' (search query) is required for search_history."
+        has_time_filter = bool(since or until)
+        has_advanced_filter = has_time_filter or bool(channel)
+
+        if not content and not has_advanced_filter:
+            return "Error: 'content' (search query) or time range (since/until) is required for search_history."
 
         if person:
             target = person
         else:
             target = self._store.resolve_person(self._channel, self._chat_id)
 
-        search_paths = []
-        memory_dir = self._store._workspace / "memory"
+        # When time/channel filter is set, skip HISTORY.md and go directly to sessions.
+        if not has_advanced_filter and content:
+            search_paths = []
+            memory_dir = self._store._workspace / "memory"
 
-        global_history = memory_dir / "HISTORY.md"
-        if global_history.exists():
-            search_paths.append(str(global_history))
+            global_history = memory_dir / "HISTORY.md"
+            if global_history.exists():
+                search_paths.append(str(global_history))
 
-        if target:
-            person_history = memory_dir / "persons" / target / "HISTORY.md"
-            if person_history.exists():
-                search_paths.append(str(person_history))
+            if target:
+                person_history = memory_dir / "persons" / target / "HISTORY.md"
+                if person_history.exists():
+                    search_paths.append(str(person_history))
 
-        if search_paths:
-            try:
-                result = subprocess.run(
-                    ["grep", "-i", "-n", content, *search_paths],
-                    capture_output=True, text=True, timeout=5,
-                )
-                output = result.stdout.strip()
-                if output:
-                    lines = output.split("\n")
-                    if len(lines) > 50:
-                        lines = lines[:50]
-                        output = "\n".join(lines) + "\n... (truncated, 50+ matches)"
-                    else:
-                        output = "\n".join(lines)
-                    return f"Search results for '{content}':\n{output}"
-            except (subprocess.TimeoutExpired, FileNotFoundError):
-                pass
+            if search_paths:
+                try:
+                    result = subprocess.run(
+                        ["grep", "-i", "-n", content, *search_paths],
+                        capture_output=True, text=True, timeout=5,
+                    )
+                    output = result.stdout.strip()
+                    if output:
+                        lines = output.split("\n")
+                        if len(lines) > 50:
+                            lines = lines[:50]
+                            output = "\n".join(lines) + "\n... (truncated, 50+ matches)"
+                        else:
+                            output = "\n".join(lines)
+                        return f"Search results for '{content}':\n{output}"
+                except (subprocess.TimeoutExpired, FileNotFoundError):
+                    pass
 
-        # Fallback: search raw session files
-        session_results = self._search_sessions(content, target)
+        session_results = self._search_sessions(content, target, since, until, channel)
         if session_results:
-            return f"Search results for '{content}' (from session history):\n{session_results}"
+            label_parts = []
+            if content:
+                label_parts.append(f"'{content}'")
+            meta_parts = []
+            if since:
+                meta_parts.append(f"since={since}")
+            if until:
+                meta_parts.append(f"until={until}")
+            if channel:
+                meta_parts.append(f"channel={channel}")
+            if meta_parts:
+                label_parts.append(", ".join(meta_parts))
+            label = f"Search results ({', '.join(label_parts)}):" if label_parts else "Search results:"
+            return f"{label}\n{session_results}"
 
-        return f"No matches found for '{content}' in history."
+        query_desc = f"'{content}'" if content else "given filters"
+        return f"No matches found for {query_desc} in history."
 
     _SESSIONS_MAX_RESULTS = 20
     _SESSIONS_MAX_CHARS = 500
 
-    def _search_sessions(self, query: str, person: str | None) -> str:
-        """Search raw session JSONL files by content field."""
-        session_files = self._get_session_files_for_person(person) if person else []
-        if not session_files and self._channel and self._chat_id:
-            current = self._store._workspace / "sessions" / f"{self._channel}_{self._chat_id}.jsonl"
-            if current.exists():
-                session_files = [current]
+    @staticmethod
+    def _normalize_datetime(value: str) -> str:
+        """Normalize an ISO date or datetime string for comparison.
+
+        '2026-02-25' → '2026-02-25T00:00:00'
+        '2026-02-25T10:00:00' → '2026-02-25T10:00:00' (unchanged)
+        """
+        if "T" not in value:
+            return value + "T00:00:00"
+        return value
+
+    def _search_sessions(
+        self,
+        query: str | None,
+        person: str | None,
+        since: str | None = None,
+        until: str | None = None,
+        channel: str | None = None,
+    ) -> str:
+        """Search raw session JSONL files by content field with optional time/channel filter."""
+        sessions_dir = self._store._workspace / "sessions"
+
+        has_advanced = bool(since or until or channel)
+
+        if person:
+            session_files = self._get_session_files_for_person(person)
+        elif has_advanced:
+            session_files = sorted(sessions_dir.glob("*.jsonl")) if sessions_dir.exists() else []
+        elif self._channel and self._chat_id:
+            current = sessions_dir / f"{self._channel}_{self._chat_id}.jsonl"
+            session_files = [current] if current.exists() else []
+        else:
+            session_files = sorted(sessions_dir.glob("*.jsonl")) if sessions_dir.exists() else []
+
+        if channel:
+            prefix = f"{channel}_"
+            session_files = [p for p in session_files if p.name.startswith(prefix)]
 
         if not session_files:
             return ""
 
-        query_lower = query.lower()
+        since_norm = self._normalize_datetime(since) if since else None
+        until_norm = self._normalize_datetime(until) if until else None
+        query_lower = query.lower() if query else None
         matches: list[str] = []
 
         for path in session_files:
@@ -231,10 +301,19 @@ class MemoryTool(Tool):
                             continue
                         if data.get("_type") == "metadata":
                             continue
-                        msg_content = data.get("content", "")
-                        if not isinstance(msg_content, str) or query_lower not in msg_content.lower():
+
+                        ts = data.get("timestamp", "")
+                        if since_norm and ts < since_norm:
                             continue
-                        ts = data.get("timestamp", "?")
+                        if until_norm and ts >= until_norm:
+                            continue
+
+                        msg_content = data.get("content", "")
+                        if not isinstance(msg_content, str):
+                            continue
+                        if query_lower and query_lower not in msg_content.lower():
+                            continue
+
                         role = data.get("role", "?")
                         snippet = msg_content[:self._SESSIONS_MAX_CHARS]
                         if len(msg_content) > self._SESSIONS_MAX_CHARS:

@@ -192,6 +192,8 @@ memory(action: str, content: str = None, person: str = None, scope: str = "perso
 - **记住渠道特定信息**（只在某群/某渠道有意义）：调用 `remember`，`scope="source"`。
 - **召回/排错**：`recall`（看当前或指定 person 的记忆），`search_history`（按关键词搜历史）。
 - **search_history 自动兜底**：当 HISTORY.md 无匹配时，会自动搜索原始会话记录（sessions），无需手动读取 session 文件。
+- **按时间搜索**：可选 `since`/`until` 参数（ISO 日期或精确时间，如 `"2026-02-25"` 或 `"2026-02-25T10:30:00"`），用于按时间范围搜索。设置时间范围时会直接搜索 sessions。content 可选（不填则仅按时间列出所有消息）。
+- **按渠道搜索**：可选 `channel` 参数（如 `"telegram"`、`"cli"`、`"dingtalk"`），限定只搜索特定渠道的历史。不填则搜索全部渠道。
 
 #### identity_map.yaml 示例
 
