@@ -52,6 +52,13 @@ class IdentityResolver:
     def _invalidate(self) -> None:
         self._cache = None
 
+    @staticmethod
+    def _match_id(entry_id: str | list, chat_id: str) -> bool:
+        """Check if chat_id matches entry_id (supports both string and list)."""
+        if isinstance(entry_id, list):
+            return str(chat_id) in [str(i) for i in entry_id]
+        return str(entry_id) == str(chat_id)
+
     def resolve(self, channel: str, chat_id: str) -> str | None:
         """Resolve channel:chat_id to person name. Returns None if not mapped."""
         data = self._load()
@@ -61,7 +68,7 @@ class IdentityResolver:
                 if not isinstance(info, dict):
                     continue
                 for entry in info.get("ids", []):
-                    if entry.get("channel") == channel and str(entry.get("id")) == str(chat_id):
+                    if entry.get("channel") == channel and self._match_id(entry.get("id", []), chat_id):
                         return person_name
         return None
 
@@ -72,7 +79,7 @@ class IdentityResolver:
         chat_id: str,
         display_name: str | None = None,
     ) -> None:
-        """Add or update an identity mapping."""
+        """Add or update an identity mapping. Appends to existing channel's id list."""
         data = self._load()
         persons = data.setdefault("persons", {})
         if not isinstance(persons, dict):
@@ -85,10 +92,21 @@ class IdentityResolver:
 
         ids = person.setdefault("ids", [])
         for entry in ids:
-            if entry.get("channel") == channel and str(entry.get("id")) == str(chat_id):
-                return  # already exists
+            if entry.get("channel") == channel:
+                id_val = entry.get("id", [])
+                if isinstance(id_val, list):
+                    if str(chat_id) in [str(i) for i in id_val]:
+                        return  # already exists
+                    id_val.append(str(chat_id))
+                else:
+                    if str(id_val) == str(chat_id):
+                        return  # already exists
+                    entry["id"] = [str(id_val), str(chat_id)]
+                self._save(data)
+                logger.info("Identity mapped: {}:{} -> {} (appended)", channel, chat_id, person_name)
+                return
 
-        ids.append({"channel": channel, "id": str(chat_id)})
+        ids.append({"channel": channel, "id": [str(chat_id)]})
         self._save(data)
         logger.info("Identity mapped: {}:{} -> {}", channel, chat_id, person_name)
 
