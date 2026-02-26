@@ -191,6 +191,7 @@ memory(action: str, content: str = None, person: str = None, scope: str = "perso
 - **记住长期事实**（稳定偏好/身份/项目背景）：调用 `remember`，`scope="person"`，内容用**短句/要点**，避免流水账。
 - **记住渠道特定信息**（只在某群/某渠道有意义）：调用 `remember`，`scope="source"`。
 - **召回/排错**：`recall`（看当前或指定 person 的记忆），`search_history`（按关键词搜历史）。
+- **search_history 自动兜底**：当 HISTORY.md 无匹配时，会自动搜索原始会话记录（sessions），无需手动读取 session 文件。
 
 #### identity_map.yaml 示例
 

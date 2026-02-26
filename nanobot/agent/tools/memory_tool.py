@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import json
 import subprocess
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from nanobot.agent.tools.base import Tool
@@ -153,7 +155,7 @@ class MemoryTool(Tool):
         return f"Mapped {self._channel}:{self._chat_id} -> {label} ({person})"
 
     def _search_history(self, content: str | None = None, person: str | None = None, **_: Any) -> str:
-        """Search history logs with grep."""
+        """Search history logs, with automatic fallback to raw session files."""
         if not content:
             return "Error: 'content' (search query) is required for search_history."
 
@@ -165,34 +167,113 @@ class MemoryTool(Tool):
         search_paths = []
         memory_dir = self._store._workspace / "memory"
 
-        # Always search global history
         global_history = memory_dir / "HISTORY.md"
         if global_history.exists():
             search_paths.append(str(global_history))
 
-        # Search person history if resolved
         if target:
             person_history = memory_dir / "persons" / target / "HISTORY.md"
             if person_history.exists():
                 search_paths.append(str(person_history))
 
-        if not search_paths:
-            return "No history files found."
+        if search_paths:
+            try:
+                result = subprocess.run(
+                    ["grep", "-i", "-n", content, *search_paths],
+                    capture_output=True, text=True, timeout=5,
+                )
+                output = result.stdout.strip()
+                if output:
+                    lines = output.split("\n")
+                    if len(lines) > 50:
+                        lines = lines[:50]
+                        output = "\n".join(lines) + "\n... (truncated, 50+ matches)"
+                    else:
+                        output = "\n".join(lines)
+                    return f"Search results for '{content}':\n{output}"
+            except (subprocess.TimeoutExpired, FileNotFoundError):
+                pass
 
-        try:
-            result = subprocess.run(
-                ["grep", "-i", "-n", content, *search_paths],
-                capture_output=True, text=True, timeout=5,
-            )
-            output = result.stdout.strip()
-            if not output:
-                return f"No matches found for '{content}' in history."
-            lines = output.split("\n")
-            if len(lines) > 50:
-                lines = lines[:50]
-                output = "\n".join(lines) + "\n... (truncated, 50+ matches)"
-            else:
-                output = "\n".join(lines)
-            return f"Search results for '{content}':\n{output}"
-        except (subprocess.TimeoutExpired, FileNotFoundError):
-            return "Search failed (grep not available or timed out)."
+        # Fallback: search raw session files
+        session_results = self._search_sessions(content, target)
+        if session_results:
+            return f"Search results for '{content}' (from session history):\n{session_results}"
+
+        return f"No matches found for '{content}' in history."
+
+    _SESSIONS_MAX_RESULTS = 20
+    _SESSIONS_MAX_CHARS = 500
+
+    def _search_sessions(self, query: str, person: str | None) -> str:
+        """Search raw session JSONL files by content field."""
+        session_files = self._get_session_files_for_person(person) if person else []
+        if not session_files and self._channel and self._chat_id:
+            current = self._store._workspace / "sessions" / f"{self._channel}_{self._chat_id}.jsonl"
+            if current.exists():
+                session_files = [current]
+
+        if not session_files:
+            return ""
+
+        query_lower = query.lower()
+        matches: list[str] = []
+
+        for path in session_files:
+            try:
+                with open(path, encoding="utf-8") as f:
+                    for line in f:
+                        line = line.strip()
+                        if not line:
+                            continue
+                        try:
+                            data = json.loads(line)
+                        except json.JSONDecodeError:
+                            continue
+                        if data.get("_type") == "metadata":
+                            continue
+                        msg_content = data.get("content", "")
+                        if not isinstance(msg_content, str) or query_lower not in msg_content.lower():
+                            continue
+                        ts = data.get("timestamp", "?")
+                        role = data.get("role", "?")
+                        snippet = msg_content[:self._SESSIONS_MAX_CHARS]
+                        if len(msg_content) > self._SESSIONS_MAX_CHARS:
+                            snippet += "..."
+                        matches.append(f"[{ts}] {role}: {snippet}")
+                        if len(matches) >= self._SESSIONS_MAX_RESULTS:
+                            break
+            except OSError:
+                continue
+            if len(matches) >= self._SESSIONS_MAX_RESULTS:
+                break
+
+        if not matches:
+            return ""
+
+        result = "\n".join(matches)
+        if len(matches) >= self._SESSIONS_MAX_RESULTS:
+            result += f"\n... (showing first {self._SESSIONS_MAX_RESULTS} matches)"
+        return result
+
+    def _get_session_files_for_person(self, person_name: str) -> list[Path]:
+        """Get all session files associated with a person via identity_map."""
+        sessions_dir = self._store._workspace / "sessions"
+        if not sessions_dir.exists():
+            return []
+
+        persons = self._store.resolver.list_persons()
+        info = persons.get(person_name)
+        if not info:
+            return []
+
+        paths: list[Path] = []
+        for entry in info.get("ids", []):
+            channel = entry.get("channel", "")
+            ids = entry.get("id", [])
+            if isinstance(ids, str):
+                ids = [ids]
+            for chat_id in ids:
+                p = sessions_dir / f"{channel}_{chat_id}.jsonl"
+                if p.exists():
+                    paths.append(p)
+        return paths

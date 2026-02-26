@@ -20,17 +20,9 @@ You have access to:
 
 ## Memory
 
-- Use `memory/` directory for daily notes
-- Use `MEMORY.md` for long-term information (global, shared across all users)
-- Use the `memory` tool for per-person categorized memory:
-  - `recall` to retrieve a person's memory
-  - `remember` to store facts about a person
-  - `map_identity` to link the current channel:chat_id to a person name (appends to `identity_map.yaml` id list)
-  - `search_history` to search past conversation logs
-- When a user reveals their identity (e.g., "I'm Leo", "my DingTalk is xxx"), use `map_identity` to link them
-- Person memory is automatically injected into the system prompt when the user is recognized
-- Identity mappings are stored in `memory/identity_map.yaml` (`id` supports arrays for multiple accounts per channel)
-- For the concise operational rules, see `TOOLS.md` → `Categorized Memory`
+Use the `memory` tool for all memory operations (recall, remember, map_identity, search_history).
+When a user reveals their identity (e.g., "I'm Leo", "my DingTalk is xxx"), use `map_identity` to link them.
+See `TOOLS.md` → `Categorized Memory` for detailed rules.
 
 ## Scheduled Reminders
 

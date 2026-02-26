@@ -119,9 +119,8 @@ Reply directly with text for conversations. Only use the 'message' tool to send 
 - After writing or editing a file, re-read it if accuracy matters.
 - If a tool call fails, analyze the error before retrying with a different approach.
 
-## Memory
-- Remember important facts: write to {workspace_path}/memory/MEMORY.md
-- Recall past events: grep {workspace_path}/memory/HISTORY.md"""
+## Memory & History
+Use the `memory` tool for all memory operations (recall, remember, search). See TOOLS.md → Categorized Memory for rules."""
 
     @staticmethod
     def _inject_runtime_context(
