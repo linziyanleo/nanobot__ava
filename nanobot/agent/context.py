@@ -1,15 +1,20 @@
 """Context builder for assembling agent prompts."""
 
+from __future__ import annotations
+
 import base64
 import mimetypes
 import platform
 import time
 from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from nanobot.agent.memory import MemoryStore
 from nanobot.agent.skills import SkillsLoader
+
+if TYPE_CHECKING:
+    from nanobot.agent.categorized_memory import CategorizedMemoryStore
 
 
 class ContextBuilder:
@@ -22,17 +27,25 @@ class ContextBuilder:
     
     BOOTSTRAP_FILES = ["AGENTS.md", "SOUL.md", "USER.md", "TOOLS.md", "IDENTITY.md"]
     
-    def __init__(self, workspace: Path):
+    def __init__(self, workspace: Path, categorized_memory: CategorizedMemoryStore | None = None):
         self.workspace = workspace
         self.memory = MemoryStore(workspace)
+        self.categorized_memory = categorized_memory
         self.skills = SkillsLoader(workspace)
     
-    def build_system_prompt(self, skill_names: list[str] | None = None) -> str:
+    def build_system_prompt(
+        self,
+        skill_names: list[str] | None = None,
+        channel: str | None = None,
+        chat_id: str | None = None,
+    ) -> str:
         """
         Build the system prompt from bootstrap files, memory, and skills.
         
         Args:
             skill_names: Optional list of skills to include.
+            channel: Current channel for person memory lookup.
+            chat_id: Current chat/user ID for person memory lookup.
         
         Returns:
             Complete system prompt.
@@ -47,10 +60,16 @@ class ContextBuilder:
         if bootstrap:
             parts.append(bootstrap)
         
-        # Memory context
+        # Global memory context
         memory = self.memory.get_memory_context()
         if memory:
             parts.append(f"# Memory\n\n{memory}")
+
+        # Person-level memory (categorized)
+        if self.categorized_memory and channel and chat_id:
+            person_ctx = self.categorized_memory.get_combined_context(channel, chat_id)
+            if person_ctx:
+                parts.append(person_ctx)
         
         # Skills - progressive loading
         # 1. Always-loaded skills: include full content
@@ -158,8 +177,8 @@ Reply directly with text for conversations. Only use the 'message' tool to send 
         """
         messages = []
 
-        # System prompt
-        system_prompt = self.build_system_prompt(skill_names)
+        # System prompt (with person memory if available)
+        system_prompt = self.build_system_prompt(skill_names, channel=channel, chat_id=chat_id)
         messages.append({"role": "system", "content": system_prompt})
 
         # History

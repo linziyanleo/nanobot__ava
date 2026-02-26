@@ -11,6 +11,7 @@ from loguru import logger
 from nanobot.utils.helpers import ensure_dir
 
 if TYPE_CHECKING:
+    from nanobot.agent.categorized_memory import CategorizedMemoryStore
     from nanobot.providers.base import LLMProvider
     from nanobot.session.manager import Session
 
@@ -66,6 +67,14 @@ class MemoryStore:
         long_term = self.read_long_term()
         return f"## Long-term Memory\n{long_term}" if long_term else ""
 
+    @staticmethod
+    def _parse_session_key(key: str) -> tuple[str | None, str | None]:
+        """Extract (channel, chat_id) from a session key like 'telegram:8281248569'."""
+        if ":" in key:
+            channel, chat_id = key.split(":", 1)
+            return channel, chat_id
+        return None, None
+
     async def consolidate(
         self,
         session: Session,
@@ -74,6 +83,7 @@ class MemoryStore:
         *,
         archive_all: bool = False,
         memory_window: int = 50,
+        categorized_store: CategorizedMemoryStore | None = None,
     ) -> bool:
         """Consolidate old messages into MEMORY.md + HISTORY.md via LLM tool call.
 
@@ -141,6 +151,16 @@ class MemoryStore:
                     update = json.dumps(update, ensure_ascii=False)
                 if update != current_memory:
                     self.write_long_term(update)
+
+            # Sync to person-level memory if categorized store is available
+            if categorized_store is not None:
+                channel, chat_id = self._parse_session_key(session.key)
+                if channel and chat_id:
+                    categorized_store.on_consolidate(
+                        channel, chat_id,
+                        history_entry=entry or "",
+                        memory_facts=update or "",
+                    )
 
             session.last_consolidated = 0 if archive_all else len(session.messages) - keep_count
             logger.info("Memory consolidation done: {} messages, last_consolidated={}", len(session.messages), session.last_consolidated)

@@ -168,6 +168,38 @@ write_file(
 
 ---
 
+## Categorized Memory
+
+### memory
+
+Manage per-person categorized memory with identity resolution.
+
+```
+memory(action: str, content: str = None, person: str = None, scope: str = "person", display_name: str = None) -> str
+```
+
+**Actions:**
+
+| Action | Description | Required Args |
+|--------|-------------|---------------|
+| `recall` | Retrieve memory for a person | `person` (optional, defaults to current user), `scope` (person/source) |
+| `remember` | Store a memory note | `content`, `scope` (person/source) |
+| `list_persons` | List all known persons and their channel IDs | — |
+| `map_identity` | Link the current channel:chat_id to a person | `person`, `display_name` (optional) |
+| `search_history` | Search history logs with a keyword | `content` (the search query), `person` (optional) |
+
+**Memory Hierarchy:**
+- **Global**: `memory/MEMORY.md` — shared facts (unchanged)
+- **Person**: `memory/persons/{name}/MEMORY.md` — cross-channel aggregated facts for a person
+- **Source**: `memory/persons/{name}/sources/{channel}_{id}.md` — channel-specific notes
+
+**Identity Map:**
+- Configured in `memory/identity_map.yaml`
+- Maps `channel:chat_id` pairs to person names
+- Agent can dynamically add mappings via `map_identity` action
+
+---
+
 ## Adding Custom Tools
 
 To add custom tools:
