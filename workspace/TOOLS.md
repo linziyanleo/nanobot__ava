@@ -200,7 +200,7 @@ memory(action: str, content: str = None, person: str = None, scope: str = "perso
 ```yaml
 persons:
   leo:
-    display_name: "Leo / 方壶"
+    display_name: "Leo / 主人"
     ids:
       - channel: telegram
         id: ["12345678", "87654321"]

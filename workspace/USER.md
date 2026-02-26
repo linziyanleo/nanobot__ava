@@ -44,8 +44,6 @@ Information about the user to help personalize interactions.
 
 (Any specific instructions for how the assistant should behave)
 
-1. 关于主人的称呼规则：上班时间（北京时间 9:30 - 18:00） & 在工作聊天/工作群中的时候叫我方壶，其余时间自便
-
 ---
 
 *Edit this file to customize nanobot's behavior for your needs.*
