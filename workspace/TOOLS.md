@@ -172,31 +172,40 @@ write_file(
 
 ### memory
 
-Manage per-person categorized memory with identity resolution.
+用于“按自然人聚合”的长期记忆（跨渠道共享）。**优先用 `memory` 工具**，除非你在做“整理/重构记忆文件”，否则不要直接改 `workspace/memory/` 里的文件。
 
-```
+```text
 memory(action: str, content: str = None, person: str = None, scope: str = "person", display_name: str = None) -> str
 ```
 
-**Actions:**
+#### 写入位置（你需要知道的最小集合）
 
-| Action | Description | Required Args |
-|--------|-------------|---------------|
-| `recall` | Retrieve memory for a person | `person` (optional, defaults to current user), `scope` (person/source) |
-| `remember` | Store a memory note | `content`, `scope` (person/source) |
-| `list_persons` | List all known persons and their channel IDs | — |
-| `map_identity` | Link the current channel:chat_id to a person | `person`, `display_name` (optional) |
-| `search_history` | Search history logs with a keyword | `content` (the search query), `person` (optional) |
+- **Global（共享）**: `memory/MEMORY.md`, `memory/HISTORY.md`
+- **Identity Map**: `memory/identity_map.yaml`（`id` 支持数组，同渠道可多账号）
+- **Person（聚合）**: `memory/persons/<person>/MEMORY.md`, `memory/persons/<person>/HISTORY.md`
+- **Source（渠道笔记）**: `memory/persons/<person>/sources/<channel>_<id>.md`
 
-**Memory Hierarchy:**
-- **Global**: `memory/MEMORY.md` — shared facts (unchanged)
-- **Person**: `memory/persons/{name}/MEMORY.md` — cross-channel aggregated facts for a person
-- **Source**: `memory/persons/{name}/sources/{channel}_{id}.md` — channel-specific notes
+#### 创建/更新规约（最短可执行）
 
-**Identity Map:**
-- Configured in `memory/identity_map.yaml`
-- Maps `channel:chat_id` pairs to person names
-- Agent can dynamically add mappings via `map_identity` action
+- **建立身份映射**（用户自报/你已确认身份）：调用 `map_identity`，把“当前会话的 channel+chat_id”挂到某个 `person` 上（会自动追加到 `id` 数组）。
+- **记住长期事实**（稳定偏好/身份/项目背景）：调用 `remember`，`scope="person"`，内容用**短句/要点**，避免流水账。
+- **记住渠道特定信息**（只在某群/某渠道有意义）：调用 `remember`，`scope="source"`。
+- **召回/排错**：`recall`（看当前或指定 person 的记忆），`search_history`（按关键词搜历史）。
+
+#### identity_map.yaml 示例
+
+```yaml
+persons:
+  leo:
+    display_name: "Leo / 方壶"
+    ids:
+      - channel: telegram
+        id: ["12345678", "87654321"]
+      - channel: cli
+        id: ["direct"]
+```
+
+（更完整的结构说明见 `memory/CATEGORIZED_MEMORY_TEMPLATE.md`，不要把它整份复制进 prompt。）
 
 ---
 
