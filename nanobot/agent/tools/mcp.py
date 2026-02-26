@@ -11,6 +11,13 @@ from nanobot.agent.tools.base import Tool
 from nanobot.agent.tools.registry import ToolRegistry
 
 
+async def _empty_list_roots_callback(context: Any) -> Any:
+    """Return an empty roots list so MCP servers that request roots don't error."""
+    from mcp import types
+
+    return types.ListRootsResult(roots=[])
+
+
 class MCPToolWrapper(Tool):
     """Wraps a single MCP server tool as a nanobot Tool."""
 
@@ -85,7 +92,9 @@ async def connect_mcp_servers(
                 logger.warning("MCP server '{}': no command or url configured, skipping", name)
                 continue
 
-            session = await stack.enter_async_context(ClientSession(read, write))
+            session = await stack.enter_async_context(
+                ClientSession(read, write, list_roots_callback=_empty_list_roots_callback)
+            )
             await session.initialize()
 
             tools = await session.list_tools()
