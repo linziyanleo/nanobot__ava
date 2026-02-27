@@ -236,6 +236,9 @@ class AgentLoop:
                     )
             else:
                 final_content = self._strip_think(response.content)
+                messages = self.context.add_assistant_message(
+                    messages, final_content, reasoning_content=response.reasoning_content,
+                )
                 break
 
         if final_content is None and iteration >= self.max_iterations:
@@ -244,6 +247,7 @@ class AgentLoop:
                 f"I reached the maximum number of tool call iterations ({self.max_iterations}) "
                 "without completing the task. You can try breaking the task into smaller steps."
             )
+            messages = self.context.add_assistant_message(messages, final_content)
 
         return final_content, tools_used, messages
 
@@ -445,6 +449,11 @@ class AgentLoop:
                     entry["content"] = content[:self._TOOL_RESULT_MAX_CHARS] + "\n... (truncated)"
             entry.setdefault("timestamp", datetime.now().isoformat())
             session.messages.append(entry)
+        if session.messages and session.messages[-1].get("role") != "assistant":
+            logger.warning(
+                "Session {} saved an incomplete turn: tail role={}",
+                session.key, session.messages[-1].get("role"),
+            )
         session.updated_at = datetime.now()
 
     async def _consolidate_memory(self, session, archive_all: bool = False) -> bool:

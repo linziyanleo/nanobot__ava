@@ -826,3 +826,107 @@ class TestConsolidationDeduplicationGuard:
         assert response is not None
         assert "new session started" in response.content.lower()
         assert session.key not in loop._consolidation_locks
+
+
+class TestTurnPersistence:
+    """Regression tests for complete user->assistant turn persistence."""
+
+    @pytest.mark.asyncio
+    async def test_process_message_persists_plain_final_assistant_message(self, tmp_path: Path) -> None:
+        """Plain-text assistant replies must be written to session history."""
+        from nanobot.agent.loop import AgentLoop
+        from nanobot.bus.events import InboundMessage
+        from nanobot.bus.queue import MessageBus
+        from nanobot.providers.base import LLMResponse
+
+        bus = MessageBus()
+        provider = MagicMock()
+        provider.get_default_model.return_value = "test-model"
+        loop = AgentLoop(bus=bus, provider=provider, workspace=tmp_path, model="test-model")
+
+        loop.provider.chat = AsyncMock(return_value=LLMResponse(content="plain-final", tool_calls=[]))
+        loop.tools.get_definitions = MagicMock(return_value=[])
+
+        msg = InboundMessage(channel="cli", sender_id="user", chat_id="direct", content="hello")
+        response = await loop._process_message(msg)
+
+        assert response is not None
+        assert response.content == "plain-final"
+
+        session = loop.sessions.get_or_create("cli:direct")
+        assert [m["role"] for m in session.messages] == ["user", "assistant"]
+        assert session.messages[-1]["content"] == "plain-final"
+
+    @pytest.mark.asyncio
+    async def test_process_message_persists_final_after_tool_calls(self, tmp_path: Path) -> None:
+        """Final assistant text should be persisted after tool-call chain."""
+        from nanobot.agent.loop import AgentLoop
+        from nanobot.bus.events import InboundMessage
+        from nanobot.bus.queue import MessageBus
+        from nanobot.providers.base import LLMResponse, ToolCallRequest
+
+        bus = MessageBus()
+        provider = MagicMock()
+        provider.get_default_model.return_value = "test-model"
+        loop = AgentLoop(bus=bus, provider=provider, workspace=tmp_path, model="test-model")
+
+        loop.provider.chat = AsyncMock(
+            side_effect=[
+                LLMResponse(
+                    content="先查一下",
+                    tool_calls=[ToolCallRequest(id="call_1", name="mock_tool", arguments={"q": "x"})],
+                ),
+                LLMResponse(content="最终回复", tool_calls=[]),
+            ]
+        )
+        loop.tools.get_definitions = MagicMock(return_value=[])
+        loop.tools.execute = AsyncMock(return_value="tool-result")
+
+        msg = InboundMessage(channel="cli", sender_id="user", chat_id="direct", content="hello")
+        response = await loop._process_message(msg)
+
+        assert response is not None
+        assert response.content == "最终回复"
+
+        session = loop.sessions.get_or_create("cli:direct")
+        roles = [m["role"] for m in session.messages]
+        assert roles == ["user", "assistant", "tool", "assistant"]
+        assert session.messages[-1]["content"] == "最终回复"
+
+    @pytest.mark.asyncio
+    async def test_process_message_persists_fallback_when_max_iterations_reached(self, tmp_path: Path) -> None:
+        """When max iterations is reached, fallback assistant text must be persisted."""
+        from nanobot.agent.loop import AgentLoop
+        from nanobot.bus.events import InboundMessage
+        from nanobot.bus.queue import MessageBus
+        from nanobot.providers.base import LLMResponse, ToolCallRequest
+
+        bus = MessageBus()
+        provider = MagicMock()
+        provider.get_default_model.return_value = "test-model"
+        loop = AgentLoop(
+            bus=bus,
+            provider=provider,
+            workspace=tmp_path,
+            model="test-model",
+            max_iterations=1,
+        )
+
+        loop.provider.chat = AsyncMock(
+            return_value=LLMResponse(
+                content="still-calling-tools",
+                tool_calls=[ToolCallRequest(id="call_1", name="mock_tool", arguments={})],
+            )
+        )
+        loop.tools.get_definitions = MagicMock(return_value=[])
+        loop.tools.execute = AsyncMock(return_value="tool-result")
+
+        msg = InboundMessage(channel="cli", sender_id="user", chat_id="direct", content="hello")
+        response = await loop._process_message(msg)
+
+        assert response is not None
+        assert "maximum number of tool call iterations" in response.content
+
+        session = loop.sessions.get_or_create("cli:direct")
+        assert session.messages[-1]["role"] == "assistant"
+        assert "maximum number of tool call iterations" in session.messages[-1]["content"]
