@@ -31,3 +31,6 @@ mydocs/
 .cursor/
 .qoder/
 .vscode/
+
+# Workspace
+workspace/
