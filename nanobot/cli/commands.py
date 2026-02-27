@@ -399,6 +399,12 @@ def gateway(
     else:
         console.print("[yellow]Warning: No channels enabled[/yellow]")
 
+    schedule_path = config.workspace_path / "schedule.json"
+    if schedule_path.exists():
+        sched_count = cron.load_schedule(schedule_path)
+        if sched_count:
+            console.print(f"[green]✓[/green] Schedule: {sched_count} tasks loaded from schedule.json")
+
     cron_status = cron.status()
     if cron_status["jobs"] > 0:
         console.print(f"[green]✓[/green] Cron: {cron_status['jobs']} scheduled jobs")
@@ -811,6 +817,7 @@ def cron_list(
     table = Table(title="Scheduled Jobs")
     table.add_column("ID", style="cyan")
     table.add_column("Name")
+    table.add_column("Source", style="magenta")
     table.add_column("Schedule")
     table.add_column("Status")
     table.add_column("Next Run")
@@ -838,8 +845,9 @@ def cron_list(
                 next_run = time.strftime("%Y-%m-%d %H:%M", time.localtime(ts))
 
         status = "[green]enabled[/green]" if job.enabled else "[dim]disabled[/dim]"
+        source_label = "[blue]schedule[/blue]" if job.source == "schedule" else "cli"
 
-        table.add_row(job.id, job.name, sched, status, next_run)
+        table.add_row(job.id, job.name, source_label, sched, status, next_run)
 
     console.print(table)
 

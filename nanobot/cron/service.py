@@ -110,6 +110,7 @@ class CronService:
                         created_at_ms=j.get("createdAtMs", 0),
                         updated_at_ms=j.get("updatedAtMs", 0),
                         delete_after_run=j.get("deleteAfterRun", False),
+                        source=j.get("source", "cli"),
                     ))
                 self._store = CronStore(jobs=jobs)
             except Exception as e:
@@ -157,6 +158,7 @@ class CronService:
                     "createdAtMs": j.created_at_ms,
                     "updatedAtMs": j.updated_at_ms,
                     "deleteAfterRun": j.delete_after_run,
+                    "source": j.source,
                 }
                 for j in self._store.jobs
             ]
@@ -357,6 +359,110 @@ class CronService:
                 return True
         return False
     
+    def load_schedule(self, schedule_path: Path) -> int:
+        """Load tasks from a declarative schedule.json file.
+
+        Syncs schedule-sourced jobs with the store: adds new, updates changed,
+        removes jobs no longer present in the file.  CLI-sourced jobs are never
+        touched.  Returns the number of active schedule jobs after sync.
+        """
+        if not schedule_path.exists():
+            return 0
+
+        try:
+            data = json.loads(schedule_path.read_text(encoding="utf-8"))
+        except Exception as e:
+            logger.warning("Failed to read schedule file {}: {}", schedule_path, e)
+            return 0
+
+        tasks = data.get("tasks", [])
+        if not tasks:
+            return 0
+
+        global_tz = data.get("timezone")
+        defaults = data.get("defaults", {})
+        default_deliver = defaults.get("deliver", False)
+        default_channel = defaults.get("channel")
+        default_to = defaults.get("to")
+
+        store = self._load_store()
+        existing = {j.id: j for j in store.jobs if j.source == "schedule"}
+        seen_ids: set[str] = set()
+        now = _now_ms()
+
+        for task in tasks:
+            task_id = task.get("id")
+            if not task_id:
+                continue
+            job_id = f"sched:{task_id}"
+            seen_ids.add(job_id)
+
+            tz = task.get("timezone") or global_tz
+            schedule = CronSchedule(kind="cron", expr=task.get("schedule"), tz=tz)
+            enabled = task.get("enabled", True)
+            message = task.get("message", "")
+            deliver = task.get("deliver", default_deliver)
+            channel = task.get("channel", default_channel)
+            to = task.get("to", default_to)
+
+            if job_id in existing:
+                job = existing[job_id]
+                changed = (
+                    job.schedule.expr != schedule.expr
+                    or job.schedule.tz != schedule.tz
+                    or job.payload.message != message
+                    or job.enabled != enabled
+                    or job.payload.deliver != deliver
+                    or job.payload.channel != channel
+                    or job.payload.to != to
+                    or job.name != task.get("name", "")
+                )
+                if changed:
+                    job.name = task.get("name", "")
+                    job.schedule = schedule
+                    job.payload.message = message
+                    job.payload.deliver = deliver
+                    job.payload.channel = channel
+                    job.payload.to = to
+                    job.enabled = enabled
+                    job.updated_at_ms = now
+                    if enabled:
+                        job.state.next_run_at_ms = _compute_next_run(schedule, now)
+                    else:
+                        job.state.next_run_at_ms = None
+                    logger.info("Schedule: updated job '{}' ({})", job.name, job_id)
+            else:
+                job = CronJob(
+                    id=job_id,
+                    name=task.get("name", task_id),
+                    enabled=enabled,
+                    schedule=schedule,
+                    payload=CronPayload(
+                        kind="agent_turn",
+                        message=message,
+                        deliver=deliver,
+                        channel=channel,
+                        to=to,
+                    ),
+                    state=CronJobState(
+                        next_run_at_ms=_compute_next_run(schedule, now) if enabled else None,
+                    ),
+                    created_at_ms=now,
+                    updated_at_ms=now,
+                    source="schedule",
+                )
+                store.jobs.append(job)
+                logger.info("Schedule: added job '{}' ({})", job.name, job_id)
+
+        stale = [jid for jid in existing if jid not in seen_ids]
+        if stale:
+            store.jobs = [j for j in store.jobs if j.id not in stale]
+            for jid in stale:
+                logger.info("Schedule: removed stale job {}", jid)
+
+        self._save_store()
+        return len([j for j in store.jobs if j.source == "schedule"])
+
     def status(self) -> dict:
         """Get service status."""
         store = self._load_store()
