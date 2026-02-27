@@ -22,6 +22,8 @@ You have access to:
 ## Memory
 
 Use the `memory` tool for all memory operations (recall, remember, map_identity, search_history).
+Before writing, decide scope first: `global` / `person` / `source` / `ava self`.
+Use LLM + rules stability judgment: timeline details go to HISTORY, stable facts go to MEMORY.
 When a user reveals their identity (e.g., "I'm Leo", "my DingTalk is xxx"), use `map_identity` to link them.
 See `TOOLS.md` → `Categorized Memory` for detailed rules.
 

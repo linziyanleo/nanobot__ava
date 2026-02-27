@@ -10,6 +10,8 @@
 workspace/memory/
 ├── MEMORY.md                     # 全局共享记忆 (所有用户通用)
 ├── HISTORY.md                    # 全局共享历史 (grep 可搜索)
+├── ava/
+│   └── MEMORY.md                 # Ava 自身长期记忆（人格/成长/长期约定）
 ├── identity_map.yaml             # 身份映射配置
 ├── CATEGORIZED_MEMORY_TEMPLATE.md # 本模板文件
 └── persons/                      # 按自然人分类存储
@@ -31,17 +33,23 @@ workspace/memory/
 ### 1. 全局记忆 (Global)
 
 - **文件**: `memory/MEMORY.md`, `memory/HISTORY.md`
-- **用途**: 所有用户共享的事实、agent 自身偏好
+- **用途**: 所有用户共享的事实（不放用户专属细节）
 - **注入时机**: 始终加载到 system prompt
 
-### 2. Person 级记忆 (Person)
+### 2. Ava 自身记忆 (Ava Self)
+
+- **文件**: `memory/ava/MEMORY.md`
+- **用途**: Ava 人设成长、长期自我约定、可复用行为偏好
+- **注入时机**: 始终加载到 system prompt
+
+### 3. Person 级记忆 (Person)
 
 - **文件**: `memory/persons/<name>/MEMORY.md`
 - **用途**: 某个自然人的跨渠道聚合记忆（偏好、身份信息、重要事实）
 - **注入时机**: 身份识别成功后自动注入 system prompt
 - **写入来源**: consolidation 自动同步 + agent 通过 memory tool 主动写入
 
-### 3. Source 级记忆 (Source)
+### 4. Source 级记忆 (Source)
 
 - **文件**: `memory/persons/<name>/sources/<channel>_<id>.md`
 - **用途**: 特定渠道的细粒度笔记（仅在该渠道上下文中有意义的信息）

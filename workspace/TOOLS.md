@@ -199,6 +199,7 @@ memory(action: str, content: str = None, person: str = None, scope: str = "perso
 #### 写入位置（你需要知道的最小集合）
 
 - **Global（共享）**: `memory/MEMORY.md`, `memory/HISTORY.md`
+- **Ava Self（助手自身）**: `memory/ava/MEMORY.md`
 - **Identity Map**: `memory/identity_map.yaml`（`id` 支持数组，同渠道可多账号）
 - **Person（聚合）**: `memory/persons/<person>/MEMORY.md`, `memory/persons/<person>/HISTORY.md`
 - **Source（渠道笔记）**: `memory/persons/<person>/sources/<channel>_<id>.md`
@@ -212,6 +213,12 @@ memory(action: str, content: str = None, person: str = None, scope: str = "perso
 - **search_history 自动兜底**：当 HISTORY.md 无匹配时，会自动搜索原始会话记录（sessions），无需手动读取 session 文件。
 - **按时间搜索**：可选 `since`/`until` 参数（ISO 日期或精确时间，如 `"2026-02-25"` 或 `"2026-02-25T10:30:00"`），用于按时间范围搜索。设置时间范围时会直接搜索 sessions。content 可选（不填则仅按时间列出所有消息）。
 - **按渠道搜索**：可选 `channel` 参数（如 `"telegram"`、`"cli"`、`"dingtalk"`），限定只搜索特定渠道的历史。不填则搜索全部渠道。
+
+#### 稳定性判定（LLM + 规则混合）
+
+- 先由 LLM 判断是否“长期有效/会复用/影响后续决策”。
+- 再用规则层过滤：时间线条目（如 `[YYYY-MM-DD HH:MM] ...`）进入 `HISTORY.md`，不进入 `MEMORY.md`。
+- `MEMORY.md` 要求去重与收敛，不记录临时过程细节。
 
 #### identity_map.yaml 示例
 
