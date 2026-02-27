@@ -60,3 +60,4 @@ When the user asks you to add a recurring/periodic task, update `HEARTBEAT.md` i
 - Persist complete turns in session history: each `user` message must be followed by an `assistant` final response before the next `user` turn.
 - Tool-call traces are not enough for replay quality; always save the final natural-language assistant reply.
 - If session tail is not `assistant`, treat it as a potential context-drift bug and investigate before shipping.
+- Keep context budget bounded: prioritize recent turns + relevant older turns, and compress low-value placeholders (e.g. `[auto-backfill]`) before model injection.
