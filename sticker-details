@@ -1,0 +1,16 @@
+- generic [ref=e2]:
+  - generic [ref=e4]:
+    - link [ref=e5] [cursor=pointer]:
+      - /url: //telegram.org/
+      - img [ref=e6]
+    - link "Download for Mac" [ref=e11] [cursor=pointer]:
+      - /url: //telegram.org/dl?tme=d65b4bc5c5a620782c_103617681765281537
+  - generic [ref=e13]:
+    - generic [ref=e16]:
+      - text: A
+      - strong [ref=e17]: Telegram
+      - text: user has created the
+      - strong [ref=e18]: ava origin
+      - text: sticker set.
+    - link "Add Stickers" [ref=e20] [cursor=pointer]:
+      - /url: tg://addstickers?set=ava_01
