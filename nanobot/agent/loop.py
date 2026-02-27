@@ -13,6 +13,7 @@ from loguru import logger
 
 from nanobot.agent.categorized_memory import CategorizedMemoryStore
 from nanobot.agent.context import ContextBuilder
+from nanobot.agent.history_compressor import HistoryCompressor
 from nanobot.agent.memory import MemoryStore
 from nanobot.agent.subagent import SubagentManager
 from nanobot.agent.tools.cron import CronTool
@@ -30,7 +31,7 @@ from nanobot.providers.base import LLMProvider
 from nanobot.session.manager import Session, SessionManager
 
 if TYPE_CHECKING:
-    from nanobot.config.schema import ChannelsConfig, ExecToolConfig
+    from nanobot.config.schema import ChannelsConfig, ContextCompressionConfig, ExecToolConfig
     from nanobot.cron.service import CronService
 
 
@@ -63,8 +64,9 @@ class AgentLoop:
         session_manager: SessionManager | None = None,
         mcp_servers: dict | None = None,
         channels_config: ChannelsConfig | None = None,
+        context_compression: ContextCompressionConfig | None = None,
     ):
-        from nanobot.config.schema import ExecToolConfig
+        from nanobot.config.schema import ContextCompressionConfig, ExecToolConfig
         self.bus = bus
         self.channels_config = channels_config
         self.provider = provider
@@ -78,9 +80,18 @@ class AgentLoop:
         self.exec_config = exec_config or ExecToolConfig()
         self.cron_service = cron_service
         self.restrict_to_workspace = restrict_to_workspace
+        compression_cfg = context_compression or ContextCompressionConfig()
+        self._compression_enabled = compression_cfg.enabled
+        self._history_lookup_hint_enabled = compression_cfg.enable_history_lookup_hint
 
         self.categorized_memory = CategorizedMemoryStore(workspace)
         self.context = ContextBuilder(workspace, categorized_memory=self.categorized_memory)
+        self.history_compressor = HistoryCompressor(
+            max_chars=compression_cfg.max_chars,
+            recent_turns=compression_cfg.recent_turns,
+            min_recent_turns=compression_cfg.min_recent_turns,
+            max_old_turns=compression_cfg.max_old_turns,
+        )
         self.sessions = session_manager or SessionManager(workspace)
         self.tools = ToolRegistry()
         self.subagents = SubagentManager(
@@ -323,6 +334,8 @@ class AgentLoop:
             session = self.sessions.get_or_create(key)
             self._set_tool_context(channel, chat_id, msg.metadata.get("message_id"))
             history = session.get_history(max_messages=self.memory_window)
+            if self._compression_enabled:
+                history = self.history_compressor.compress(history, msg.content)
             messages = self.context.build_messages(
                 history=history,
                 current_message=msg.content, channel=channel, chat_id=chat_id,
@@ -399,9 +412,12 @@ class AgentLoop:
                 message_tool.start_turn()
 
         history = session.get_history(max_messages=self.memory_window)
+        if self._compression_enabled:
+            history = self.history_compressor.compress(history, msg.content)
+        current_message = self._augment_history_lookup_hint(history, msg.content)
         initial_messages = self.context.build_messages(
             history=history,
-            current_message=msg.content,
+            current_message=current_message,
             media=msg.media if msg.media else None,
             channel=msg.channel, chat_id=msg.chat_id,
         )
@@ -437,6 +453,7 @@ class AgentLoop:
         )
 
     _TOOL_RESULT_MAX_CHARS = 500
+    _HISTORY_LOOKUP_RE = re.compile(r"(之前|上次|历史|记得|曾经|以前|聊过|记录|还记得)")
 
     def _save_turn(self, session: Session, messages: list[dict], skip: int) -> None:
         """Save new-turn messages into session, truncating large tool results."""
@@ -456,6 +473,46 @@ class AgentLoop:
                 session.key, session.messages[-1].get("role"),
             )
         session.updated_at = datetime.now()
+
+    def _needs_history_lookup(self, history: list[dict[str, Any]], current_message: str) -> bool:
+        """Heuristic: trigger memory search hint when query asks past context not in compressed history."""
+        if not self._history_lookup_hint_enabled:
+            return False
+        if not current_message or not self._HISTORY_LOOKUP_RE.search(current_message):
+            return False
+
+        query_terms = self.history_compressor.extract_terms(current_message)
+        if not query_terms:
+            return False
+
+        chunks: list[str] = []
+        for msg in history:
+            if msg.get("role") not in ("user", "assistant"):
+                continue
+            content = msg.get("content")
+            if isinstance(content, str):
+                chunks.append(content.lower())
+        history_blob = "\n".join(chunks)
+        if not history_blob:
+            return True
+
+        return not any(term.lower() in history_blob for term in query_terms)
+
+    def _augment_history_lookup_hint(self, history: list[dict[str, Any]], current_message: str) -> str:
+        """Append a deterministic hint to nudge memory.search_history when compressed context is missing."""
+        if not self._needs_history_lookup(history, current_message):
+            return current_message
+        payload = json.dumps(
+            {"action": "search_history", "content": current_message},
+            ensure_ascii=False,
+        )
+        hint = (
+            "\n\n[History Lookup Hint]\n"
+            "当前压缩上下文里可能缺少相关历史信息。"
+            "请优先调用 memory 工具检索后再回答：\n"
+            f"{payload}"
+        )
+        return f"{current_message}{hint}"
 
     async def _consolidate_memory(self, session, archive_all: bool = False) -> bool:
         """Delegate to MemoryStore.consolidate(). Returns True on success."""

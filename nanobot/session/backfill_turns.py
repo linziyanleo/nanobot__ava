@@ -11,13 +11,22 @@ from typing import Any
 from nanobot.session.manager import Session
 
 PLACEHOLDER_TEXT = (
-    "[auto-backfill] This historical turn had no final assistant reply. "
-    "A placeholder was inserted to preserve turn integrity."
+    "[auto-backfill] missing final assistant reply."
 )
 
 
 def _is_assistant_final(msg: dict[str, Any]) -> bool:
     return msg.get("role") == "assistant" and not msg.get("tool_calls")
+
+
+def _is_backfill_placeholder(msg: dict[str, Any]) -> bool:
+    if msg.get("role") != "assistant":
+        return False
+    metadata = msg.get("metadata")
+    if isinstance(metadata, dict) and metadata.get("auto_backfill"):
+        return True
+    content = msg.get("content")
+    return isinstance(content, str) and content.startswith("[auto-backfill]")
 
 
 def _placeholder_message() -> dict[str, Any]:
@@ -29,13 +38,36 @@ def _placeholder_message() -> dict[str, Any]:
     }
 
 
-def _backfill_messages(messages: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], int]:
-    """Insert assistant placeholders for unresolved user turns."""
+def _normalize_backfill_placeholder(msg: dict[str, Any]) -> tuple[dict[str, Any], bool]:
+    out = dict(msg)
+    if not _is_backfill_placeholder(out):
+        return out, False
+    changed = False
+    if out.get("content") != PLACEHOLDER_TEXT:
+        out["content"] = PLACEHOLDER_TEXT
+        changed = True
+    metadata = out.get("metadata")
+    if not isinstance(metadata, dict):
+        metadata = {}
+        out["metadata"] = metadata
+        changed = True
+    if not metadata.get("auto_backfill"):
+        metadata["auto_backfill"] = True
+        changed = True
+    return out, changed
+
+
+def _backfill_messages(messages: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], int, int]:
+    """Insert assistant placeholders for unresolved user turns and normalize old placeholders."""
     out: list[dict[str, Any]] = []
     pending_user = False
     inserted = 0
+    normalized = 0
 
-    for msg in messages:
+    for raw in messages:
+        msg, changed = _normalize_backfill_placeholder(raw)
+        if changed:
+            normalized += 1
         role = msg.get("role")
         if role == "user":
             if pending_user:
@@ -53,7 +85,7 @@ def _backfill_messages(messages: list[dict[str, Any]]) -> tuple[list[dict[str, A
         out.append(_placeholder_message())
         inserted += 1
 
-    return out, inserted
+    return out, inserted, normalized
 
 
 def _load_session(path: Path) -> tuple[dict[str, Any], list[dict[str, Any]]]:
@@ -105,12 +137,12 @@ def backfill_workspace_sessions(workspace: Path, dry_run: bool = False) -> dict[
     for session_file in sorted(sessions_dir.glob("*.jsonl")):
         scanned += 1
         metadata_line, messages = _load_session(session_file)
-        fixed_messages, inserted = _backfill_messages(messages)
+        fixed_messages, inserted, normalized = _backfill_messages(messages)
         computed_completed = Session.compute_last_completed(fixed_messages)
         old_completed = metadata_line.get("last_completed")
         needs_checkpoint_update = old_completed != computed_completed
 
-        if inserted == 0 and not needs_checkpoint_update:
+        if inserted == 0 and normalized == 0 and not needs_checkpoint_update:
             continue
 
         changed += 1

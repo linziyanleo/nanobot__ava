@@ -181,6 +181,17 @@ class ChannelsConfig(Base):
     qq: QQConfig = Field(default_factory=QQConfig)
 
 
+class ContextCompressionConfig(Base):
+    """Context compression and history-retrieval fallback settings."""
+
+    enabled: bool = True  # Master switch for history compression pipeline
+    max_chars: int = 12000  # Upper bound for compressed history text size before current user message
+    recent_turns: int = 10  # Always keep this many latest completed turns with highest priority
+    min_recent_turns: int = 4  # Never shrink below this many recent turns during budget trimming
+    max_old_turns: int = 4  # Max number of older turns retained by relevance ranking
+    enable_history_lookup_hint: bool = True  # Add memory.search_history hint when compressed context lacks query terms
+
+
 class AgentDefaults(Base):
     """Default agent configuration."""
 
@@ -190,6 +201,7 @@ class AgentDefaults(Base):
     temperature: float = 0.1
     max_tool_iterations: int = 40
     memory_window: int = 100
+    context_compression: ContextCompressionConfig = Field(default_factory=ContextCompressionConfig)
 
 
 class AgentsConfig(Base):

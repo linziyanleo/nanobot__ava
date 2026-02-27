@@ -971,11 +971,129 @@ class TestTurnCheckpointAndBackfill:
             {"role": "tool", "tool_call_id": "2", "name": "x", "content": "ok"},
             {"role": "user", "content": "q3"},
         ]
-        fixed, inserted = _backfill_messages(original)
+        fixed, inserted, normalized = _backfill_messages(original)
 
         assert inserted == 2
+        assert normalized == 0
         assert len(fixed) == len(original) + 2
         assert fixed[5]["role"] == "assistant"
         assert "[auto-backfill]" in fixed[5]["content"]
         assert fixed[-1]["role"] == "assistant"
         assert "[auto-backfill]" in fixed[-1]["content"]
+
+    def test_backfill_normalizes_legacy_placeholder_text(self) -> None:
+        from nanobot.session.backfill_turns import PLACEHOLDER_TEXT, _backfill_messages
+
+        original = [
+            {"role": "user", "content": "q1"},
+            {"role": "assistant", "content": "[auto-backfill] old long placeholder"},
+        ]
+        fixed, inserted, normalized = _backfill_messages(original)
+
+        assert inserted == 0
+        assert normalized == 1
+        assert fixed[1]["content"] == PLACEHOLDER_TEXT
+
+
+class TestHistoryLookupHintChain:
+    """Tests for proactive memory.search_history fallback when compressed context misses facts."""
+
+    def test_history_lookup_hint_is_added_when_query_mentions_past_but_terms_missing(self, tmp_path: Path) -> None:
+        from nanobot.agent.loop import AgentLoop
+        from nanobot.bus.queue import MessageBus
+
+        provider = MagicMock()
+        provider.get_default_model.return_value = "test-model"
+        loop = AgentLoop(bus=MessageBus(), provider=provider, workspace=tmp_path, model="test-model")
+
+        history = [
+            {"role": "user", "content": "聊游戏"},
+            {"role": "assistant", "content": "好的"},
+        ]
+        enriched = loop._augment_history_lookup_hint(history, "你还记得之前说的Astra吗？")
+        assert "[History Lookup Hint]" in enriched
+        assert '"action": "search_history"' in enriched
+
+    def test_history_lookup_hint_not_added_when_terms_exist_in_history(self, tmp_path: Path) -> None:
+        from nanobot.agent.loop import AgentLoop
+        from nanobot.bus.queue import MessageBus
+
+        provider = MagicMock()
+        provider.get_default_model.return_value = "test-model"
+        loop = AgentLoop(bus=MessageBus(), provider=provider, workspace=tmp_path, model="test-model")
+
+        history = [
+            {"role": "user", "content": "Astra 密钥是 42"},
+            {"role": "assistant", "content": "记住了"},
+        ]
+        enriched = loop._augment_history_lookup_hint(history, "你还记得之前说的Astra吗？")
+        assert "[History Lookup Hint]" not in enriched
+
+    @pytest.mark.asyncio
+    async def test_end_to_end_history_search_chain_works_when_fact_dropped_by_compression(
+        self, tmp_path: Path
+    ) -> None:
+        import json
+
+        from nanobot.agent.history_compressor import HistoryCompressor
+        from nanobot.agent.loop import AgentLoop
+        from nanobot.bus.events import InboundMessage
+        from nanobot.bus.queue import MessageBus
+        from nanobot.providers.base import LLMResponse, ToolCallRequest
+
+        bus = MessageBus()
+        provider = MagicMock()
+        provider.get_default_model.return_value = "test-model"
+        loop = AgentLoop(bus=bus, provider=provider, workspace=tmp_path, model="test-model")
+        loop.history_compressor = HistoryCompressor(
+            max_chars=400,
+            recent_turns=1,
+            min_recent_turns=1,
+            max_old_turns=0,
+        )
+
+        session = loop.sessions.get_or_create("cli:direct")
+        session.add_message("user", "Astra 密钥是 42")
+        session.add_message("assistant", "我记住了")
+        for i in range(8):
+            session.add_message("user", f"无关问题{i}")
+            session.add_message("assistant", f"无关回答{i}")
+        session.last_completed = len(session.messages)
+        loop.sessions.save(session)
+
+        call_count = 0
+
+        async def _fake_chat(messages, tools=None, model=None, temperature=None, max_tokens=None):  # noqa: ANN001
+            nonlocal call_count
+            call_count += 1
+            payload = json.dumps(messages, ensure_ascii=False)
+            if call_count == 1:
+                assert "Astra 密钥是 42" not in payload
+                assert "[History Lookup Hint]" in payload
+                return LLMResponse(
+                    content="先查历史",
+                    tool_calls=[
+                        ToolCallRequest(
+                            id="call_1",
+                            name="memory",
+                            arguments={"action": "search_history", "content": "Astra"},
+                        )
+                    ],
+                )
+
+            assert "Astra 密钥是 42" in payload
+            return LLMResponse(content="历史显示 Astra 密钥是 42", tool_calls=[])
+
+        loop.provider.chat = AsyncMock(side_effect=_fake_chat)
+
+        msg = InboundMessage(
+            channel="cli",
+            sender_id="user",
+            chat_id="direct",
+            content="你还记得之前说的Astra吗？",
+        )
+        response = await loop._process_message(msg)
+
+        assert response is not None
+        assert "Astra 密钥是 42" in response.content
+        assert call_count == 2

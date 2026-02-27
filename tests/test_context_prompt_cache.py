@@ -7,6 +7,7 @@ from pathlib import Path
 import datetime as datetime_module
 
 from nanobot.agent.context import ContextBuilder
+from nanobot.agent.history_compressor import HistoryCompressor
 
 
 class _FakeDatetime(real_datetime):
@@ -61,3 +62,56 @@ def test_runtime_context_is_appended_to_current_user_message(tmp_path) -> None:
     assert "Current Time:" in user_content
     assert "Channel: cli" in user_content
     assert "Chat ID: direct" in user_content
+
+
+def test_history_compressor_shortens_auto_backfill_placeholders() -> None:
+    compressor = HistoryCompressor(max_chars=5000, recent_turns=6)
+    history = [
+        {"role": "user", "content": "上一轮问题"},
+        {
+            "role": "assistant",
+            "content": "[auto-backfill] This historical turn had no final assistant reply.",
+            "metadata": {"auto_backfill": True},
+        },
+        {"role": "user", "content": "当前问题"},
+        {"role": "assistant", "content": "当前回复"},
+    ]
+
+    compressed = compressor.compress(history, current_message="当前问题")
+    contents = [m.get("content") for m in compressed if m.get("role") == "assistant"]
+
+    assert "[bf]" in contents
+    assert all(not (isinstance(c, str) and c.startswith("[auto-backfill]")) for c in contents)
+
+
+def test_history_compressor_keeps_recent_and_relevant_old_turns() -> None:
+    compressor = HistoryCompressor(
+        max_chars=5000,
+        recent_turns=2,
+        min_recent_turns=2,
+        max_old_turns=1,
+    )
+    history: list[dict] = []
+
+    # Old irrelevant turns.
+    for i in range(4):
+        history.append({"role": "user", "content": f"聊游戏{i}"})
+        history.append({"role": "assistant", "content": f"游戏回复{i}"})
+
+    # Old but relevant turn.
+    history.append({"role": "user", "content": "体重记录目标80kg"})
+    history.append({"role": "assistant", "content": "已记录体重目标"})
+
+    # Recent turns.
+    history.append({"role": "user", "content": "今天天气怎么样"})
+    history.append({"role": "assistant", "content": "晴天"})
+    history.append({"role": "user", "content": "午饭吃什么"})
+    history.append({"role": "assistant", "content": "清淡一点"})
+
+    compressed = compressor.compress(history, current_message="今天体重是多少")
+    users = [m.get("content") for m in compressed if m.get("role") == "user"]
+
+    assert "体重记录目标80kg" in users
+    assert "今天天气怎么样" in users
+    assert "午饭吃什么" in users
+    assert "聊游戏0" not in users
