@@ -26,18 +26,29 @@ def _make_session(message_count: int = 30, memory_window: int = 50):
     return session
 
 
-def _make_tool_response(history_entry, memory_update):
+def _make_tool_response(
+    history_entry,
+    memory_update,
+    person_memory_update=None,
+    ava_memory_update=None,
+):
     """Create an LLMResponse with a save_memory tool call."""
+    args = {
+        "history_entry": history_entry,
+        "memory_update": memory_update,
+    }
+    if person_memory_update is not None:
+        args["person_memory_update"] = person_memory_update
+    if ava_memory_update is not None:
+        args["ava_memory_update"] = ava_memory_update
+
     return LLMResponse(
         content=None,
         tool_calls=[
             ToolCallRequest(
                 id="call_1",
                 name="save_memory",
-                arguments={
-                    "history_entry": history_entry,
-                    "memory_update": memory_update,
-                },
+                arguments=args,
             )
         ],
     )
@@ -145,3 +156,71 @@ class TestMemoryConsolidationTypeHandling:
 
         assert result is True
         provider.chat.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_person_memory_update_sent_to_categorized_store(self, tmp_path: Path) -> None:
+        """Person memory should use dedicated person field, not global memory_update."""
+        store = MemoryStore(tmp_path)
+        provider = AsyncMock()
+        provider.chat = AsyncMock(
+            return_value=_make_tool_response(
+                history_entry="[2026-01-01] User discussed preferences.",
+                memory_update="# Global Memory\n- Shared policy",
+                person_memory_update="# Leo Memory\n- 喜欢简洁回复",
+            )
+        )
+        session = _make_session(message_count=60)
+        session.key = "cli:direct"
+        categorized = MagicMock()
+        categorized.resolve_person.return_value = "leo"
+
+        result = await store.consolidate(
+            session,
+            provider,
+            "test-model",
+            memory_window=50,
+            categorized_store=categorized,
+        )
+
+        assert result is True
+        categorized.on_consolidate.assert_called_once_with(
+            "cli",
+            "direct",
+            history_entry="[2026-01-01] User discussed preferences.",
+            person_memory_facts="# Leo Memory\n- 喜欢简洁回复",
+        )
+
+    @pytest.mark.asyncio
+    async def test_ava_memory_update_written(self, tmp_path: Path) -> None:
+        """Ava self memory should be persisted when ava_memory_update is provided."""
+        store = MemoryStore(tmp_path)
+        provider = AsyncMock()
+        provider.chat = AsyncMock(
+            return_value=_make_tool_response(
+                history_entry="[2026-01-01] Updated Ava self memory.",
+                memory_update="# Global Memory\n- Shared fact",
+                ava_memory_update="# Ava Self Memory\n- 擅长结构化总结",
+            )
+        )
+        session = _make_session(message_count=60)
+        session.key = "cli:direct"
+
+        result = await store.consolidate(session, provider, "test-model", memory_window=50)
+
+        assert result is True
+        assert store.ava_memory_file.exists()
+        assert "擅长结构化总结" in store.ava_memory_file.read_text(encoding="utf-8")
+
+    def test_stability_rules_remove_history_style_and_dedupe(self) -> None:
+        """Rule layer should drop history-style lines and dedupe bullets."""
+        content = "\n".join([
+            "# Long-term Memory",
+            "- 喜欢简洁回复",
+            "- 喜欢简洁回复",
+            "[2026-02-27 11:51] 这是时间线条目，不应进入 MEMORY",
+        ])
+
+        cleaned = MemoryStore._apply_stability_rules(content, scope="person")
+
+        assert cleaned.count("喜欢简洁回复") == 1
+        assert "2026-02-27 11:51" not in cleaned

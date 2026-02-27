@@ -232,16 +232,16 @@ class CategorizedMemoryStore:
         channel: str,
         chat_id: str,
         history_entry: str,
-        memory_facts: str,
+        person_memory_facts: str,
     ) -> None:
-        """Called after global consolidation to sync person-level memory."""
+        """Called after consolidation to sync person-level memory."""
         person = self._resolver.resolve(channel, chat_id)
         if not person:
             return
         if history_entry:
             self.append_person_history(person, history_entry)
-        if memory_facts:
+        if person_memory_facts:
             existing = self.get_person_memory(person)
-            if memory_facts != existing:
-                self.write_person_memory(person, memory_facts)
+            if person_memory_facts != existing:
+                self.write_person_memory(person, person_memory_facts)
         logger.info("Person memory synced for {} ({}:{})", person, channel, chat_id)
