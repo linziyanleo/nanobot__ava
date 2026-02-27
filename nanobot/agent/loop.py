@@ -200,6 +200,9 @@ class AgentLoop:
         iteration = 0
         final_content = None
         tools_used: list[str] = []
+        total_tokens = 0
+        total_prompt_tokens = 0
+        total_completion_tokens = 0
 
         while iteration < self.max_iterations:
             iteration += 1
@@ -211,6 +214,17 @@ class AgentLoop:
                 temperature=self.temperature,
                 max_tokens=self.max_tokens,
             )
+
+            # 记录 token 消耗
+            if response.usage:
+                prompt_tokens = response.usage.get('prompt_tokens', 0)
+                completion_tokens = response.usage.get('completion_tokens', 0)
+                call_tokens = response.usage.get('total_tokens', 0)
+                total_tokens += call_tokens
+                total_prompt_tokens += prompt_tokens
+                total_completion_tokens += completion_tokens
+                logger.debug("💰 LLM 调用 Token 消耗：{} (prompt: {} + completion: {})",
+                           call_tokens, prompt_tokens, completion_tokens)
 
             if response.has_tool_calls:
                 if on_progress:
@@ -258,6 +272,11 @@ class AgentLoop:
                 "without completing the task. You can try breaking the task into smaller steps."
             )
             messages = self.context.add_assistant_message(messages, final_content)
+
+        # 记录本轮对话总 token 消耗
+        if total_tokens > 0:
+            logger.info("📊 本轮对话总 Token 消耗：{} (prompt: {} + completion: {}, LLM 调用 {} 次)",
+                       total_tokens, total_prompt_tokens, total_completion_tokens, iteration)
 
         return final_content, tools_used, messages
 
