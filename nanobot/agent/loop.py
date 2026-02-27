@@ -449,6 +449,7 @@ class AgentLoop:
                     entry["content"] = content[:self._TOOL_RESULT_MAX_CHARS] + "\n... (truncated)"
             entry.setdefault("timestamp", datetime.now().isoformat())
             session.messages.append(entry)
+        session.last_completed = Session.compute_last_completed(session.messages)
         if session.messages and session.messages[-1].get("role") != "assistant":
             logger.warning(
                 "Session {} saved an incomplete turn: tail role={}",

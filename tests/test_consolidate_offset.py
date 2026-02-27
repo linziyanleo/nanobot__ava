@@ -930,3 +930,52 @@ class TestTurnPersistence:
         session = loop.sessions.get_or_create("cli:direct")
         assert session.messages[-1]["role"] == "assistant"
         assert "maximum number of tool call iterations" in session.messages[-1]["content"]
+
+
+class TestTurnCheckpointAndBackfill:
+    """Tests for Option B checkpoint/backfill primitives."""
+
+    def test_compute_last_completed_with_tool_chain(self) -> None:
+        messages = [
+            {"role": "user", "content": "q1"},
+            {"role": "assistant", "content": "checking", "tool_calls": [{"id": "1"}]},
+            {"role": "tool", "tool_call_id": "1", "name": "x", "content": "ok"},
+            {"role": "assistant", "content": "a1"},
+            {"role": "user", "content": "q2"},
+            {"role": "assistant", "content": "checking2", "tool_calls": [{"id": "2"}]},
+        ]
+        assert Session.compute_last_completed(messages) == 4
+
+    def test_get_history_respects_last_completed_checkpoint(self) -> None:
+        session = Session(key="test:checkpoint")
+        session.messages = [
+            {"role": "user", "content": "q1"},
+            {"role": "assistant", "content": "a1"},
+            {"role": "user", "content": "q2"},
+        ]
+        session.last_completed = 2
+
+        history = session.get_history(max_messages=10)
+        assert len(history) == 2
+        assert history[0]["content"] == "q1"
+        assert history[-1]["content"] == "a1"
+
+    def test_backfill_inserts_placeholder_for_unresolved_user_turn(self) -> None:
+        from nanobot.session.backfill_turns import _backfill_messages
+
+        original = [
+            {"role": "user", "content": "q1"},
+            {"role": "assistant", "content": "a1"},
+            {"role": "user", "content": "q2"},
+            {"role": "assistant", "content": "check", "tool_calls": [{"id": "2"}]},
+            {"role": "tool", "tool_call_id": "2", "name": "x", "content": "ok"},
+            {"role": "user", "content": "q3"},
+        ]
+        fixed, inserted = _backfill_messages(original)
+
+        assert inserted == 2
+        assert len(fixed) == len(original) + 2
+        assert fixed[5]["role"] == "assistant"
+        assert "[auto-backfill]" in fixed[5]["content"]
+        assert fixed[-1]["role"] == "assistant"
+        assert "[auto-backfill]" in fixed[-1]["content"]

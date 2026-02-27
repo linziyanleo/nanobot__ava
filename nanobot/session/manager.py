@@ -30,6 +30,7 @@ class Session:
     updated_at: datetime = field(default_factory=datetime.now)
     metadata: dict[str, Any] = field(default_factory=dict)
     last_consolidated: int = 0  # Number of messages already consolidated to files
+    last_completed: int | None = None  # Optional checkpoint: end index of completed turns
     
     def add_message(self, role: str, content: str, **kwargs: Any) -> None:
         """Add a message to the session."""
@@ -41,10 +42,32 @@ class Session:
         }
         self.messages.append(msg)
         self.updated_at = datetime.now()
+
+    @staticmethod
+    def _is_assistant_final(msg: dict[str, Any]) -> bool:
+        """A final assistant message has role=assistant and no tool_calls."""
+        return msg.get("role") == "assistant" and not msg.get("tool_calls")
+
+    @classmethod
+    def compute_last_completed(cls, messages: list[dict[str, Any]]) -> int:
+        """Return the end index (exclusive) of the last completed user turn."""
+        waiting_user_reply = False
+        last_completed = 0
+        for idx, msg in enumerate(messages):
+            role = msg.get("role")
+            if role == "user":
+                waiting_user_reply = True
+            elif cls._is_assistant_final(msg) and waiting_user_reply:
+                waiting_user_reply = False
+                last_completed = idx + 1
+        return last_completed
     
     def get_history(self, max_messages: int = 500) -> list[dict[str, Any]]:
         """Return unconsolidated messages for LLM input, aligned to a user turn."""
-        unconsolidated = self.messages[self.last_consolidated:]
+        cutoff = self.last_completed if isinstance(self.last_completed, int) and self.last_completed >= 0 else len(self.messages)
+        cutoff = min(cutoff, len(self.messages))
+        start = min(self.last_consolidated, cutoff)
+        unconsolidated = self.messages[start:cutoff]
         sliced = unconsolidated[-max_messages:]
 
         # Drop leading non-user messages to avoid orphaned tool_result blocks
@@ -66,6 +89,7 @@ class Session:
         """Clear all messages and reset session to initial state."""
         self.messages = []
         self.last_consolidated = 0
+        self.last_completed = None
         self.updated_at = datetime.now()
 
 
@@ -132,6 +156,7 @@ class SessionManager:
             metadata = {}
             created_at = None
             last_consolidated = 0
+            last_completed: int | None = None
 
             with open(path, encoding="utf-8") as f:
                 for line in f:
@@ -145,15 +170,23 @@ class SessionManager:
                         metadata = data.get("metadata", {})
                         created_at = datetime.fromisoformat(data["created_at"]) if data.get("created_at") else None
                         last_consolidated = data.get("last_consolidated", 0)
+                        last_completed = data.get("last_completed")
                     else:
                         messages.append(data)
+
+            if not isinstance(last_completed, int):
+                # Backward compatibility for old session files: preserve previous behavior.
+                last_completed = len(messages)
+            else:
+                last_completed = max(0, min(last_completed, len(messages)))
 
             return Session(
                 key=key,
                 messages=messages,
                 created_at=created_at or datetime.now(),
                 metadata=metadata,
-                last_consolidated=last_consolidated
+                last_consolidated=last_consolidated,
+                last_completed=last_completed,
             )
         except Exception as e:
             logger.warning("Failed to load session {}: {}", key, e)
@@ -170,7 +203,8 @@ class SessionManager:
                 "created_at": session.created_at.isoformat(),
                 "updated_at": session.updated_at.isoformat(),
                 "metadata": session.metadata,
-                "last_consolidated": session.last_consolidated
+                "last_consolidated": session.last_consolidated,
+                "last_completed": session.last_completed,
             }
             f.write(json.dumps(metadata_line, ensure_ascii=False) + "\n")
             for msg in session.messages:
