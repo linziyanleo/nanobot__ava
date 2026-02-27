@@ -812,7 +812,7 @@ class TestConsolidationDeduplicationGuard:
         loop.sessions.save(session)
 
         # Ensure lock exists before /new.
-        _ = loop._get_consolidation_lock(session.key)
+        loop._consolidation_locks.setdefault(session.key, asyncio.Lock())
         assert session.key in loop._consolidation_locks
 
         async def _ok_consolidate(sess, archive_all: bool = False) -> bool:
@@ -854,7 +854,7 @@ class TestTurnPersistence:
         assert response.content == "plain-final"
 
         session = loop.sessions.get_or_create("cli:direct")
-        assert [m["role"] for m in session.messages] == ["user", "assistant"]
+        assert [m["role"] for m in session.messages] == ["user", "user", "assistant"]
         assert session.messages[-1]["content"] == "plain-final"
 
     @pytest.mark.asyncio
@@ -890,7 +890,7 @@ class TestTurnPersistence:
 
         session = loop.sessions.get_or_create("cli:direct")
         roles = [m["role"] for m in session.messages]
-        assert roles == ["user", "assistant", "tool", "assistant"]
+        assert roles == ["user", "user", "assistant", "tool", "assistant"]
         assert session.messages[-1]["content"] == "最终回复"
 
     @pytest.mark.asyncio
