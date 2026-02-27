@@ -79,6 +79,24 @@ web_fetch(url: str, extractMode: str = "markdown", maxChars: int = 50000) -> str
 - Supports markdown or plain text extraction
 - Output is truncated at 50,000 characters by default
 
+## Vision
+
+### vision
+
+Analyze an image from a URL or local file path (describe, OCR, answer questions).
+
+```
+vision(url: str, prompt: str = "描述这张图片的内容。") -> str
+```
+
+**Notes:**
+
+- Accepts both remote URLs (`https://...`) and local file paths
+- Local files are automatically base64-encoded for the API
+- Uses the main conversation model (must support vision/multimodal)
+- `prompt` controls the analysis: use `"请仅输出图像中的文本内容。"` for OCR, or ask specific questions about the image
+- Returns the model's text response describing/analyzing the image
+
 ## Communication
 
 ### message
