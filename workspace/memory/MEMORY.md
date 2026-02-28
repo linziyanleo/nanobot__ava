@@ -1,10 +1,8 @@
 # Long-term Memory
 
-This file stores important information that should persist across sessions.
-
 ## User Information
 
-- **Name**: Leo (工作花名：方壶，但优先称呼 Leo)
+- **Name**: Leo（工作花名：方壶，但优先称呼 Leo）
 - **Location**: 杭州（默认位置，如果变更会主动告知）
 
 ## Preferences
@@ -28,3 +26,14 @@ This file stores important information that should persist across sessions.
 - Ava 表情包：`memory/ava/stickers.md`
 - Ava 记忆：`memory/ava/MEMORY.md`
 - 技能文档：`skills/<skill-name>/SKILL.md`
+- 体重提醒技能：`workspace/skills/weight_reminder/`
+
+## Deployment
+
+- **当前部署**: 工作用 Macbook Pro + Caffeine 防休眠
+- **迁移计划**: 等系统稳定后再考虑迁移到 MacBook Air 或云服务器
+
+## System Notes
+
+- **AIWay 心跳**: API 端点需内网访问权限（阿里郎），外网访问返回 404
+- **体重提醒逻辑**: 每天 8:30 后检查状态，用户报体重后标记完成，次日 7:00 后重置
