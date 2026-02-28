@@ -26,7 +26,7 @@ class CronTool(Tool):
     
     @property
     def description(self) -> str:
-        return "Schedule reminders and recurring tasks. Actions: add, list, remove."
+        return "Schedule reminders and recurring tasks. Actions: add, list, remove, mark_done, check_status."
     
     @property
     def parameters(self) -> dict[str, Any]:
@@ -35,7 +35,7 @@ class CronTool(Tool):
             "properties": {
                 "action": {
                     "type": "string",
-                    "enum": ["add", "list", "remove"],
+                    "enum": ["add", "list", "remove", "mark_done", "check_status"],
                     "description": "Action to perform"
                 },
                 "message": {
@@ -83,6 +83,10 @@ class CronTool(Tool):
             return self._list_jobs()
         elif action == "remove":
             return self._remove_job(job_id)
+        elif action == "mark_done":
+            return self._mark_done(job_id)
+        elif action == "check_status":
+            return self._check_status(job_id)
         return f"Unknown action: {action}"
     
     def _add_job(
@@ -145,3 +149,41 @@ class CronTool(Tool):
         if self._cron.remove_job(job_id):
             return f"Removed job {job_id}"
         return f"Job {job_id} not found"
+
+    def _mark_done(self, job_id: str | None) -> str:
+        if not job_id:
+            return "Error: job_id is required for mark_done"
+        job = self._cron.mark_job_done(job_id)
+        if not job:
+            return f"Job {job_id} not found"
+        return (
+            f"Marked job '{job.name}' (id: {job.id}) as done for cycle {job.state.task_cycle_id}"
+        )
+
+    def _check_status(self, job_id: str | None) -> str:
+        if job_id:
+            status = self._cron.get_job_status(job_id)
+            if not status:
+                return f"Job {job_id} not found"
+            return self._format_status(status)
+        statuses = self._cron.get_job_status()
+        if not statuses:
+            return "No scheduled jobs."
+        return "\n".join(self._format_status(s) for s in statuses)
+
+    @staticmethod
+    def _format_status(s: dict) -> str:
+        done_marker = "DONE" if s["is_current_cycle_done"] else "PENDING"
+        parts = [
+            f"- {s['name']} (id: {s['id']}, {s['schedule_kind']})",
+            f"  cycle: {s['current_cycle_id']} [{done_marker}]",
+        ]
+        if s["task_completed_at_ms"]:
+            from datetime import datetime
+            completed_dt = datetime.fromtimestamp(s["task_completed_at_ms"] / 1000)
+            parts.append(f"  completed: {completed_dt.strftime('%Y-%m-%d %H:%M')}")
+        if s["next_run_at_ms"]:
+            from datetime import datetime
+            next_dt = datetime.fromtimestamp(s["next_run_at_ms"] / 1000)
+            parts.append(f"  next_run: {next_dt.strftime('%Y-%m-%d %H:%M')}")
+        return "\n".join(parts)
