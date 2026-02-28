@@ -106,6 +106,8 @@ class CronService:
                             last_run_at_ms=j.get("state", {}).get("lastRunAtMs"),
                             last_status=j.get("state", {}).get("lastStatus"),
                             last_error=j.get("state", {}).get("lastError"),
+                            task_completed_at_ms=j.get("state", {}).get("taskCompletedAtMs"),
+                            task_cycle_id=j.get("state", {}).get("taskCycleId"),
                         ),
                         created_at_ms=j.get("createdAtMs", 0),
                         updated_at_ms=j.get("updatedAtMs", 0),
@@ -154,6 +156,8 @@ class CronService:
                         "lastRunAtMs": j.state.last_run_at_ms,
                         "lastStatus": j.state.last_status,
                         "lastError": j.state.last_error,
+                        "taskCompletedAtMs": j.state.task_completed_at_ms,
+                        "taskCycleId": j.state.task_cycle_id,
                     },
                     "createdAtMs": j.created_at_ms,
                     "updatedAtMs": j.updated_at_ms,
@@ -235,8 +239,45 @@ class CronService:
         self._save_store()
         self._arm_timer()
     
+    def _compute_cycle_id(self, schedule: CronSchedule) -> str:
+        """Compute current cycle identifier based on schedule type."""
+        tz = None
+        if schedule.tz:
+            from zoneinfo import ZoneInfo
+            try:
+                tz = ZoneInfo(schedule.tz)
+            except Exception:
+                pass
+        now_dt = datetime.now(tz) if tz else datetime.now().astimezone()
+
+        if schedule.kind == "at":
+            return "once"
+        if schedule.kind == "cron" and schedule.expr:
+            parts = schedule.expr.strip().split()
+            if len(parts) >= 5:
+                minute_field, hour_field = parts[0], parts[1]
+                if hour_field != "*" and minute_field != "*":
+                    return now_dt.strftime("%Y-%m-%d")
+                if hour_field == "*" or (hour_field != "*" and minute_field == "*"):
+                    return now_dt.strftime("%Y-%m-%d-%H")
+            return now_dt.strftime("%Y-%m-%d")
+        if schedule.kind == "every" and schedule.every_ms:
+            return now_dt.strftime("%Y-%m-%d")
+        return now_dt.strftime("%Y-%m-%d")
+
     async def _execute_job(self, job: CronJob) -> None:
         """Execute a single job."""
+        current_cycle = self._compute_cycle_id(job.schedule)
+        if (job.state.task_completed_at_ms
+                and job.state.task_cycle_id == current_cycle):
+            job.state.last_status = "skipped"
+            job.state.last_run_at_ms = _now_ms()
+            job.updated_at_ms = _now_ms()
+            if job.schedule.kind != "at":
+                job.state.next_run_at_ms = _compute_next_run(job.schedule, _now_ms())
+            logger.info("Cron: job '{}' skipped (cycle {} already done)", job.name, current_cycle)
+            return
+
         start_ms = _now_ms()
         logger.info("Cron: executing job '{}' ({})", job.name, job.id)
         
@@ -346,6 +387,55 @@ class CronService:
                 return job
         return None
     
+    def mark_job_done(self, job_id: str) -> CronJob | None:
+        """Mark a job's task as completed for the current cycle."""
+        store = self._load_store()
+        for job in store.jobs:
+            if job.id == job_id:
+                now = _now_ms()
+                cycle_id = self._compute_cycle_id(job.schedule)
+                job.state.task_completed_at_ms = now
+                job.state.task_cycle_id = cycle_id
+                job.updated_at_ms = now
+                self._save_store()
+                logger.info("Cron: job '{}' marked done for cycle {}", job.name, cycle_id)
+                return job
+        return None
+
+    def get_job_status(self, job_id: str | None = None) -> dict | list[dict] | None:
+        """Get detailed job status including completion state.
+
+        If job_id is given, returns a single dict.
+        If job_id is None, returns a list of dicts for all enabled jobs.
+        """
+        store = self._load_store()
+        if job_id:
+            for job in store.jobs:
+                if job.id == job_id:
+                    return self._job_status_dict(job)
+            return None
+        return [self._job_status_dict(j) for j in store.jobs if j.enabled]
+
+    def _job_status_dict(self, job: CronJob) -> dict:
+        current_cycle = self._compute_cycle_id(job.schedule)
+        is_done = (
+            job.state.task_completed_at_ms is not None
+            and job.state.task_cycle_id == current_cycle
+        )
+        return {
+            "id": job.id,
+            "name": job.name,
+            "enabled": job.enabled,
+            "schedule_kind": job.schedule.kind,
+            "last_run_at_ms": job.state.last_run_at_ms,
+            "last_status": job.state.last_status,
+            "next_run_at_ms": job.state.next_run_at_ms,
+            "task_completed_at_ms": job.state.task_completed_at_ms,
+            "task_cycle_id": job.state.task_cycle_id,
+            "current_cycle_id": current_cycle,
+            "is_current_cycle_done": is_done,
+        }
+
     async def run_job(self, job_id: str, force: bool = False) -> bool:
         """Manually run a job."""
         store = self._load_store()

@@ -36,6 +36,9 @@ class CronJobState:
     last_run_at_ms: int | None = None
     last_status: Literal["ok", "error", "skipped"] | None = None
     last_error: str | None = None
+    # Business layer: task completion tracking (set by agent via mark_done)
+    task_completed_at_ms: int | None = None
+    task_cycle_id: str | None = None
 
 
 @dataclass
