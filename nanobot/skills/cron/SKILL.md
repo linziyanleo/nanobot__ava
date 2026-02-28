@@ -35,6 +35,21 @@ Timezone-aware cron:
 cron(action="add", message="Morning standup", cron_expr="0 9 * * 1-5", tz="America/Vancouver")
 ```
 
+Check status of all jobs (shows completion state):
+```
+cron(action="check_status")
+```
+
+Check a specific job:
+```
+cron(action="check_status", job_id="abc123")
+```
+
+Mark a job as done for the current cycle:
+```
+cron(action="mark_done", job_id="abc123")
+```
+
 List/remove:
 ```
 cron(action="list")
@@ -55,3 +70,15 @@ cron(action="remove", job_id="abc123")
 ## Timezone
 
 Use `tz` with `cron_expr` to schedule in a specific IANA timezone. Without `tz`, the server's local timezone is used.
+
+## Task Completion Tracking
+
+Recurring jobs support completion tracking per cycle (e.g. per day). After executing a task's goal, call `mark_done` so the system knows not to re-execute:
+
+```
+cron(action="check_status", job_id="abc123")  # check if already done
+# ... do the work ...
+cron(action="mark_done", job_id="abc123")     # mark this cycle as done
+```
+
+The system auto-computes the cycle ID based on the schedule type (daily cron → date, hourly cron → date-hour). If a job fires again within the same cycle, it will be automatically skipped.
