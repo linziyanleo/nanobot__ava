@@ -854,7 +854,7 @@ class TestTurnPersistence:
         assert response.content == "plain-final"
 
         session = loop.sessions.get_or_create("cli:direct")
-        assert [m["role"] for m in session.messages] == ["user", "user", "assistant"]
+        assert [m["role"] for m in session.messages] == ["user", "assistant"]
         assert session.messages[-1]["content"] == "plain-final"
 
     @pytest.mark.asyncio
@@ -890,7 +890,7 @@ class TestTurnPersistence:
 
         session = loop.sessions.get_or_create("cli:direct")
         roles = [m["role"] for m in session.messages]
-        assert roles == ["user", "user", "assistant", "tool", "assistant"]
+        assert roles == ["user", "assistant", "tool", "assistant"]
         assert session.messages[-1]["content"] == "最终回复"
 
     @pytest.mark.asyncio
