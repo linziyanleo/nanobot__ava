@@ -20,13 +20,6 @@ If this file has no tasks (only headers and comments), the agent will skip the h
 
 - [ ] 检查用户是否已报今日体重（8:30 后）
 
-### AIWay（每 1-2 小时）
-
-如果距离上次 AIWay 检查超过 1 小时：
-
-1. 获取 <https://aiway.alibaba-inc.com/heartbeat.md> 并执行
-2. 更新记忆中的 lastAIWayCheck 时间戳
-
 ## Completed
 
 <!-- Move completed tasks here or delete them -->
