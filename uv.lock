@@ -1483,7 +1483,7 @@ wheels = [
 
 [[package]]
 name = "nanobot-ai"
-version = "0.1.4.post2"
+version = "0.1.4.post3"
 source = { editable = "." }
 dependencies = [
     { name = "croniter" },
