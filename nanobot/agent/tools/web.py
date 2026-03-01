@@ -44,7 +44,7 @@ def _validate_url(url: str) -> tuple[bool, str]:
 
 
 class WebSearchTool(Tool):
-    """Search the web using Brave Search API."""
+    """Search the web using DuckDuckGo."""
     
     name = "web_search"
     description = "Search the web. Returns titles, URLs, and snippets."
@@ -57,44 +57,53 @@ class WebSearchTool(Tool):
         "required": ["query"]
     }
     
-    def __init__(self, api_key: str | None = None, max_results: int = 5):
-        self._init_api_key = api_key
+    def __init__(self, max_results: int = 5, proxy: str | None = None, timeout: int = 10):
         self.max_results = max_results
-
-    @property
-    def api_key(self) -> str:
-        """Resolve API key at call time so env/config changes are picked up."""
-        return self._init_api_key or os.environ.get("BRAVE_API_KEY", "")
+        self.proxy = proxy
+        self.timeout = timeout
 
     async def execute(self, query: str, count: int | None = None, **kwargs: Any) -> str:
-        if not self.api_key:
-            return (
-                "Error: Brave Search API key not configured. "
-                "Set it in ~/.nanobot/config.json under tools.web.search.apiKey "
-                "(or export BRAVE_API_KEY), then restart the gateway."
-            )
+        from ddgs import DDGS
+        from ddgs.exceptions import (
+            DDGSException,
+            RatelimitException, 
+            TimeoutException
+        )
         
         try:
             n = min(max(count or self.max_results, 1), 10)
-            async with httpx.AsyncClient() as client:
-                r = await client.get(
-                    "https://api.search.brave.com/res/v1/web/search",
-                    params={"q": query, "count": n},
-                    headers={"Accept": "application/json", "X-Subscription-Token": self.api_key},
-                    timeout=10.0
-                )
-                r.raise_for_status()
             
-            results = r.json().get("web", {}).get("results", [])
+            # DuckDuckGo 不支持 async,使用同步调用
+            ddgs = DDGS(
+                proxy=self.proxy,
+                timeout=self.timeout
+            )
+            
+            results = ddgs.text(
+                query=query,
+                max_results=n,
+                region="wt-wt",
+                safesearch="moderate"
+            )
+            
             if not results:
                 return f"No results for: {query}"
             
             lines = [f"Results for: {query}\n"]
             for i, item in enumerate(results[:n], 1):
-                lines.append(f"{i}. {item.get('title', '')}\n   {item.get('url', '')}")
-                if desc := item.get("description"):
-                    lines.append(f"   {desc}")
+                lines.append(f"{i}. {item.get('title', '')}")
+                lines.append(f"   {item.get('href', '')}")
+                if body := item.get("body"):
+                    lines.append(f"   {body}")
+            
             return "\n".join(lines)
+            
+        except RatelimitException:
+            return "Error: Rate limit exceeded. Please try again later or use a different proxy."
+        except TimeoutException:
+            return f"Error: Search request timed out after {self.timeout} seconds."
+        except DDGSException as e:
+            return f"Error: {e}"
         except Exception as e:
             return f"Error: {e}"
 
