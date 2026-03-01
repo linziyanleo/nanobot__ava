@@ -811,8 +811,9 @@ class TestConsolidationDeduplicationGuard:
             session.add_message("assistant", f"resp{i}")
         loop.sessions.save(session)
 
-        # Ensure lock exists before /new.
-        loop._consolidation_locks.setdefault(session.key, asyncio.Lock())
+        # Ensure lock exists before /new (keep strong ref to prevent WeakValueDictionary GC).
+        test_lock = asyncio.Lock()
+        loop._consolidation_locks[session.key] = test_lock
         assert session.key in loop._consolidation_locks
 
         async def _ok_consolidate(sess, archive_all: bool = False) -> bool:
@@ -826,6 +827,7 @@ class TestConsolidationDeduplicationGuard:
         assert response is not None
         assert "new session started" in response.content.lower()
         assert session.key not in loop._consolidation_locks
+        assert loop.sessions.get_or_create("cli:test").messages == []
 
 
 class TestTurnPersistence:
@@ -1063,7 +1065,7 @@ class TestHistoryLookupHintChain:
 
         call_count = 0
 
-        async def _fake_chat(messages, tools=None, model=None, temperature=None, max_tokens=None):  # noqa: ANN001
+        async def _fake_chat(messages, tools=None, model=None, temperature=None, max_tokens=None, reasoning_effort=None):  # noqa: ANN001
             nonlocal call_count
             call_count += 1
             payload = json.dumps(messages, ensure_ascii=False)
