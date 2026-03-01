@@ -96,6 +96,7 @@ class AgentLoop:
             recent_turns=compression_cfg.recent_turns,
             min_recent_turns=compression_cfg.min_recent_turns,
             max_old_turns=compression_cfg.max_old_turns,
+            protected_recent_messages=compression_cfg.protected_recent_messages,
         )
         self.sessions = session_manager or SessionManager(workspace)
         self.tools = ToolRegistry()
@@ -461,7 +462,9 @@ class AgentLoop:
         history = session.get_history(max_messages=self.memory_window)
         if self._compression_enabled:
             history = self.history_compressor.compress(history, msg.content)
-        current_message = self._augment_history_lookup_hint(history, msg.content)
+        current_message = self._augment_history_lookup_hint(
+            history, msg.content, channel=msg.channel, chat_id=msg.chat_id
+        )
         initial_messages = self.context.build_messages(
             history=history,
             current_message=current_message,
@@ -553,7 +556,14 @@ class AgentLoop:
 
         return not any(term.lower() in history_blob for term in query_terms)
 
-    def _augment_history_lookup_hint(self, history: list[dict[str, Any]], current_message: str) -> str:
+    def _augment_history_lookup_hint(
+        self,
+        history: list[dict[str, Any]],
+        current_message: str,
+        *,
+        channel: str | None = None,
+        chat_id: str | None = None,
+    ) -> str:
         """Append a deterministic hint to nudge memory.search_history when compressed context is missing."""
         if not self._needs_history_lookup(history, current_message):
             return current_message
@@ -561,11 +571,14 @@ class AgentLoop:
             {"action": "search_history", "content": current_message},
             ensure_ascii=False,
         )
+        session_hint = ""
+        if channel and chat_id:
+            session_hint = f"\n(当前会话: {channel}_{chat_id}，搜索将优先在当前会话中查找)"
         hint = (
             "\n\n[History Lookup Hint]\n"
             "当前压缩上下文里可能缺少相关历史信息。"
-            "请优先调用 memory 工具检索后再回答：\n"
-            f"{payload}"
+            "请调用 memory 工具检索后再回答：\n"
+            f"{payload}{session_hint}"
         )
         return f"{current_message}{hint}"
 

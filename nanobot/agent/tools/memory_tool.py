@@ -261,33 +261,71 @@ class MemoryTool(Tool):
         until: str | None = None,
         channel: str | None = None,
     ) -> str:
-        """Search raw session JSONL files by content field with optional time/channel filter."""
+        """Search raw session JSONL files with current-session-first priority.
+
+        Priority:
+        1. If person is specified, search their associated sessions
+        2. Otherwise, search current session first (if available)
+        3. If current session has no results, fallback to global search
+        """
         sessions_dir = self._store._workspace / "sessions"
-
-        has_advanced = bool(since or until or channel)
-
-        if person:
-            session_files = self._get_session_files_for_person(person)
-        elif has_advanced:
-            session_files = sorted(sessions_dir.glob("*.jsonl")) if sessions_dir.exists() else []
-        elif self._channel and self._chat_id:
-            current = sessions_dir / f"{self._channel}_{self._chat_id}.jsonl"
-            session_files = [current] if current.exists() else []
-        else:
-            session_files = sorted(sessions_dir.glob("*.jsonl")) if sessions_dir.exists() else []
-
-        if channel:
-            prefix = f"{channel}_"
-            session_files = [p for p in session_files if p.name.startswith(prefix)]
-
-        if not session_files:
+        if not sessions_dir.exists():
             return ""
 
         since_norm = self._normalize_datetime(since) if since else None
         until_norm = self._normalize_datetime(until) if until else None
         query_lower = query.lower() if query else None
-        matches: list[str] = []
 
+        # Case 1: Person specified — search their sessions only
+        if person:
+            session_files = self._get_session_files_for_person(person)
+            if channel:
+                prefix = f"{channel}_"
+                session_files = [p for p in session_files if p.name.startswith(prefix)]
+            return self._search_session_files(session_files, query_lower, since_norm, until_norm)
+
+        # Case 2: No person — try current session first (only when no advanced filters),
+        # then fallback to global search
+        has_advanced = bool(since or until or channel)
+        current_session_file = None
+        if self._channel and self._chat_id and not has_advanced:
+            # Only prioritize current session when there are no filters
+            current = sessions_dir / f"{self._channel}_{self._chat_id}.jsonl"
+            if current.exists():
+                current_session_file = current
+
+        # Phase A: Search current session first (skip if advanced filters are set)
+        if current_session_file:
+            result = self._search_session_files([current_session_file], query_lower, since_norm, until_norm)
+            if result:
+                return result  # Found in current session, no need to search globally
+
+        # Phase B: Fallback to global search (excluding current session already searched)
+        all_files = sorted(sessions_dir.glob("*.jsonl"))
+        if channel:
+            prefix = f"{channel}_"
+            all_files = [p for p in all_files if p.name.startswith(prefix)]
+        # Exclude current session to avoid duplicate search
+        if current_session_file:
+            all_files = [p for p in all_files if p != current_session_file]
+
+        if not all_files:
+            return ""
+
+        return self._search_session_files(all_files, query_lower, since_norm, until_norm)
+
+    def _search_session_files(
+        self,
+        session_files: list[Path],
+        query_lower: str | None,
+        since_norm: str | None,
+        until_norm: str | None,
+    ) -> str:
+        """Search a list of session files and return formatted results."""
+        if not session_files:
+            return ""
+
+        matches: list[str] = []
         for path in session_files:
             try:
                 with open(path, encoding="utf-8") as f:

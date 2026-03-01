@@ -224,6 +224,7 @@ class ContextCompressionConfig(Base):
     recent_turns: int = 10  # Always keep this many latest completed turns with highest priority
     min_recent_turns: int = 4  # Never shrink below this many recent turns during budget trimming
     max_old_turns: int = 4  # Max number of older turns retained by relevance ranking
+    protected_recent_messages: int = 20  # Protect last N messages from compression entirely
     enable_history_lookup_hint: bool = True  # Add memory.search_history hint when compressed context lacks query terms
 
 

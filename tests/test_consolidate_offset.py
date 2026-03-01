@@ -1052,6 +1052,7 @@ class TestHistoryLookupHintChain:
             recent_turns=1,
             min_recent_turns=1,
             max_old_turns=0,
+            protected_recent_messages=0,
         )
 
         session = loop.sessions.get_or_create("cli:direct")

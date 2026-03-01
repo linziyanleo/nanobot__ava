@@ -27,11 +27,13 @@ class HistoryCompressor:
         recent_turns: int = 10,
         min_recent_turns: int = 4,
         max_old_turns: int = 4,
+        protected_recent_messages: int = 20,
     ) -> None:
         self.max_chars = max_chars
         self.recent_turns = recent_turns
         self.min_recent_turns = min_recent_turns
         self.max_old_turns = max_old_turns
+        self.protected_recent_messages = protected_recent_messages
 
     @staticmethod
     def _is_assistant_final(msg: dict[str, Any]) -> bool:
@@ -133,13 +135,33 @@ class HistoryCompressor:
         return total <= self.max_chars
 
     def compress(self, history: list[dict[str, Any]], current_message: str) -> list[dict[str, Any]]:
-        """Return compressed history while preserving turn structure."""
+        """Return compressed history while preserving turn structure.
+
+        Protected messages (last N) are never compressed; older messages go through
+        turn-based compression with relevance scoring.
+        """
         if not history:
             return history
 
-        turns = self._split_turns(history)
+        # Phase 1: Protect the most recent messages entirely
+        if self.protected_recent_messages > 0 and len(history) > self.protected_recent_messages:
+            protected = history[-self.protected_recent_messages:]
+            to_compress = history[:-self.protected_recent_messages]
+        elif self.protected_recent_messages == 0:
+            # No protection: compress entire history
+            protected = []
+            to_compress = history
+        else:
+            # Not enough messages to split; return as-is
+            return history
+
+        if not to_compress:
+            return protected
+
+        # Phase 2: Compress older messages using turn-based logic
+        turns = self._split_turns(to_compress)
         if not turns:
-            return history[-20:]
+            return protected
 
         recent = turns[-self.recent_turns:] if len(turns) > self.recent_turns else list(turns)
         old = turns[:-len(recent)] if len(recent) < len(turns) else []
@@ -164,7 +186,7 @@ class HistoryCompressor:
         messages = self._flatten(combined)
 
         if self._within_budget(messages):
-            return messages
+            return messages + protected
 
         # Drop oldest selected-old turns first.
         while selected_old and not self._within_budget(self._flatten(selected_old + selected_recent)):
@@ -179,5 +201,5 @@ class HistoryCompressor:
 
         trimmed = self._flatten(selected_old + selected_recent)
         if trimmed:
-            return trimmed
-        return history[-20:]
+            return trimmed + protected
+        return protected

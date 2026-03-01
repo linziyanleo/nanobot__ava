@@ -68,7 +68,7 @@ def test_runtime_context_is_separate_untrusted_user_message(tmp_path) -> None:
 
 
 def test_history_compressor_shortens_auto_backfill_placeholders() -> None:
-    compressor = HistoryCompressor(max_chars=5000, recent_turns=6)
+    compressor = HistoryCompressor(max_chars=5000, recent_turns=6, protected_recent_messages=0)
     history = [
         {"role": "user", "content": "上一轮问题"},
         {
@@ -93,6 +93,7 @@ def test_history_compressor_keeps_recent_and_relevant_old_turns() -> None:
         recent_turns=2,
         min_recent_turns=2,
         max_old_turns=1,
+        protected_recent_messages=0,
     )
     history: list[dict] = []
 
