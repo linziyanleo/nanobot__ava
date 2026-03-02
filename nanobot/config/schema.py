@@ -285,12 +285,21 @@ class HeartbeatConfig(Base):
     interval_s: int = 30 * 60  # 30 minutes
 
 
+class ConsoleConfig(Base):
+    """Web console configuration."""
+
+    enabled: bool = True
+    secret_key: str = "change-me-in-production"
+    token_expire_minutes: int = 480  # 8 hours
+
+
 class GatewayConfig(Base):
     """Gateway/server configuration."""
 
     host: str = "0.0.0.0"
     port: int = 18790
     heartbeat: HeartbeatConfig = Field(default_factory=HeartbeatConfig)
+    console: ConsoleConfig = Field(default_factory=ConsoleConfig)
 
 
 class WebSearchConfig(Base):

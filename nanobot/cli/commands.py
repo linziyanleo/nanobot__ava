@@ -486,17 +486,46 @@ def gateway(
     setup_gateway_cleanup()
     console.print(f"[green]✓[/green] Gateway PID: {os.getpid()}")
 
+    console_cfg = config.gateway.console
+    if console_cfg.enabled:
+        console.print(f"[green]✓[/green] Console: http://{config.gateway.host}:{port}")
+
     async def run():
+        uvicorn_server = None
         try:
             await cron.start()
             await heartbeat.start()
-            await asyncio.gather(
+
+            tasks = [
                 agent.run(),
                 channels.start_all(),
-            )
+            ]
+
+            if console_cfg.enabled:
+                import uvicorn
+                from nanobot.console.app import create_console_app
+
+                console_app = create_console_app(
+                    nanobot_dir=get_data_dir(),
+                    workspace=config.workspace_path,
+                    agent_loop=agent,
+                    config=config,
+                )
+                uvicorn_config = uvicorn.Config(
+                    console_app,
+                    host=config.gateway.host,
+                    port=port,
+                    log_level="warning",
+                )
+                uvicorn_server = uvicorn.Server(uvicorn_config)
+                tasks.append(uvicorn_server.serve())
+
+            await asyncio.gather(*tasks)
         except KeyboardInterrupt:
             console.print("\nShutting down...")
         finally:
+            if uvicorn_server:
+                uvicorn_server.should_exit = True
             await agent.close_mcp()
             heartbeat.stop()
             cron.stop()
