@@ -24,8 +24,18 @@ if [ "$current_branch" != "$DEV_BRANCH" ]; then
 fi
 
 if ! git diff --quiet || ! git diff --cached --quiet; then
-    echo -e "${RED}✗ 工作区有未提交变更，请先 commit 或 stash${NC}"
+    echo -e "${RED}✗ 工作区有未提交变更！${NC}"
+    echo ""
+    echo -e "${YELLOW}未提交的文件:${NC}"
     git status --short
+    echo ""
+    echo -e "${YELLOW}处理方式（需人工确认）:${NC}"
+    echo "  a) 先 commit 再 sync"
+    echo "  b) stash 暂存，sync 后再 pop"
+    echo "  c) 丢弃修改（危险！）"
+    echo "  d) 跳过本次 sync"
+    echo ""
+    echo -e "${RED}请向 Leo 确认如何处理，不能自动执行！${NC}"
     exit 1
 fi
 
