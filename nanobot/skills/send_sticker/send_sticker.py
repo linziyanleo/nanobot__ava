@@ -7,7 +7,12 @@ send_sticker - 发送 Telegram 表情包
     
 环境变量:
     TELEGRAM_BOT_TOKEN: Telegram Bot Token
-    TELEGRAM_PROXY: SOCKS5 代理地址 (默认：socks5://127.0.0.1:13659)
+    TELEGRAM_PROXY: SOCKS5 代理地址 (默认：socks5://127.0.0.1:7890)
+    
+特性:
+    - 自动重试机制（失败时自动重试 2 次）
+    - 详细的错误提示
+    - 支持列出所有表情包
 """
 
 import os
@@ -27,11 +32,11 @@ STICKER_EMOJIS = {
 }
 
 # Telegram 代理配置
-TELEGRAM_PROXY = os.environ.get("TELEGRAM_PROXY", "socks5://127.0.0.1:13659")
+TELEGRAM_PROXY = os.environ.get("TELEGRAM_PROXY", "socks5://127.0.0.1:7890")
 
 
-def get_sticker_set(token: str, pack_name: str) -> dict:
-    """获取 sticker set 信息"""
+def get_sticker_set(token: str, pack_name: str, max_retries: int = 2) -> dict:
+    """获取 sticker set 信息（带重试机制）"""
     cmd = [
         "curl",
         "--socks5-hostname", TELEGRAM_PROXY.replace("socks5://", ""),
@@ -39,20 +44,34 @@ def get_sticker_set(token: str, pack_name: str) -> dict:
         f"https://api.telegram.org/bot{token}/getStickerSet?name={pack_name}"
     ]
     
-    try:
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
-        if result.returncode == 0:
-            data = json.loads(result.stdout)
-            if data.get("ok"):
-                return data.get("result", {})
+    for attempt in range(max_retries + 1):
+        try:
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+            if result.returncode == 0:
+                data = json.loads(result.stdout)
+                if data.get("ok"):
+                    return data.get("result", {})
+                else:
+                    print(f"Error: {data.get('description', 'Unknown error')}")
+                    return None
             else:
-                print(f"Error: {data.get('description', 'Unknown error')}")
-        else:
-            print(f"curl error: {result.stderr}")
-        return None
-    except Exception as e:
-        print(f"Error: {e}")
-        return None
+                if attempt < max_retries:
+                    print(f"curl error (retry {attempt + 1}/{max_retries}): {result.stderr}")
+                    import time
+                    time.sleep(1)
+                    continue
+                print(f"curl error: {result.stderr}")
+                return None
+        except Exception as e:
+            if attempt < max_retries:
+                print(f"Error (retry {attempt + 1}/{max_retries}): {e}")
+                import time
+                time.sleep(1)
+                continue
+            print(f"Error: {e}")
+            return None
+    
+    return None
 
 
 def get_sticker_file_id(sticker_set: dict, emoji: str) -> str:
@@ -71,8 +90,8 @@ def get_sticker_file_id(sticker_set: dict, emoji: str) -> str:
     return None
 
 
-def send_sticker(token: str, chat_id: str, file_id: str) -> bool:
-    """发送 sticker"""
+def send_sticker(token: str, chat_id: str, file_id: str, max_retries: int = 2) -> bool:
+    """发送 sticker（带重试机制）"""
     cmd = [
         "curl",
         "--socks5-hostname", TELEGRAM_PROXY.replace("socks5://", ""),
@@ -83,22 +102,35 @@ def send_sticker(token: str, chat_id: str, file_id: str) -> bool:
         "-d", json.dumps({"chat_id": chat_id, "sticker": file_id})
     ]
     
-    try:
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
-        if result.returncode == 0:
-            data = json.loads(result.stdout)
-            if data.get("ok"):
-                print(f"✓ Sticker sent successfully to {chat_id}")
-                return True
+    for attempt in range(max_retries + 1):
+        try:
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+            if result.returncode == 0:
+                data = json.loads(result.stdout)
+                if data.get("ok"):
+                    print(f"✓ Sticker sent successfully to {chat_id}")
+                    return True
+                else:
+                    print(f"Error: {data.get('description', 'Unknown error')}")
+                    return False
             else:
-                print(f"Error: {data.get('description', 'Unknown error')}")
+                if attempt < max_retries:
+                    print(f"curl error (retry {attempt + 1}/{max_retries}): {result.stderr}")
+                    import time
+                    time.sleep(1)
+                    continue
+                print(f"curl error: {result.stderr}")
                 return False
-        else:
-            print(f"curl error: {result.stderr}")
+        except Exception as e:
+            if attempt < max_retries:
+                print(f"Error (retry {attempt + 1}/{max_retries}): {e}")
+                import time
+                time.sleep(1)
+                continue
+            print(f"Error: {e}")
             return False
-    except Exception as e:
-        print(f"Error: {e}")
-        return False
+    
+    return False
 
 
 def main():
