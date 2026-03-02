@@ -3,6 +3,8 @@
 import asyncio
 import os
 import signal
+import socket
+import atexit
 from pathlib import Path
 import select
 import sys
@@ -30,6 +32,86 @@ app = typer.Typer(
 
 console = Console()
 EXIT_COMMANDS = {"exit", "quit", "/exit", "/quit", ":q"}
+
+# ============================================================================
+# Gateway Single Instance Protection
+# ============================================================================
+
+GATEWAY_PID_FILE = Path.home() / ".nanobot" / "gateway.pid"
+GATEWAY_DEFAULT_PORT = 18790
+
+
+def check_gateway_running() -> int | None:
+    """Check if gateway is already running.
+    
+    Returns:
+        PID if running, None if not running
+    """
+    if not GATEWAY_PID_FILE.exists():
+        return None
+    
+    try:
+        pid = int(GATEWAY_PID_FILE.read_text().strip())
+        # Check if process exists (signal 0 doesn't send a signal, just checks)
+        os.kill(pid, 0)
+        return pid
+    except (ProcessLookupError, ValueError, PermissionError):
+        # Process doesn't exist or PID file is corrupted
+        # Clean up stale PID file
+        try:
+            GATEWAY_PID_FILE.unlink()
+        except Exception:
+            pass
+        return None
+
+
+def write_pid_file() -> None:
+    """Write current process PID to PID file."""
+    GATEWAY_PID_FILE.parent.mkdir(parents=True, exist_ok=True)
+    GATEWAY_PID_FILE.write_text(str(os.getpid()))
+
+
+def cleanup_pid_file() -> None:
+    """Remove PID file."""
+    if GATEWAY_PID_FILE.exists():
+        try:
+            GATEWAY_PID_FILE.unlink()
+        except Exception:
+            pass
+
+
+def check_port_in_use(port: int) -> bool:
+    """Check if a port is already in use.
+    
+    Returns:
+        True if port is in use, False otherwise
+    """
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    try:
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        sock.bind(('127.0.0.1', port))
+        return False
+    except OSError:
+        return True
+    finally:
+        sock.close()
+
+
+def setup_gateway_cleanup() -> None:
+    """Setup cleanup handlers for gateway."""
+    def cleanup():
+        cleanup_pid_file()
+    
+    # Register cleanup on normal exit
+    atexit.register(cleanup)
+    
+    # Register cleanup on signals
+    def signal_handler(signum, frame):
+        cleanup()
+        sys.exit(0)
+    
+    signal.signal(signal.SIGTERM, signal_handler)
+    signal.signal(signal.SIGINT, signal_handler)
 
 # ---------------------------------------------------------------------------
 # CLI input: prompt_toolkit for editing, paste, history, and display
@@ -244,7 +326,7 @@ def _make_provider(config: Config):
 
 @app.command()
 def gateway(
-    port: int = typer.Option(18790, "--port", "-p", help="Gateway port"),
+    port: int = typer.Option(GATEWAY_DEFAULT_PORT, "--port", "-p", help="Gateway port"),
     verbose: bool = typer.Option(False, "--verbose", "-v", help="Verbose output"),
 ):
     """Start the nanobot gateway."""
@@ -256,6 +338,21 @@ def gateway(
     from nanobot.cron.service import CronService
     from nanobot.cron.types import CronJob
     from nanobot.heartbeat.service import HeartbeatService
+
+    # Single instance check
+    existing_pid = check_gateway_running()
+    if existing_pid:
+        console.print(f"[red]Error: Gateway already running (PID: {existing_pid})[/red]")
+        console.print("Use [cyan]nanobot gateway-stop[/cyan] to stop it first")
+        console.print("Or use [cyan]nanobot gateway-restart[/cyan] to restart")
+        raise typer.Exit(1)
+    
+    # Double-check port availability
+    if check_port_in_use(port):
+        console.print(f"[red]Error: Port {port} is already in use[/red]")
+        console.print("Another gateway or service may be using this port")
+        raise typer.Exit(1)
+
 
     if verbose:
         import logging
@@ -383,6 +480,11 @@ def gateway(
         console.print(f"[green]✓[/green] Cron: {cron_status['jobs']} scheduled jobs")
 
     console.print(f"[green]✓[/green] Heartbeat: every {hb_cfg.interval_s}s")
+    
+    # Write PID file and setup cleanup
+    write_pid_file()
+    setup_gateway_cleanup()
+    console.print(f"[green]✓[/green] Gateway PID: {os.getpid()}")
 
     async def run():
         try:
@@ -404,6 +506,131 @@ def gateway(
     asyncio.run(run())
 
 
+# ============================================================================
+# Gateway Management Commands
+# ============================================================================
+
+
+@app.command("gateway-status")
+def gateway_status_cmd():
+    """Show gateway running status."""
+    pid = check_gateway_running()
+    
+    if not pid:
+        console.print(f"{__logo__} Gateway Status\n")
+        console.print("Status: [yellow]Not running[/yellow]")
+        console.print("\n[dim]Use [cyan]nanobot gateway[/cyan] to start it[/dim]")
+        return
+    
+    # Get process info
+    try:
+        import subprocess
+        result = subprocess.run(
+            ["ps", "-o", "pid,lstart,etime,rss,command", "-p", str(pid)],
+            capture_output=True,
+            text=True
+        )
+        lines = result.stdout.strip().split("\n")
+        
+        if len(lines) < 2:
+            console.print(f"[red]Error: Process {pid} not found[/red]")
+            cleanup_pid_file()
+            return
+        
+        # Parse process info
+        parts = lines[1].split(None, 6)
+        if len(parts) >= 5:
+            start_time = " ".join(parts[1:5])
+            elapsed = parts[5]
+            rss_kb = parts[6] if len(parts) > 6 else "N/A"
+            
+            try:
+                rss_mb = int(rss_kb) / 1024
+                rss_str = f"{rss_mb:.1f} MB"
+            except (ValueError, IndexError):
+                rss_str = rss_kb
+            
+            console.print(f"{__logo__} Gateway Status\n")
+            console.print(f"Status: [green]✓ Running[/green]")
+            console.print(f"PID: [cyan]{pid}[/cyan]")
+            console.print(f"Port: [cyan]{GATEWAY_DEFAULT_PORT}[/cyan]")
+            console.print(f"Started: [dim]{start_time}[/dim]")
+            console.print(f"Uptime: [dim]{elapsed}[/dim]")
+            console.print(f"Memory: [dim]{rss_str}[/dim]")
+            console.print(f"PID File: [dim]{GATEWAY_PID_FILE}[/dim]")
+        else:
+            console.print(f"[yellow]Warning: Could not parse process info[/yellow]")
+            console.print(f"PID: {pid}")
+            
+    except Exception as e:
+        console.print(f"[yellow]Warning: Could not get process details: {e}[/yellow]")
+        console.print(f"PID: {pid}")
+
+
+@app.command("gateway-stop")
+def gateway_stop_cmd(
+    force: bool = typer.Option(False, "--force", "-f", help="Force kill (SIGKILL)"),
+    timeout: int = typer.Option(10, "--timeout", "-t", help="Timeout in seconds before force kill"),
+):
+    """Stop the gateway gracefully."""
+    pid = check_gateway_running()
+    
+    if not pid:
+        console.print(f"{__logo__} Gateway Status\n")
+        console.print("Status: [yellow]Not running[/yellow]")
+        console.print("\n[dim]Use [cyan]nanobot gateway[/cyan] to start it[/dim]")
+        return
+    
+    console.print(f"{__logo__} Stopping Gateway\n")
+    console.print(f"PID: [cyan]{pid}[/cyan]")
+    
+    try:
+        if force:
+            console.print("Force mode: sending SIGKILL...")
+            os.kill(pid, signal.SIGKILL)
+            sleep_time = 2
+        else:
+            console.print("Sending SIGTERM for graceful shutdown...")
+            os.kill(pid, signal.SIGTERM)
+            sleep_time = timeout
+        
+        import time
+        elapsed = 0
+        while elapsed < sleep_time:
+            time.sleep(1)
+            elapsed += 1
+            try:
+                os.kill(pid, 0)
+                if not force:
+                    console.print(f"Waiting for process to exit... ({elapsed}/{sleep_time})")
+            except ProcessLookupError:
+                console.print(f"[green]✓ Gateway stopped successfully[/green]")
+                cleanup_pid_file()
+                return
+        
+        if not force:
+            console.print(f"[yellow]Timeout after {timeout}s, sending SIGKILL...[/yellow]")
+            os.kill(pid, signal.SIGKILL)
+            time.sleep(2)
+        
+        try:
+            os.kill(pid, 0)
+            console.print(f"[red]Error: Failed to stop gateway process[/red]")
+            console.print("Manual intervention may be required")
+            raise typer.Exit(1)
+        except ProcessLookupError:
+            console.print(f"[green]✓ Gateway stopped successfully[/green]")
+            cleanup_pid_file()
+            
+    except ProcessLookupError:
+        console.print(f"[yellow]Warning: Process {pid} not found[/yellow]")
+        cleanup_pid_file()
+    except PermissionError:
+        console.print(f"[red]Error: Permission denied to stop process {pid}[/red]")
+        raise typer.Exit(1)
+    except Exception as e:
+        console.print(f"[red]Error: {e}[/red]")
+        raise typer.Exit(1)
 
 
 # ============================================================================

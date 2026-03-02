@@ -4,9 +4,10 @@ from __future__ import annotations
 
 import asyncio
 import re
+
 from loguru import logger
-from telegram import BotCommand, Update, ReplyParameters
-from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
+from telegram import BotCommand, ReplyParameters, Update
+from telegram.ext import Application, CommandHandler, ContextTypes, MessageHandler, filters
 from telegram.request import HTTPXRequest
 
 from nanobot.bus.events import OutboundMessage
