@@ -31,6 +31,12 @@ class Session:
     metadata: dict[str, Any] = field(default_factory=dict)
     last_consolidated: int = 0  # Number of messages already consolidated to files
     last_completed: int | None = None  # Optional checkpoint: end index of completed turns
+    token_stats: dict[str, int] = field(default_factory=lambda: {
+        "total_prompt_tokens": 0,
+        "total_completion_tokens": 0,
+        "total_tokens": 0,
+        "llm_calls": 0,
+    })  # Token usage statistics
     
     def add_message(self, role: str, content: str, **kwargs: Any) -> None:
         """Add a message to the session."""
@@ -171,6 +177,12 @@ class SessionManager:
                         created_at = datetime.fromisoformat(data["created_at"]) if data.get("created_at") else None
                         last_consolidated = data.get("last_consolidated", 0)
                         last_completed = data.get("last_completed")
+                        token_stats = data.get("token_stats", {
+                            "total_prompt_tokens": 0,
+                            "total_completion_tokens": 0,
+                            "total_tokens": 0,
+                            "llm_calls": 0,
+                        })
                     else:
                         messages.append(data)
 
@@ -187,6 +199,7 @@ class SessionManager:
                 metadata=metadata,
                 last_consolidated=last_consolidated,
                 last_completed=last_completed,
+                token_stats=token_stats,
             )
         except Exception as e:
             logger.warning("Failed to load session {}: {}", key, e)
@@ -205,6 +218,7 @@ class SessionManager:
                 "metadata": session.metadata,
                 "last_consolidated": session.last_consolidated,
                 "last_completed": session.last_completed,
+                "token_stats": session.token_stats,
             }
             f.write(json.dumps(metadata_line, ensure_ascii=False) + "\n")
             for msg in session.messages:

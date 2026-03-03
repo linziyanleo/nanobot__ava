@@ -199,6 +199,7 @@ class AgentLoop:
     async def _run_agent_loop(
         self,
         initial_messages: list[dict],
+        session: Session | None = None,
         on_progress: Callable[..., Awaitable[None]] | None = None,
     ) -> tuple[str | None, list[str], list[dict]]:
         """Run the agent iteration loop. Returns (final_content, tools_used, messages)."""
@@ -292,6 +293,13 @@ class AgentLoop:
         if total_tokens > 0:
             logger.info("📊 本轮对话总 Token 消耗：{} (prompt: {} + completion: {}, LLM 调用 {} 次)",
                        total_tokens, total_prompt_tokens, total_completion_tokens, iteration)
+        
+        # 更新 session 的 token 统计
+        if session is not None and total_tokens > 0:
+            session.token_stats["total_tokens"] += total_tokens
+            session.token_stats["total_prompt_tokens"] += total_prompt_tokens
+            session.token_stats["total_completion_tokens"] += total_completion_tokens
+            session.token_stats["llm_calls"] += iteration
 
         return final_content, tools_used, messages
 
@@ -388,7 +396,7 @@ class AgentLoop:
                 history=history,
                 current_message=msg.content, channel=channel, chat_id=chat_id,
             )
-            final_content, _, all_msgs = await self._run_agent_loop(messages)
+            final_content, _, all_msgs = await self._run_agent_loop(messages, session)
             self._save_turn(session, all_msgs, 1 + len(history))
             self.sessions.save(session)
             return OutboundMessage(channel=channel, chat_id=chat_id,
@@ -481,7 +489,7 @@ class AgentLoop:
             ))
 
         final_content, _, all_msgs = await self._run_agent_loop(
-            initial_messages, on_progress=on_progress or _bus_progress,
+            initial_messages, session, on_progress=on_progress or _bus_progress,
         )
 
         if final_content is None:
@@ -600,6 +608,7 @@ class AgentLoop:
     ) -> str:
         """Process a message directly (for CLI or cron usage)."""
         await self._connect_mcp()
+        session = self.sessions.get_or_create(session_key)
         msg = InboundMessage(channel=channel, sender_id="user", chat_id=chat_id, content=content)
         response = await self._process_message(msg, session_key=session_key, on_progress=on_progress)
         return response.content if response else ""
