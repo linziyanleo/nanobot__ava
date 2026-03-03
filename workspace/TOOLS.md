@@ -53,7 +53,7 @@ exec(command: str, working_dir: str = None) -> str
   - Increase timeout for complex tasks (e.g., qodercli调研、网络爬虫等)
 - Dangerous commands are blocked (rm -rf, format, dd, shutdown, etc.)
 - Output is truncated at 10,000 characters
-- Optional `restrictToWorkspace` config to limit paths
+- `restrictToWorkspace` config can limit file access to the workspace
 
 ## Web Access
 
@@ -121,33 +121,9 @@ spawn(task: str, label: str = None) -> str
 
 Use for complex or time-consuming tasks that can run independently. The subagent will complete the task and report back when done.
 
-## Scheduled Reminders (Cron)
+## cron — Scheduled Reminders
 
-Use the `exec` tool to create scheduled reminders with `nanobot cron add`:
-
-### Set a recurring reminder
-
-```bash
-# Every day at 9am
-nanobot cron add --name "morning" --message "Good morning! ☀️" --cron "0 9 * * *"
-
-# Every 2 hours
-nanobot cron add --name "water" --message "Drink water! 💧" --every 7200
-```
-
-### Set a one-time reminder
-
-```bash
-# At a specific time (ISO format)
-nanobot cron add --name "meeting" --message "Meeting starts now!" --at "2025-01-31T15:00:00"
-```
-
-### Manage reminders
-
-```bash
-nanobot cron list              # List all jobs
-nanobot cron remove <job_id>   # Remove a job
-```
+- Please refer to cron skill for usage.
 
 ## Heartbeat Task Management
 

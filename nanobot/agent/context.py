@@ -46,9 +46,9 @@ class ContextBuilder:
         if memory:
             parts.append(f"# Memory\n\n{memory}")
 
-        ava_memory = self.memory.get_ava_memory_context()
-        if ava_memory:
-            parts.append(f"# Ava Self Memory\n\n{ava_memory}")
+        self_memory = self.memory.get_self_memory_context()
+        if self_memory:
+            parts.append(f"# Nanobot Self Memory\n\n{self_memory}")
 
         if self.categorized_memory and channel and chat_id:
             person_ctx = self.categorized_memory.get_combined_context(channel, chat_id)
@@ -88,7 +88,7 @@ You are nanobot, a helpful AI assistant.
 ## Workspace
 Your workspace is at: {workspace_path}
 - Global memory files: {workspace_path}/memory/MEMORY.md + {workspace_path}/memory/HISTORY.md
-- Ava self memory: {workspace_path}/memory/ava/MEMORY.md
+- Nanobot self memory: {workspace_path}/memory/self/MEMORY.md
 - Custom skills: {workspace_path}/skills/{{skill-name}}/SKILL.md
 
 ## nanobot Guidelines

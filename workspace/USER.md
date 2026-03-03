@@ -18,15 +18,15 @@ Information about the user to help personalize interactions.
 
 ### Response Length
 
-- [ ] Brief and concise
+- [x] Brief and concise
 - [ ] Detailed explanations
-- [x] Adaptive based on question
+- [ ] Adaptive based on question
 
 ### Technical Level
 
 - [ ] Beginner
-- [ ] Intermediate
-- [x] Expert
+- [x] Intermediate
+- [ ] Expert
 
 ## Work Context
 

@@ -293,7 +293,7 @@ class AgentLoop:
         if total_tokens > 0:
             logger.info("📊 本轮对话总 Token 消耗：{} (prompt: {} + completion: {}, LLM 调用 {} 次)",
                        total_tokens, total_prompt_tokens, total_completion_tokens, iteration)
-        
+
         # 更新 session 的 token 统计
         if session is not None and total_tokens > 0:
             session.token_stats["total_tokens"] += total_tokens
@@ -442,7 +442,7 @@ class AgentLoop:
                                   content="New session started.")
         if cmd == "/help":
             return OutboundMessage(channel=msg.channel, chat_id=msg.chat_id,
-                                  content="🐈 Ava commands:\n/new — Start a new conversation\n/stop — Stop the current task\n/help — Show available commands")
+                                  content="🐈 Nanobot commands:\n/new — Start a new conversation\n/stop — Stop the current task\n/help — Show available commands")
 
         unconsolidated = len(session.messages) - session.last_consolidated
         if (unconsolidated >= self.memory_window and session.key not in self._consolidating):

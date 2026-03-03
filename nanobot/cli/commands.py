@@ -25,8 +25,8 @@ from nanobot.config.schema import Config
 from nanobot.utils.helpers import sync_workspace_templates
 
 app = typer.Typer(
-    name="Ava",
-    help=f"{__logo__} Ava - Personal AI Assistant",
+    name="Nanobot",
+    help=f"{__logo__} Nanobot - Personal AI Assistant",
     no_args_is_help=True,
 )
 
@@ -185,7 +185,7 @@ def _print_agent_response(response: str, render_markdown: bool) -> None:
     content = response or ""
     body = Markdown(content) if render_markdown else Text(content)
     console.print()
-    console.print(f"[cyan]{__logo__} Ava[/cyan]")
+    console.print(f"[cyan]{__logo__} Nanobot[/cyan]")
     console.print(body)
     console.print()
 
@@ -217,7 +217,7 @@ async def _read_interactive_input_async() -> str:
 
 def version_callback(value: bool):
     if value:
-        console.print(f"{__logo__} Ava v{__version__}")
+        console.print(f"{__logo__} Nanobot v{__version__}")
         raise typer.Exit()
 
 
@@ -270,7 +270,7 @@ def onboard():
 
     sync_workspace_templates(workspace)
 
-    console.print(f"\n{__logo__} Ava is ready!")
+    console.print(f"\n{__logo__} Nanobot is ready!")
     console.print("\nNext steps:")
     console.print("  1. Add your API key to [cyan]~/.nanobot/config.json[/cyan]")
     console.print("     Get one at: https://openrouter.ai/keys")
@@ -1344,7 +1344,7 @@ def status():
     config = load_config()
     workspace = config.workspace_path
 
-    console.print(f"{__logo__} Ava Status\n")
+    console.print(f"{__logo__} Nanobot Status\n")
 
     console.print(f"Config: {config_path} {'[green]✓[/green]' if config_path.exists() else '[red]✗[/red]'}")
     console.print(f"Workspace: {workspace} {'[green]✓[/green]' if workspace.exists() else '[red]✗[/red]'}")

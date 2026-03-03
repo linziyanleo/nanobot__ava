@@ -31,11 +31,11 @@ workspace/
 !workspace/skills/
 workspace/skills/**/__pycache__/
 workspace/skills/**/*.pyc
+workspace/SOUL.md
 !workspace/TOOLS.md
 !workspace/USER.md
 !workspace/AGENTS.md
 !workspace/README.md
-!workspace/SOUL.md
 
 # IDE
 .cursor/
