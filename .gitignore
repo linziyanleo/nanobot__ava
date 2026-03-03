@@ -25,12 +25,21 @@ tests/
 workspace/memory/identity_map.yaml
 workspace/memory/persons/
 workspace/sessions/
-mydocs/
+
+# Workspace (with exceptions)
+workspace/
+!workspace/skills/
+!workspace/TOOLS.md
+!workspace/USER.md
+!workspace/AGENTS.md
+!workspace/README.md
+!workspace/SOUL.md
 
 # IDE
 .cursor/
 .qoder/
 .vscode/
 
-# Workspace
-workspace/
+# MyDocs (with exceptions)
+mydocs/
+!mydocs/codemap/
