@@ -29,6 +29,8 @@ workspace/sessions/
 # Workspace (with exceptions)
 workspace/
 !workspace/skills/
+workspace/skills/**/__pycache__/
+workspace/skills/**/*.pyc
 !workspace/TOOLS.md
 !workspace/USER.md
 !workspace/AGENTS.md
