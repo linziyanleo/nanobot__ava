@@ -144,11 +144,11 @@ fi
 # - >/dev/null 2>&1: 重定向输出到 null（守护脚本有自己的日志）
 log_info "正在启动重启守护进程..."
 
-nohup setsid bash "$DAEMON_SCRIPT" $DAEMON_ARGS </dev/null >/dev/null 2>&1 &
+bash "$DAEMON_SCRIPT" $DAEMON_ARGS &
 DAEMON_PID=$!
 
 # 等待一小会确保守护进程启动
-sleep 0.5
+sleep 1
 
 # 检查守护进程是否启动成功
 # 注意：由于 setsid，我们无法直接跟踪子进程，这里只是做基本检查

@@ -9,8 +9,8 @@
 #   restart_daemon.sh --delay <ms> [--force] [--no-report]
 #
 # Options:
-#   --delay <ms>    延迟重启时间（毫秒），默认 5000
-#   --force         强制重启（跳过优雅关闭）
+#   --delay <ms>    延迟重启时间(毫秒)，默认 5000
+#   --force         强制重启(跳过优雅关闭)
 #   --no-report     禁用自动汇报
 #
 
@@ -22,8 +22,8 @@ set -euo pipefail
 DELAY_MS=5000
 FORCE=false
 NO_REPORT=false
-GRACEFUL_TIMEOUT=30      # 优雅关闭超时（秒）
-REPORT_DELAY=30          # 重启后汇报延迟（秒）
+GRACEFUL_TIMEOUT=30      # 优雅关闭超时(秒)
+REPORT_DELAY=30          # 重启后汇报延迟(秒)
 STATE_FILE="/tmp/gateway_restart_state.json"
 LOG_FILE="/tmp/gateway_restart_daemon.log"
 JOBS_FILE="$HOME/.nanobot/cron/jobs.json"
@@ -79,18 +79,18 @@ done
 find_gateway_pid() {
     local pid=""
     
-    # 方法 1: 查找 'nanobot gateway' 进程
-    pid=$(pgrep -f "nanobot gateway" 2>/dev/null | head -1) || true
-    
-    # 方法 2: 查找 'python.*nanobot.*gateway' 模式
-    if [ -z "$pid" ]; then
-        pid=$(pgrep -f "python.*nanobot.*gateway" 2>/dev/null | head -1) || true
+    # 使用 PID 文件 (最可靠)
+    local pid_file="$HOME/.nanobot/gateway.pid"
+    if [ -f "$pid_file" ]; then
+        local file_pid=$(cat "$pid_file" 2>/dev/null)
+        if [ -n "$file_pid" ] && kill -0 "$file_pid" 2>/dev/null; then
+            echo "$file_pid"
+            return 0
+        fi
     fi
     
-    # 方法 3: 查找 'python.*-m.*nanobot.*gateway' 模式
-    if [ -z "$pid" ]; then
-        pid=$(pgrep -f "python.*-m.*nanobot.*gateway" 2>/dev/null | head -1) || true
-    fi
+    # 回退: 使用 ps + grep 方式 (排除脚本自己)
+    pid=$(ps aux | grep -E "python.*nanobot.*gateway" | grep -v "restart_" | grep -v grep | awk '{print $2}' | head -1) || true
     
     echo "$pid"
 }
@@ -98,23 +98,44 @@ find_gateway_pid() {
 find_all_gateway_pids() {
     local pids=""
     
-    # 方法 1: 查找 'nanobot gateway' 进程
-    pids=$(pgrep -f "nanobot gateway" 2>/dev/null) || true
-    
-    # 方法 2: 查找 'python.*nanobot.*gateway' 模式
-    if [ -z "$pids" ]; then
-        pids=$(pgrep -f "python.*nanobot.*gateway" 2>/dev/null) || true
+    # 使用 PID 文件 (最可靠)
+    local pid_file="$HOME/.nanobot/gateway.pid"
+    if [ -f "$pid_file" ]; then
+        local file_pid=$(cat "$pid_file" 2>/dev/null)
+        if [ -n "$file_pid" ] && kill -0 "$file_pid" 2>/dev/null; then
+            echo "$file_pid"
+            return 0
+        fi
     fi
     
-    # 方法 3: 查找 'python.*-m.*nanobot.*gateway' 模式
-    if [ -z "$pids" ]; then
-        pids=$(pgrep -f "python.*-m.*nanobot.*gateway" 2>/dev/null) || true
-    fi
+    # 回退: 使用 ps + grep 方式
+    # 关键点：排除包含 "restart_" 的进程 (即排除守护脚本和包装脚本)
+    pids=$(ps aux | grep -E "python.*nanobot.*gateway" | grep -v "restart_" | grep -v grep | awk '{print $2}') || true
     
     # 去重并返回
     if [ -n "$pids" ]; then
         echo "$pids" | sort -u
     fi
+}
+
+# 排除守护进程自己的 PID
+exclude_daemon_pid() {
+    local pids=$1
+    local daemon_pid=$2
+    local filtered_pids=""
+    
+    for pid in $pids; do
+        if [ "$pid" != "$daemon_pid" ] && [ -n "$pid" ]; then
+            if [ -z "$filtered_pids" ]; then
+                filtered_pids="$pid"
+            else
+                filtered_pids="$filtered_pids
+$pid"
+            fi
+        fi
+    done
+    
+    echo "$filtered_pids"
 }
 
 # ============================================================================
@@ -163,7 +184,7 @@ EOF
 }
 
 # ============================================================================
-# 创建汇报任务（直接操作 jobs.json）
+# 创建汇报任务 (使用 at 命令)
 # ============================================================================
 create_report_task() {
     if [ "$NO_REPORT" = true ]; then
@@ -171,90 +192,70 @@ create_report_task() {
         return 0
     fi
     
-    log_info "创建自动汇报任务..."
+    log_info "创建自动汇报任务 (使用 at 命令)..."
     
-    # 计算汇报时间（当前时间 + 延迟 + 重启后等待）
-    local now_sec=$(date +%s)
-    local report_ms=$(( (now_sec + DELAY_MS / 1000 + REPORT_DELAY + 10) * 1000 ))
-    local job_id=$(cat /dev/urandom | LC_ALL=C tr -dc 'a-f0-9' | head -c 8)
-    local created_ms=$((now_sec * 1000))
+    # 脚本目录
+    local SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+    local report_script="$SCRIPT_DIR/at_report.sh"
     
-    # 确保目录存在
-    mkdir -p "$(dirname "$JOBS_FILE")"
+    # 检查 at 命令是否可用
+    if ! command -v at &> /dev/null; then
+        log_warn "at 命令不可用，使用回退方案 (直接等待并汇报)"
+        # 回退方案：在后台等待并汇报
+        (
+            sleep $((DELAY_MS / 1000 + REPORT_DELAY + 10))
+            if [ -f "$report_script" ]; then
+                "$report_script"
+            else
+                log_error "汇报脚本不存在：$report_script"
+            fi
+        ) &
+        return 0
+    fi
     
-    # 使用 Python 直接操作 jobs.json（不依赖 nanobot 模块）
-    python3 << PYEOF
-import json
-from pathlib import Path
-
-jobs_file = Path("$JOBS_FILE")
-if jobs_file.exists():
-    try:
-        data = json.loads(jobs_file.read_text(encoding="utf-8"))
-    except:
-        data = {"version": 1, "jobs": []}
-else:
-    data = {"version": 1, "jobs": []}
-
-# 先删除同名的旧任务
-data["jobs"] = [j for j in data.get("jobs", []) if j.get("name") != "gateway_status_report"]
-
-job = {
-    "id": "$job_id",
-    "name": "gateway_status_report",
-    "enabled": True,
-    "schedule": {
-        "kind": "at",
-        "atMs": $report_ms,
-        "everyMs": None,
-        "expr": None,
-        "tz": None
-    },
-    "payload": {
-        "kind": "agent_turn",
-        "message": """🔄 Gateway 重启状态汇报
-
-✅ 重启已完成！
-📁 状态文件：$STATE_FILE
-⏰ 重启时间：$(date -Iseconds)
-⏱️  延迟：${DELAY_MS}ms
-🔧 模式：$( [ "$FORCE" = true ] && echo "强制" || echo "正常" )
-
-检查项目：
-1. Gateway 进程状态
-2. Cron 任务状态
-3. 配置文件加载
-
-一切正常！✨""",
-        "deliver": True,
-        "channel": "telegram",
-        "to": "-5172087440"
-    },
-    "state": {
-        "nextRunAtMs": $report_ms,
-        "lastRunAtMs": None,
-        "lastStatus": None,
-        "lastError": None,
-        "taskCompletedAtMs": None,
-        "taskCycleId": None
-    },
-    "createdAtMs": $created_ms,
-    "updatedAtMs": $created_ms,
-    "deleteAfterRun": True,
-    "source": "cli"
-}
-
-data["jobs"].append(job)
-jobs_file.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
-print(f"汇报任务已创建: {job['id']}")
-PYEOF
-
-    if [ $? -eq 0 ]; then
-        log_info "✅ 汇报任务创建成功 (ID: $job_id)"
+    # 计算执行时间 (当前时间 + 延迟 + 重启后等待)
+    local exec_delay_sec=$((DELAY_MS / 1000 + REPORT_DELAY + 10))
+    # macOS at 不支持 seconds，将秒数转换为分钟 (向上取整)
+    local exec_delay_min=$(( (exec_delay_sec + 59) / 60 ))
+    
+    # 确保脚本可执行
+    if [ ! -f "$report_script" ]; then
+        log_error "汇报脚本不存在：$report_script"
+        return 1
+    fi
+    chmod +x "$report_script"
+    
+    # 创建 at 任务 (使用 "now + N minutes" 格式，macOS 兼容)
+    log_info "调度 at 任务 (延迟：${exec_delay_sec}s ≈ ${exec_delay_min} 分钟)"
+    local at_output
+    at_output=$(echo "$report_script" | at now + ${exec_delay_min} minutes 2>&1)
+    local at_status=$?
+    
+    if [ $at_status -eq 0 ]; then
+        log_info "✅ at 任务创建成功"
+        log_info "at 输出: $at_output"
+        
+        # 列出 at 队列 (用于调试)
+        local at_queue=$(atq 2>/dev/null | head -5)
+        if [ -n "$at_queue" ]; then
+            log_info "at 队列状态:"
+            echo "$at_queue" | while read line; do
+                log_info "  $line"
+            done
+        fi
     else
-        log_warn "⚠️ 汇报任务创建失败，重启将继续但不会自动汇报"
+        log_warn "⚠️ at 任务创建失败 (状态: $at_status)"
+        log_warn "at 输出: $at_output"
+        log_warn "使用回退方案 (后台等待)"
+        # 回退方案：在后台等待并汇报
+        (
+            sleep $exec_delay_sec
+            "$report_script"
+        ) &
     fi
 }
+
+# (已删除重复的 jobs.json 方式汇报函数，使用上面的 at 命令方式)
 
 # ============================================================================
 # 停止 Gateway
@@ -347,13 +348,14 @@ main() {
     log_info "================================================"
     log_info "🔄 Gateway 重启守护脚本已启动"
     log_info "================================================"
-    log_info "守护进程 PID: $$"
+    local MY_PID=$$
+    log_info "守护进程 PID: $MY_PID"
     log_info "延迟: ${DELAY_MS}ms"
     log_info "强制模式: $FORCE"
     log_info "自动汇报: $( [ "$NO_REPORT" = true ] && echo "禁用" || echo "启用" )"
     
     # 查找 Gateway 进程
-    local gateway_pids=$(find_all_gateway_pids)
+    local gateway_pids=$(find_all_gateway_pids) || true
     
     if [ -z "$gateway_pids" ]; then
         log_warn "未找到运行中的 Gateway 进程"
@@ -363,14 +365,26 @@ main() {
         exit $?
     fi
     
+    # 排除守护进程自己的 PID
+    gateway_pids=$(exclude_daemon_pid "$gateway_pids" "$MY_PID")
+    
+    # 如果排除后没有进程了，说明只有守护进程自己在运行
+    if [ -z "$gateway_pids" ]; then
+        log_warn "未找到其他 Gateway 进程(只有守护进程自己)"
+        log_info "将直接启动新的 Gateway..."
+        
+        start_gateway
+        exit $?
+    fi
+    
     local pid_count=$(echo "$gateway_pids" | wc -l | tr -d ' ')
-    log_info "找到 $pid_count 个 Gateway 进程"
+    log_info "找到 $pid_count 个 Gateway 进程(排除守护进程 PID $MY_PID)"
     log_info "PIDs: $(echo $gateway_pids | tr '\n' ' ')"
     
     # 保存状态
     save_state_file
     
-    # 创建汇报任务（在关闭 Gateway 之前）
+    # 创建汇报任务(在关闭 Gateway 之前)
     create_report_task
     
     # 延迟等待
