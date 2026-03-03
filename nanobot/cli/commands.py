@@ -43,13 +43,13 @@ GATEWAY_DEFAULT_PORT = 18790
 
 def check_gateway_running() -> int | None:
     """Check if gateway is already running.
-    
+
     Returns:
         PID if running, None if not running
     """
     if not GATEWAY_PID_FILE.exists():
         return None
-    
+
     try:
         pid = int(GATEWAY_PID_FILE.read_text().strip())
         # Check if process exists (signal 0 doesn't send a signal, just checks)
@@ -82,7 +82,7 @@ def cleanup_pid_file() -> None:
 
 def check_port_in_use(port: int) -> bool:
     """Check if a port is already in use.
-    
+
     Returns:
         True if port is in use, False otherwise
     """
@@ -101,15 +101,15 @@ def setup_gateway_cleanup() -> None:
     """Setup cleanup handlers for gateway."""
     def cleanup():
         cleanup_pid_file()
-    
+
     # Register cleanup on normal exit
     atexit.register(cleanup)
-    
+
     # Register cleanup on signals
     def signal_handler(signum, frame):
         cleanup()
         sys.exit(0)
-    
+
     signal.signal(signal.SIGTERM, signal_handler)
     signal.signal(signal.SIGINT, signal_handler)
 
@@ -346,7 +346,7 @@ def gateway(
         console.print("Use [cyan]nanobot gateway-stop[/cyan] to stop it first")
         console.print("Or use [cyan]nanobot gateway-restart[/cyan] to restart")
         raise typer.Exit(1)
-    
+
     # Double-check port availability
     if check_port_in_use(port):
         console.print(f"[red]Error: Port {port} is already in use[/red]")
@@ -394,13 +394,35 @@ def gateway(
     # Set cron callback (needs agent)
     async def on_cron_job(job: CronJob) -> str | None:
         """Execute a cron job through the agent."""
-        response = await agent.process_direct(
-            job.payload.message,
-            session_key=f"cron:{job.id}",
-            channel=job.payload.channel or "cli",
-            chat_id=job.payload.to or "direct",
+        from nanobot.agent.tools.cron import CronTool
+        from nanobot.agent.tools.message import MessageTool
+        reminder_note = (
+            "[Scheduled Task] Timer finished.\n\n"
+            f"Task '{job.name}' has been triggered.\n"
+            f"Scheduled instruction: {job.payload.message}"
         )
-        if job.payload.deliver and job.payload.to:
+
+        # Prevent the agent from scheduling new cron jobs during execution
+        cron_tool = agent.tools.get("cron")
+        cron_token = None
+        if isinstance(cron_tool, CronTool):
+            cron_token = cron_tool.set_cron_context(True)
+        try:
+            response = await agent.process_direct(
+                reminder_note,
+                session_key=f"cron:{job.id}",
+                channel=job.payload.channel or "cli",
+                chat_id=job.payload.to or "direct",
+            )
+        finally:
+            if isinstance(cron_tool, CronTool) and cron_token is not None:
+                cron_tool.reset_cron_context(cron_token)
+
+        message_tool = agent.tools.get("message")
+        if isinstance(message_tool, MessageTool) and message_tool._sent_in_turn:
+            return response
+
+        if job.payload.deliver and job.payload.to and response:
             from nanobot.bus.events import OutboundMessage
             await bus.publish_outbound(OutboundMessage(
                 channel=job.payload.channel or "cli",
@@ -480,7 +502,7 @@ def gateway(
         console.print(f"[green]✓[/green] Cron: {cron_status['jobs']} scheduled jobs")
 
     console.print(f"[green]✓[/green] Heartbeat: every {hb_cfg.interval_s}s")
-    
+
     # Write PID file and setup cleanup
     write_pid_file()
     setup_gateway_cleanup()
@@ -544,13 +566,13 @@ def gateway(
 def gateway_status_cmd():
     """Show gateway running status."""
     pid = check_gateway_running()
-    
+
     if not pid:
         console.print(f"{__logo__} Gateway Status\n")
         console.print("Status: [yellow]Not running[/yellow]")
         console.print("\n[dim]Use [cyan]nanobot gateway[/cyan] to start it[/dim]")
         return
-    
+
     # Get process info
     try:
         import subprocess
@@ -560,25 +582,25 @@ def gateway_status_cmd():
             text=True
         )
         lines = result.stdout.strip().split("\n")
-        
+
         if len(lines) < 2:
             console.print(f"[red]Error: Process {pid} not found[/red]")
             cleanup_pid_file()
             return
-        
+
         # Parse process info
         parts = lines[1].split(None, 6)
         if len(parts) >= 5:
             start_time = " ".join(parts[1:5])
             elapsed = parts[5]
             rss_kb = parts[6] if len(parts) > 6 else "N/A"
-            
+
             try:
                 rss_mb = int(rss_kb) / 1024
                 rss_str = f"{rss_mb:.1f} MB"
             except (ValueError, IndexError):
                 rss_str = rss_kb
-            
+
             console.print(f"{__logo__} Gateway Status\n")
             console.print(f"Status: [green]✓ Running[/green]")
             console.print(f"PID: [cyan]{pid}[/cyan]")
@@ -590,7 +612,7 @@ def gateway_status_cmd():
         else:
             console.print(f"[yellow]Warning: Could not parse process info[/yellow]")
             console.print(f"PID: {pid}")
-            
+
     except Exception as e:
         console.print(f"[yellow]Warning: Could not get process details: {e}[/yellow]")
         console.print(f"PID: {pid}")
@@ -603,16 +625,16 @@ def gateway_stop_cmd(
 ):
     """Stop the gateway gracefully."""
     pid = check_gateway_running()
-    
+
     if not pid:
         console.print(f"{__logo__} Gateway Status\n")
         console.print("Status: [yellow]Not running[/yellow]")
         console.print("\n[dim]Use [cyan]nanobot gateway[/cyan] to start it[/dim]")
         return
-    
+
     console.print(f"{__logo__} Stopping Gateway\n")
     console.print(f"PID: [cyan]{pid}[/cyan]")
-    
+
     try:
         if force:
             console.print("Force mode: sending SIGKILL...")
@@ -622,7 +644,7 @@ def gateway_stop_cmd(
             console.print("Sending SIGTERM for graceful shutdown...")
             os.kill(pid, signal.SIGTERM)
             sleep_time = timeout
-        
+
         import time
         elapsed = 0
         while elapsed < sleep_time:
@@ -636,12 +658,12 @@ def gateway_stop_cmd(
                 console.print(f"[green]✓ Gateway stopped successfully[/green]")
                 cleanup_pid_file()
                 return
-        
+
         if not force:
             console.print(f"[yellow]Timeout after {timeout}s, sending SIGKILL...[/yellow]")
             os.kill(pid, signal.SIGKILL)
             time.sleep(2)
-        
+
         try:
             os.kill(pid, 0)
             console.print(f"[red]Error: Failed to stop gateway process[/red]")
@@ -650,7 +672,7 @@ def gateway_stop_cmd(
         except ProcessLookupError:
             console.print(f"[green]✓ Gateway stopped successfully[/green]")
             cleanup_pid_file()
-            
+
     except ProcessLookupError:
         console.print(f"[yellow]Warning: Process {pid} not found[/yellow]")
         cleanup_pid_file()
@@ -1251,20 +1273,20 @@ def send_sticker(
     from nanobot.config.loader import load_config
     import json
     import subprocess
-    
+
     config = load_config()
     tg = config.channels.telegram
-    
+
     # 验证配置
     if not tg.token:
         console.print("[red]Error: Telegram token not configured[/red]")
         raise typer.Exit(1)
-    
+
     # 验证 sticker_id
     if not 1 <= sticker_id <= 24:
         console.print(f"[red]Error: Sticker ID must be between 1-24[/red]")
         raise typer.Exit(1)
-    
+
     # 如果没有提供 chat_id，从 session 中获取
     if not chat_id:
         # 从 workspace 的 sessions 中获取第一个 Telegram session
@@ -1276,11 +1298,11 @@ def send_sticker(
                 if session.get("channel") == "telegram":
                     chat_id = session.get("chat_id")
                     break
-        
+
         if not chat_id:
             console.print("[red]Error: No chat_id provided and no Telegram session found[/red]")
             raise typer.Exit(1)
-    
+
     # 构建环境变量
     env = os.environ.copy()
     env["TELEGRAM_BOT_TOKEN"] = tg.token
@@ -1288,19 +1310,19 @@ def send_sticker(
         env["TELEGRAM_PROXY"] = tg.proxy
     else:
         env["TELEGRAM_PROXY"] = "socks5://127.0.0.1:7890"  # 默认代理
-    
+
     # 调用 send_sticker.py 脚本
     script_path = Path(__file__).parent.parent / "skills" / "send_sticker" / "send_sticker.py"
-    
+
     console.print(f"Sending sticker {sticker_id} to {chat_id}...")
-    
+
     result = subprocess.run(
         ["python3", str(script_path), str(sticker_id), chat_id],
         env=env,
         capture_output=True,
         text=True
     )
-    
+
     if result.returncode == 0:
         console.print(f"[green]✓[/green] Sticker sent successfully")
     else:
