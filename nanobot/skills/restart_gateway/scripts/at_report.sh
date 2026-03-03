@@ -21,13 +21,7 @@ set -euo pipefail
 # ============================================================================
 STATE_FILE="/tmp/gateway_restart_state.json"
 LOG_FILE="/tmp/gateway_at_report.log"
-TELEGRAM_CHANNEL="-5172087440"
-TELEGRAM_TOKEN="8627641989:AAEKPceFjOlCmKSxw3hssbT6GEQloyifmmg"
-
-# 代理配置（如果需要访问 Telegram）
-# 可设置为环境变量或在此处硬编码
-# 示例: PROXY="http://127.0.0.1:7890" 或 "socks5://127.0.0.1:1080"
-PROXY="${ALL_PROXY:-${HTTPS_PROXY:-${HTTP_PROXY:-http://127.0.0.1:7890}}}"
+CONFIG_FILE="${NANOBOT_HOME:-$HOME/.nanobot}/config.json"
 
 # 环境变量（at 任务继承有限的 PATH）
 export PATH="/opt/homebrew/bin:/opt/homebrew/sbin:/usr/bin:/bin:/usr/sbin:/sbin"
@@ -38,6 +32,76 @@ export VIRTUAL_ENV="$HOME/Desktop/Work/nanobot__ava/.venv"
 if [ -f "$VIRTUAL_ENV/bin/activate" ]; then
     source "$VIRTUAL_ENV/bin/activate"
 fi
+
+# ============================================================================
+# 从 config.json 读取敏感配置
+# ============================================================================
+read_config() {
+    if [ ! -f "$CONFIG_FILE" ]; then
+        log "❌ 配置文件不存在: $CONFIG_FILE"
+        return 1
+    fi
+    
+    # 使用 python3 解析 JSON（更可靠）
+    if command -v python3 &> /dev/null; then
+        TELEGRAM_TOKEN=$(python3 -c "
+import json
+with open('$CONFIG_FILE') as f:
+    config = json.load(f)
+print(config.get('channels', {}).get('telegram', {}).get('token', ''))
+" 2>/dev/null) || TELEGRAM_TOKEN=""
+        
+        TELEGRAM_PROXY=$(python3 -c "
+import json
+with open('$CONFIG_FILE') as f:
+    config = json.load(f)
+print(config.get('channels', {}).get('telegram', {}).get('proxy', '') or '')
+" 2>/dev/null) || TELEGRAM_PROXY=""
+    else
+        log "⚠️ python3 不可用，尝试使用 jq..."
+        if command -v jq &> /dev/null; then
+            TELEGRAM_TOKEN=$(jq -r '.channels.telegram.token // ""' "$CONFIG_FILE" 2>/dev/null) || TELEGRAM_TOKEN=""
+            TELEGRAM_PROXY=$(jq -r '.channels.telegram.proxy // ""' "$CONFIG_FILE" 2>/dev/null) || TELEGRAM_PROXY=""
+        else
+            log "❌ 无法解析配置文件（需要 python3 或 jq）"
+            return 1
+        fi
+    fi
+    
+    # 从状态文件或环境变量获取 TELEGRAM_CHANNEL
+    if [ -n "${TELEGRAM_CHANNEL:-}" ]; then
+        : # 已从环境变量设置
+    elif [ -f "$STATE_FILE" ]; then
+        TELEGRAM_CHANNEL=$(python3 -c "
+import json
+with open('$STATE_FILE') as f:
+    state = json.load(f)
+print(state.get('telegram_channel', ''))
+" 2>/dev/null) || TELEGRAM_CHANNEL=""
+    fi
+    
+    # 代理回退：如果配置中没有代理，使用环境变量
+    if [ -z "$TELEGRAM_PROXY" ]; then
+        TELEGRAM_PROXY="${ALL_PROXY:-${HTTPS_PROXY:-${HTTP_PROXY:-}}}"
+    fi
+    
+    # 验证必须配置
+    if [ -z "$TELEGRAM_TOKEN" ]; then
+        log "❌ Telegram token 未配置"
+        return 1
+    fi
+    
+    if [ -z "$TELEGRAM_CHANNEL" ]; then
+        log "❌ Telegram channel 未配置（请设置 TELEGRAM_CHANNEL 环境变量或在状态文件中包含 telegram_channel）"
+        return 1
+    fi
+    
+    log "✅ 配置加载成功 (token: ${TELEGRAM_TOKEN:0:10}***, channel: $TELEGRAM_CHANNEL)"
+    return 0
+}
+
+# 设置代理变量（供 curl 使用）
+PROXY=""
 
 # ============================================================================
 # 日志函数
@@ -97,9 +161,9 @@ send_message() {
     
     # 添加代理参数（如果设置了）
     local proxy_opt=""
-    if [ -n "$PROXY" ]; then
-        proxy_opt="--proxy $PROXY"
-        log "使用代理: $PROXY"
+    if [ -n "$TELEGRAM_PROXY" ]; then
+        proxy_opt="--proxy $TELEGRAM_PROXY"
+        log "使用代理: $TELEGRAM_PROXY"
     fi
     
     # URL 编码消息（处理特殊字符）
@@ -141,6 +205,13 @@ main() {
     log "脚本路径：$0"
     log "状态文件：$STATE_FILE"
     log "日志文件：$LOG_FILE"
+    log "配置文件：$CONFIG_FILE"
+    
+    # 读取配置
+    if ! read_config; then
+        log "❌ 配置读取失败，无法继续"
+        exit 1
+    fi
     
     # 检查状态文件
     if [ ! -f "$STATE_FILE" ]; then

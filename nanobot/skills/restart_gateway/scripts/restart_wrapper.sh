@@ -7,13 +7,14 @@
 # 独立的守护进程完成，不受 Gateway 关闭影响。
 #
 # Usage:
-#   restart_wrapper.sh --delay <ms> --confirm [--force] [--no-report]
+#   restart_wrapper.sh --delay <ms> --confirm [--force] [--no-report] [--telegram-channel <chat_id>]
 #
 # Options:
-#   --delay <ms>    延迟重启时间（毫秒），默认 5000
-#   --confirm       确认标志（安全机制）
-#   --force         强制重启（跳过优雅关闭）
-#   --no-report     禁用自动汇报
+#   --delay <ms>             延迟重启时间（毫秒），默认 5000
+#   --confirm                确认标志（安全机制）
+#   --force                  强制重启（跳过优雅关闭）
+#   --no-report              禁用自动汇报
+#   --telegram-channel <id>  Telegram 汇报频道 ID
 #
 
 set -euo pipefail
@@ -27,6 +28,7 @@ DELAY_MS=5000
 CONFIRM=false
 FORCE=false
 NO_REPORT=false
+TELEGRAM_CHANNEL=""
 
 # 颜色
 GREEN='\033[0;32m'
@@ -65,17 +67,22 @@ while [[ $# -gt 0 ]]; do
             NO_REPORT=true
             shift
             ;;
+        --telegram-channel)
+            TELEGRAM_CHANNEL="$2"
+            shift 2
+            ;;
         --help)
             cat << EOF
-Usage: restart_wrapper.sh --delay <ms> --confirm [--force] [--no-report]
+Usage: restart_wrapper.sh --delay <ms> --confirm [--force] [--no-report] [--telegram-channel <id>]
 
 快速启动 Gateway 重启流程，立即返回。
 
 Options:
-  --delay <ms>    延迟重启时间（毫秒），默认 5000
-  --confirm       确认标志（安全机制，必须提供）
-  --force         强制重启（跳过优雅关闭）
-  --no-report     禁用自动汇报
+  --delay <ms>             延迟重启时间（毫秒），默认 5000
+  --confirm                确认标志（安全机制，必须提供）
+  --force                  强制重启（跳过优雅关闭）
+  --no-report              禁用自动汇报
+  --telegram-channel <id>  重启汇报目标 Telegram 频道 ID
 
 Examples:
   # 标准重启（5秒延迟，自动汇报）
@@ -89,6 +96,9 @@ Examples:
 
   # 禁用自动汇报
   restart_wrapper.sh --delay 5000 --confirm --no-report
+
+  # 指定 Telegram 汇报频道
+  restart_wrapper.sh --delay 5000 --confirm --telegram-channel "-5172087440"
 
 流程说明:
   1. 此脚本启动独立的守护进程执行重启
@@ -135,6 +145,9 @@ if [ "$FORCE" = true ]; then
 fi
 if [ "$NO_REPORT" = true ]; then
     DAEMON_ARGS="$DAEMON_ARGS --no-report"
+fi
+if [ -n "$TELEGRAM_CHANNEL" ]; then
+    DAEMON_ARGS="$DAEMON_ARGS --telegram-channel $TELEGRAM_CHANNEL"
 fi
 
 # 启动独立守护进程

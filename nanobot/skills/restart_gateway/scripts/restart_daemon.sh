@@ -24,6 +24,7 @@ FORCE=false
 NO_REPORT=false
 GRACEFUL_TIMEOUT=30      # 优雅关闭超时(秒)
 REPORT_DELAY=30          # 重启后汇报延迟(秒)
+TELEGRAM_CHANNEL=""      # Telegram 汇报频道
 STATE_FILE="/tmp/gateway_restart_state.json"
 LOG_FILE="/tmp/gateway_restart_daemon.log"
 JOBS_FILE="$HOME/.nanobot/cron/jobs.json"
@@ -65,6 +66,10 @@ while [[ $# -gt 0 ]]; do
         --no-report)
             NO_REPORT=true
             shift
+            ;;
+        --telegram-channel)
+            TELEGRAM_CHANNEL="$2"
+            shift 2
             ;;
         *)
             log_error "未知参数: $1"
@@ -177,7 +182,8 @@ save_state_file() {
   "script_delay_ms": $DELAY_MS,
   "report_delay_s": $REPORT_DELAY,
   "force_mode": $FORCE,
-  "daemon_pid": $$
+  "daemon_pid": $$,
+  "telegram_channel": "$TELEGRAM_CHANNEL"
 }
 EOF
     log_info "状态已保存: $STATE_FILE"

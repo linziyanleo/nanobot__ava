@@ -6,15 +6,16 @@
 # 这确保重启流程不受 Gateway 进程关闭影响。
 #
 # Usage:
-#   restart_gateway.sh --delay <milliseconds> --confirm [--force] [--no-report]
+#   restart_gateway.sh --delay <milliseconds> --confirm [--force] [--no-report] [--telegram-channel <id>]
 #
 # Options:
-#   --delay <ms>   Delay before restart in milliseconds (default: 5000)
-#   --confirm      Required flag to confirm restart
-#   --force        Force kill instead of graceful shutdown
-#   --no-report    Skip automatic status report after restart
-#   --legacy       Use legacy inline restart (not recommended)
-#   --help         Show this help message
+#   --delay <ms>             Delay before restart in milliseconds (default: 5000)
+#   --confirm                Required flag to confirm restart
+#   --force                  Force kill instead of graceful shutdown
+#   --no-report              Skip automatic status report after restart
+#   --telegram-channel <id>  Telegram channel ID for status report
+#   --legacy                 Use legacy inline restart (not recommended)
+#   --help                   Show this help message
 #
 
 set -euo pipefail
@@ -29,6 +30,7 @@ CONFIRM=false
 FORCE=false
 NO_REPORT=false
 LEGACY=false
+TELEGRAM_CHANNEL=""
 GRACEFUL_TIMEOUT=30  # seconds to wait before force kill
 REPORT_DELAY=30  # seconds after restart to run report
 
@@ -52,18 +54,19 @@ log_error() {
 
 show_help() {
     cat << EOF
-Usage: restart_gateway.sh --delay <milliseconds> --confirm [--force] [--no-report]
+Usage: restart_gateway.sh --delay <milliseconds> --confirm [--force] [--no-report] [--telegram-channel <id>]
 
 Delayed restart of nanobot gateway service with automatic status report.
 此脚本使用独立守护进程执行重启，确保重启不受 Gateway 进程关闭影响。
 
 Options:
-  --delay <ms>   Delay before restart in milliseconds (default: 5000)
-  --confirm      Required flag to confirm restart (safety mechanism)
-  --force        Force kill instead of graceful SIGTERM shutdown
-  --no-report    Skip automatic status report after restart
-  --legacy       Use legacy inline restart (not recommended, may fail)
-  --help         Show this help message
+  --delay <ms>             Delay before restart in milliseconds (default: 5000)
+  --confirm                Required flag to confirm restart (safety mechanism)
+  --force                  Force kill instead of graceful SIGTERM shutdown
+  --no-report              Skip automatic status report after restart
+  --telegram-channel <id>  Telegram channel ID for status report
+  --legacy                 Use legacy inline restart (not recommended, may fail)
+  --help                   Show this help message
 
 Examples:
   # Standard restart with auto-report (5 second delay)
@@ -123,6 +126,10 @@ while [[ $# -gt 0 ]]; do
             LEGACY=true
             shift
             ;;
+        --telegram-channel)
+            TELEGRAM_CHANNEL="$2"
+            shift 2
+            ;;
         --help)
             show_help
             exit 0
@@ -170,6 +177,9 @@ if [ "$LEGACY" != true ]; then
         fi
         if [ "$NO_REPORT" = true ]; then
             WRAPPER_ARGS="$WRAPPER_ARGS --no-report"
+        fi
+        if [ -n "$TELEGRAM_CHANNEL" ]; then
+            WRAPPER_ARGS="$WRAPPER_ARGS --telegram-channel $TELEGRAM_CHANNEL"
         fi
         
         # 调用 wrapper
@@ -278,6 +288,13 @@ create_report_task() {
         return 0
     fi
     
+    # 如果没有指定 TELEGRAM_CHANNEL，尝试从配置读取或跳过
+    if [ -z "$TELEGRAM_CHANNEL" ]; then
+        log_warn "Telegram channel not specified, skipping auto-report"
+        log_warn "Use --telegram-channel <id> to enable auto-report"
+        return 0
+    fi
+    
     log_info "Creating auto-report task (executes ${REPORT_DELAY}s after restart)..."
     
     # Get current timestamp in milliseconds (macOS compatible)
@@ -332,7 +349,7 @@ job = service.add_job(
 一切正常！✨""",
     deliver=True,
     channel="telegram",
-    to="-5172087440",
+    to="$TELEGRAM_CHANNEL",
     delete_after_run=True,
 )
 
