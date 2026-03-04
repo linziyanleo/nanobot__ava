@@ -67,23 +67,31 @@ truncate_log() {
 # 进程查找函数
 # ============================================================================
 find_all_gateway_pids() {
-    local pids=""
+    local all_pids=""
     
     # 方法1: PID 文件
     local pid_file="$HOME/.nanobot/gateway.pid"
     if [ -f "$pid_file" ]; then
         local file_pid=$(cat "$pid_file" 2>/dev/null)
         if [ -n "$file_pid" ] && kill -0 "$file_pid" 2>/dev/null; then
-            echo "$file_pid"
-            return 0
+            all_pids="$file_pid"
         fi
     fi
     
-    # 方法2: ps + grep
-    pids=$(ps aux | grep -E "python.*nanobot.*gateway" | grep -v "watchdog" | grep -v "restart_" | grep -v grep | awk '{print $2}') || true
+    # 方法2: ps + grep (always check to catch orphan processes)
+    local ps_pids=$(ps aux | grep -E "python.*nanobot.*gateway" | grep -v "watchdog" | grep -v "restart_" | grep -v grep | awk '{print $2}') || true
     
-    if [ -n "$pids" ]; then
-        echo "$pids" | sort -u
+    # Merge both sources and deduplicate
+    if [ -n "$ps_pids" ]; then
+        if [ -n "$all_pids" ]; then
+            all_pids=$(printf "%s\n%s" "$all_pids" "$ps_pids" | sort -un)
+        else
+            all_pids=$(echo "$ps_pids" | sort -un)
+        fi
+    fi
+    
+    if [ -n "$all_pids" ]; then
+        echo "$all_pids"
     fi
 }
 

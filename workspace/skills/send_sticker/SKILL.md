@@ -5,45 +5,25 @@ description: Send Telegram stickers from the ava origin sticker pack. Use when A
 
 # send_sticker
 
-发送 Telegram 表情包（Sticker）
-
-## 功能描述
-
-根据表情编号发送 ava origin 表情包集中的表情。
+发送 Telegram 表情包（Sticker）。已内置为 agent 工具，对话中直接调用即可。
 
 ## 使用方法
 
-### 方式一：命令行脚本（推荐）
+直接调用内置的 `send_sticker` 工具：
 
-```bash
-# 设置环境变量
-export TELEGRAM_BOT_TOKEN="your_bot_token"
-
-# 发送表情
-python send_sticker.py <sticker_id> <chat_id>
-
-# 示例：发送开心的表情到指定聊天
-python send_sticker.py 1 -5172087440
-
-# 列出所有表情
-python send_sticker.py list
+```
+send_sticker(sticker_id: int, chat_id?: str)
 ```
 
-### 方式二：在 nanobot 中使用
+- `sticker_id` (int, 必填): 表情编号 1-24
+- `chat_id` (str, 可选): Telegram 聊天 ID。不传时自动使用当前会话的 chat context
 
-```bash
-# 通过 nanobot 技能系统调用（自动获取 token 和 chat_id）
-nanobot skill send-sticker --sticker_id 1
+### 示例
+
 ```
-
-### 参数说明
-
-- `sticker_id` (int): 表情编号 (1-24)
-- `chat_id` (str): Telegram 聊天 ID（群聊为负数，私聊为正数）
-
-### 环境变量
-
-- `TELEGRAM_BOT_TOKEN`: Telegram Bot Token（从 config.json 或环境变量获取）
+send_sticker(sticker_id=4)              # 发送打招呼表情到当前聊天
+send_sticker(sticker_id=14, chat_id="12345678")  # 发送爱心到指定聊天
+```
 
 ## 表情包信息
 
@@ -69,7 +49,7 @@ nanobot skill send-sticker --sticker_id 1
 | 12 | 🤩😍✨ | 崇拜/花痴 |
 | 13 | 😑🙄😓🤦😶 | 无语/无奈 |
 | 14 | ❤️😊🥰 | 爱心/喜欢 |
-| 15 | 🤔🌀😵‍💫😵 | 思考/困惑 |
+| 15 | 🤔🌀😵‍💫 | 思考/困惑 |
 | 16 | 🎧🕺🪩 | 派对/音乐 |
 | 17 | 🙂😏👀 | 围观/吃瓜 |
 | 18 | 😱😭 | 崩溃/大哭 |
@@ -80,44 +60,13 @@ nanobot skill send-sticker --sticker_id 1
 | 23 | 👊💥😤 | 生气/抗议 |
 | 24 | 🪼 | 水母/神秘 |
 
-## 依赖
+## 使用建议
 
-- Python 3.6+
-- Telegram Bot API（通过 urllib 直接调用，无需额外依赖）
-- 需要配置 Telegram Bot Token
-
-## 获取必要信息
-
-### 1. 获取 Bot Token
-
-从 `~/.nanobot/config.json` 中读取：
-
-```json
-{
-  "telegram": {
-    "token": "YOUR_BOT_TOKEN"
-  }
-}
-```
-
-或使用环境变量：
-
-```bash
-export TELEGRAM_BOT_TOKEN="YOUR_BOT_TOKEN"
-```
-
-### 2. 获取 Chat ID
-
-- **私聊**：使用用户的 Telegram ID（正数）
-- **群聊**：使用群聊 ID（负数，如 `-5172087440`）
-
-可以通过以下方式获取：
-- 查看 nanobot 会话日志
-- 使用 @userinfobot 等 Telegram 机器人查询
+- 根据对话情绪自然地选择表情，不要每句话都发
+- 傲娇时用 7，被夸害羞时用 20，整活时用 8 或 19
+- 水母（24）是向晚的专属符号，特殊时刻用
 
 ## 注意事项
 
-- ✅ 表情编号必须在 1-24 范围内
-- ✅ 需要先在 Telegram 上创建 Bot 并获取 Token
-- ✅ 需要配置网络代理（如果在中国大陆）
-- ⚠️ 文档中的 Python 函数调用是伪代码，实际使用命令行脚本
+- 表情编号必须在 1-24 范围内
+- 仅支持 Telegram 渠道

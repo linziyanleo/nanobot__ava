@@ -25,6 +25,7 @@ from nanobot.agent.tools.registry import ToolRegistry
 from nanobot.agent.tools.shell import ExecTool
 from nanobot.agent.tools.spawn import SpawnTool
 from nanobot.agent.tools.vision import VisionTool
+from nanobot.agent.tools.sticker import StickerTool
 from nanobot.agent.tools.web import WebFetchTool, WebSearchTool
 from nanobot.bus.events import InboundMessage, OutboundMessage
 from nanobot.bus.queue import MessageBus
@@ -144,6 +145,7 @@ class AgentLoop:
         self.tools.register(VisionTool(provider=self.provider, model=self.model))
         if self.cron_service:
             self.tools.register(CronTool(self.cron_service))
+        self.tools.register(StickerTool())
 
     async def _connect_mcp(self) -> None:
         """Connect to configured MCP servers (one-time, lazy)."""
@@ -169,7 +171,7 @@ class AgentLoop:
 
     def _set_tool_context(self, channel: str, chat_id: str, message_id: str | None = None) -> None:
         """Update context for all tools that need routing info."""
-        for name in ("message", "spawn", "cron"):
+        for name in ("message", "spawn", "cron", "send_sticker"):
             if tool := self.tools.get(name):
                 if hasattr(tool, "set_context"):
                     tool.set_context(channel, chat_id, *([message_id] if name == "message" else []))
@@ -492,14 +494,34 @@ class AgentLoop:
             initial_messages, session, on_progress=on_progress or _bus_progress,
         )
 
+        # Check if any "delivery" tool already sent content to the user
+        _sticker_sent = False
+        if (st := self.tools.get("send_sticker")):
+            from nanobot.agent.tools.sticker import StickerTool
+            if isinstance(st, StickerTool) and st._sent_in_turn:
+                _sticker_sent = True
+                st._sent_in_turn = False  # reset for next turn
+
+        _message_sent = False
+        if (mt := self.tools.get("message")) and isinstance(mt, MessageTool) and mt._sent_in_turn:
+            _message_sent = True
+
         if final_content is None:
-            final_content = "I've completed processing but have no response to give."
+            if _sticker_sent or _message_sent:
+                # Already delivered content via tool, no need for fallback
+                final_content = None
+            else:
+                final_content = "I've completed processing but have no response to give."
 
         self._save_turn(session, all_msgs, 1 + len(history))
         self.sessions.save(session)
 
-        if (mt := self.tools.get("message")) and isinstance(mt, MessageTool) and mt._sent_in_turn:
+        if _message_sent or (_sticker_sent and final_content is None):
             return None
+
+        if final_content is None:
+            # Shouldn't reach here, but just in case
+            final_content = "I've completed processing but have no response to give."
 
         preview = final_content[:120] + "..." if len(final_content) > 120 else final_content
         logger.info("Response to {}:{}: {}", msg.channel, msg.sender_id, preview)
