@@ -376,6 +376,8 @@ def gateway(
         provider=provider,
         workspace=config.workspace_path,
         model=config.agents.defaults.model,
+        vision_model=config.agents.defaults.vision_model,
+        mini_model=config.agents.defaults.mini_model,
         temperature=config.agents.defaults.temperature,
         max_tokens=config.agents.defaults.max_tokens,
         max_iterations=config.agents.defaults.max_tool_iterations,
@@ -402,6 +404,9 @@ def gateway(
             f"Scheduled instruction: {job.payload.message}"
         )
 
+        # Select model based on job's model_tier setting
+        model_override = agent.get_model_for_tier(job.payload.model_tier)
+
         # Prevent the agent from scheduling new cron jobs during execution
         cron_tool = agent.tools.get("cron")
         cron_token = None
@@ -413,6 +418,7 @@ def gateway(
                 session_key=f"cron:{job.id}",
                 channel=job.payload.channel or "cli",
                 chat_id=job.payload.to or "direct",
+                model_override=model_override,
             )
         finally:
             if isinstance(cron_tool, CronTool) and cron_token is not None:
@@ -480,6 +486,7 @@ def gateway(
         workspace=config.workspace_path,
         provider=provider,
         model=agent.model,
+        mini_model=agent.mini_model,
         on_execute=on_heartbeat_execute,
         on_notify=on_heartbeat_notify,
         interval_s=hb_cfg.interval_s,
@@ -723,6 +730,8 @@ def agent(
         provider=provider,
         workspace=config.workspace_path,
         model=config.agents.defaults.model,
+        vision_model=config.agents.defaults.vision_model,
+        mini_model=config.agents.defaults.mini_model,
         temperature=config.agents.defaults.temperature,
         max_tokens=config.agents.defaults.max_tokens,
         max_iterations=config.agents.defaults.max_tool_iterations,
@@ -1218,6 +1227,8 @@ def cron_run(
         provider=provider,
         workspace=config.workspace_path,
         model=config.agents.defaults.model,
+        vision_model=config.agents.defaults.vision_model,
+        mini_model=config.agents.defaults.mini_model,
         temperature=config.agents.defaults.temperature,
         max_tokens=config.agents.defaults.max_tokens,
         max_iterations=config.agents.defaults.max_tool_iterations,
@@ -1237,11 +1248,13 @@ def cron_run(
     result_holder = []
 
     async def on_job(job: CronJob) -> str | None:
+        model_override = agent_loop.get_model_for_tier(job.payload.model_tier)
         response = await agent_loop.process_direct(
             job.payload.message,
             session_key=f"cron:{job.id}",
             channel=job.payload.channel or "cli",
             chat_id=job.payload.to or "direct",
+            model_override=model_override,
         )
         result_holder.append(response)
         return response

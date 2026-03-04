@@ -100,6 +100,7 @@ class CronService:
                             deliver=j["payload"].get("deliver", False),
                             channel=j["payload"].get("channel"),
                             to=j["payload"].get("to"),
+                            model_tier=j["payload"].get("modelTier"),
                         ),
                         state=CronJobState(
                             next_run_at_ms=j.get("state", {}).get("nextRunAtMs"),
@@ -150,6 +151,7 @@ class CronService:
                         "deliver": j.payload.deliver,
                         "channel": j.payload.channel,
                         "to": j.payload.to,
+                        "modelTier": j.payload.model_tier,
                     },
                     "state": {
                         "nextRunAtMs": j.state.next_run_at_ms,
@@ -327,6 +329,7 @@ class CronService:
         channel: str | None = None,
         to: str | None = None,
         delete_after_run: bool = False,
+        model_tier: str | None = None,
     ) -> CronJob:
         """Add a new job."""
         store = self._load_store()
@@ -344,6 +347,7 @@ class CronService:
                 deliver=deliver,
                 channel=channel,
                 to=to,
+                model_tier=model_tier,
             ),
             state=CronJobState(next_run_at_ms=_compute_next_run(schedule, now)),
             created_at_ms=now,
@@ -495,6 +499,7 @@ class CronService:
             deliver = task.get("deliver", default_deliver)
             channel = task.get("channel", default_channel)
             to = task.get("to", default_to)
+            model_tier = task.get("modelTier")
 
             if job_id in existing:
                 job = existing[job_id]
@@ -506,6 +511,7 @@ class CronService:
                     or job.payload.deliver != deliver
                     or job.payload.channel != channel
                     or job.payload.to != to
+                    or job.payload.model_tier != model_tier
                     or job.name != task.get("name", "")
                 )
                 if changed:
@@ -515,6 +521,7 @@ class CronService:
                     job.payload.deliver = deliver
                     job.payload.channel = channel
                     job.payload.to = to
+                    job.payload.model_tier = model_tier
                     job.enabled = enabled
                     job.updated_at_ms = now
                     if enabled:
@@ -534,6 +541,7 @@ class CronService:
                         deliver=deliver,
                         channel=channel,
                         to=to,
+                        model_tier=model_tier,
                     ),
                     state=CronJobState(
                         next_run_at_ms=_compute_next_run(schedule, now) if enabled else None,

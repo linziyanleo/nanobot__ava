@@ -57,6 +57,8 @@ class AgentLoop:
         provider: LLMProvider,
         workspace: Path,
         model: str | None = None,
+        vision_model: str | None = None,
+        mini_model: str | None = None,
         max_iterations: int = 40,
         temperature: float = 0.1,
         max_tokens: int = 4096,
@@ -77,6 +79,8 @@ class AgentLoop:
         self.provider = provider
         self.workspace = workspace
         self.model = model or provider.get_default_model()
+        self.vision_model = vision_model or self.model
+        self.mini_model = mini_model or self.model
         self.max_iterations = max_iterations
         self.temperature = temperature
         self.max_tokens = max_tokens
@@ -142,7 +146,7 @@ class AgentLoop:
         self.tools.register(MessageTool(send_callback=self.bus.publish_outbound))
         self.tools.register(SpawnTool(manager=self.subagents))
         self.tools.register(MemoryTool(store=self.categorized_memory))
-        self.tools.register(VisionTool(provider=self.provider, model=self.model))
+        self.tools.register(VisionTool(provider=self.provider, model=self.vision_model))
         if self.cron_service:
             self.tools.register(CronTool(self.cron_service))
         self.tools.register(StickerTool())
@@ -638,10 +642,39 @@ class AgentLoop:
         channel: str = "cli",
         chat_id: str = "direct",
         on_progress: Callable[[str], Awaitable[None]] | None = None,
+        model_override: str | None = None,
     ) -> str:
-        """Process a message directly (for CLI or cron usage)."""
+        """Process a message directly (for CLI or cron usage).
+        
+        Args:
+            model_override: If provided, temporarily use this model for the request.
+        """
         await self._connect_mcp()
         session = self.sessions.get_or_create(session_key)
         msg = InboundMessage(channel=channel, sender_id="user", chat_id=chat_id, content=content)
-        response = await self._process_message(msg, session_key=session_key, on_progress=on_progress)
-        return response.content if response else ""
+        
+        # Temporarily swap model if override provided
+        original_model = None
+        if model_override:
+            original_model = self.model
+            self.model = model_override
+        
+        try:
+            response = await self._process_message(msg, session_key=session_key, on_progress=on_progress)
+            return response.content if response else ""
+        finally:
+            if original_model:
+                self.model = original_model
+
+    def get_model_for_tier(self, tier: str | None) -> str:
+        """Get model name for a given tier.
+        
+        Args:
+            tier: "mini" for lightweight model, "default"/None for main model.
+        
+        Returns:
+            The appropriate model name.
+        """
+        if tier == "mini":
+            return self.mini_model
+        return self.model

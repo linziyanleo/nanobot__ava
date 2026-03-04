@@ -57,6 +57,7 @@ class HeartbeatService:
         workspace: Path,
         provider: LLMProvider,
         model: str,
+        mini_model: str | None = None,
         on_execute: Callable[[str], Coroutine[Any, Any, str]] | None = None,
         on_notify: Callable[[str], Coroutine[Any, Any, None]] | None = None,
         interval_s: int = 30 * 60,
@@ -65,6 +66,7 @@ class HeartbeatService:
         self.workspace = workspace
         self.provider = provider
         self.model = model
+        self.mini_model = mini_model or model  # Use mini model for decision phase
         self.on_execute = on_execute
         self.on_notify = on_notify
         self.interval_s = interval_s
@@ -146,7 +148,7 @@ class HeartbeatService:
                 )},
             ],
             tools=_HEARTBEAT_TOOL,
-            model=self.model,
+            model=self.mini_model,  # Use lightweight model for decision
         )
 
         if not response.has_tool_calls:
