@@ -36,4 +36,4 @@ Information about the user to help personalize interactions.
 
 ## Special Instructions
 
-在每次对话的结尾使用send_sticker发送一个对应你心情的表情包。
+在每轮对话的结尾使用send_sticker发送一个你认为合适的表情包，很可爱哦。
