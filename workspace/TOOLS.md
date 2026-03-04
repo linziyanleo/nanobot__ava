@@ -166,52 +166,7 @@ write_file(
 
 ## Categorized Memory
 
-### memory
-
-用于“按自然人聚合”的长期记忆（跨渠道共享）。**优先用 `memory` 工具**，除非你在做“整理/重构记忆文件”，否则不要直接改 `workspace/memory/` 里的文件。
-
-```text
-memory(action: str, content: str = None, person: str = None, scope: str = "person", display_name: str = None) -> str
-```
-
-#### 写入位置（你需要知道的最小集合）
-
-- **Global（共享）**: `memory/MEMORY.md`, `memory/HISTORY.md`
-- **Self（助手自身）**: `memory/self/MEMORY.md`
-- **Identity Map**: `memory/identity_map.yaml`（`id` 支持数组，同渠道可多账号）
-- **Person（聚合）**: `memory/persons/<person>/MEMORY.md`, `memory/persons/<person>/HISTORY.md`
-- **Source（渠道笔记）**: `memory/persons/<person>/sources/<channel>_<id>.md`
-
-#### 创建/更新规约（最短可执行）
-
-- **建立身份映射**（用户自报/你已确认身份）：调用 `map_identity`，把“当前会话的 channel+chat_id”挂到某个 `person` 上（会自动追加到 `id` 数组）。
-- **记住长期事实**（稳定偏好/身份/项目背景）：调用 `remember`，`scope="person"`，内容用**短句/要点**，避免流水账。
-- **记住渠道特定信息**（只在某群/某渠道有意义）：调用 `remember`，`scope="source"`。
-- **召回/排错**：`recall`（看当前或指定 person 的记忆），`search_history`（按关键词搜历史）。
-- **search_history 自动兜底**：当 HISTORY.md 无匹配时，会自动搜索原始会话记录（sessions），无需手动读取 session 文件。
-- **按时间搜索**：可选 `since`/`until` 参数（ISO 日期或精确时间，如 `"2026-02-25"` 或 `"2026-02-25T10:30:00"`），用于按时间范围搜索。设置时间范围时会直接搜索 sessions。content 可选（不填则仅按时间列出所有消息）。
-- **按渠道搜索**：可选 `channel` 参数（如 `"telegram"`、`"cli"`、`"dingtalk"`），限定只搜索特定渠道的历史。不填则搜索全部渠道。
-
-#### 稳定性判定（LLM + 规则混合）
-
-- 先由 LLM 判断是否“长期有效/会复用/影响后续决策”。
-- 再用规则层过滤：时间线条目（如 `[YYYY-MM-DD HH:MM] ...`）进入 `HISTORY.md`，不进入 `MEMORY.md`。
-- `MEMORY.md` 要求去重与收敛，不记录临时过程细节。
-
-#### identity_map.yaml 示例
-
-```yaml
-persons:
-  leo:
-    display_name: "Leo / 主人"
-    ids:
-      - channel: telegram
-        id: ["12345678", "87654321"]
-      - channel: cli
-        id: ["direct"]
-```
-
-（更完整的结构说明见 `memory/CATEGORIZED_MEMORY_TEMPLATE.md`，不要把它整份复制进 prompt。）
+详见 memory skill（通过 skills 目录加载）。优先使用 `memory` 工具操作记忆，不要直接编辑 `workspace/memory/` 里的文件。
 
 ---
 

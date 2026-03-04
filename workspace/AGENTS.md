@@ -34,3 +34,28 @@ When executing recurring/periodic tasks, always mark completion status to preven
 - Tool-call traces are not enough for replay quality; always save the final natural-language assistant reply.
 - If session tail is not `assistant`, treat it as a potential context-drift bug and investigate before shipping.
 - Keep context budget bounded: prioritize recent turns + relevant older turns, and compress low-value placeholders (e.g. `[auto-backfill]`) before model injection.
+
+## Memory Governance
+
+记忆文件必须保持精简，避免 token 浪费。
+
+### MEMORY.md 规则
+
+- **只存稳定事实**：偏好、关系、约定、身份信息
+- **禁止内容**：历史事件细节、时间线条目、技术环境备忘、定时任务列表
+- **行数上限**：保持在 80 行以内
+- 如果内容不符合以上规则，应移入 HISTORY.md 或删除
+
+### HISTORY.md 规则
+
+- 每条以 `[YYYY-MM-DD HH:MM]` 开头
+- 保持简洁：每条 2-5 句话总结关键事件
+- 不存过程细节，只存结果和决策
+
+### 定时整理
+
+`memory-cleanup` 任务（03:01）负责：
+
+1. 检查 MEMORY.md 是否超过 80 行，超出则精简
+2. 将历史细节移入 HISTORY.md
+3. 去重 + 收敛
