@@ -177,7 +177,7 @@ memory(action: str, content: str = None, person: str = None, scope: str = "perso
 #### 写入位置（你需要知道的最小集合）
 
 - **Global（共享）**: `memory/MEMORY.md`, `memory/HISTORY.md`
-- **Ava Self（助手自身）**: `memory/ava/MEMORY.md`
+- **Self（助手自身）**: `memory/self/MEMORY.md`
 - **Identity Map**: `memory/identity_map.yaml`（`id` 支持数组，同渠道可多账号）
 - **Person（聚合）**: `memory/persons/<person>/MEMORY.md`, `memory/persons/<person>/HISTORY.md`
 - **Source（渠道笔记）**: `memory/persons/<person>/sources/<channel>_<id>.md`

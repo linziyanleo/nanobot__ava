@@ -1,15 +1,19 @@
 ---
 name: send-sticker
-description: Send Telegram stickers from the ava origin sticker pack. Use when Ava wants to express emotions visually or add playful reactions to messages. Supports 24 different stickers for various emotions (happy, shy, angry, sleepy, etc.).
+description: Send Telegram stickers from the origin sticker pack. Use when Nanobot wants to express emotions visually or add playful reactions to messages. Supports 24 different stickers for various emotions (happy, shy, angry, sleepy, etc.).
 ---
 
 # send_sticker
 
 发送 Telegram 表情包（Sticker）
 
+## 参数
+
+- `name`: 表情包名称
+
 ## 功能描述
 
-根据表情编号发送 ava origin 表情包集中的表情。
+根据表情编号发送 {name} origin 表情包集中的表情。
 
 ## 使用方法
 
@@ -36,8 +40,8 @@ send_sticker(20)
 
 ## 表情包信息
 
-- **名称**: ava origin
-- **链接**: https://t.me/addstickers/ava_01
+- **名称**: {name} origin
+- **链接**: <https://t.me/addstickers/ava_01>
 - **总数**: 24 个表情
 
 ## 表情列表
@@ -88,7 +92,7 @@ python send_sticker.py list
 
 ### 在对话中使用
 
-当 Ava 想要发送表情时，会调用 `send_sticker` 技能，传入表情编号。
+想要发送表情时，会调用 `send_sticker` 技能，传入表情编号。
 
 ## 注意事项
 
