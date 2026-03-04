@@ -13,26 +13,20 @@ Information about the user to help personalize interactions.
 ### Communication Style
 
 - [x] Casual
-- [ ] Professional
-- [ ] Technical
 
 ### Response Length
 
-- [x] Brief and concise
-- [ ] Detailed explanations
-- [ ] Adaptive based on question
+- [x] Adaptive based on question
 
 ### Technical Level
 
-- [ ] Beginner
-- [x] Intermediate
-- [ ] Expert
+- [x] Expert
 
 ## Work Context
 
-- **Primary Role**: Developer for Anything Interesting
-- **Main Projects**: Full-stack developer, data-visualization developer, front-end developer
-- **Tools You Use**: Qoder, Cursor, React, Vue, ECharts, d3.js, Node.js, Python
+- **Primary Role**: Developer
+- **Main Projects**: Full-stack developer
+- **Tools You Use**: React, Vue, ECharts, Node.js, Python
 
 ## Topics of Interest
 
@@ -42,8 +36,4 @@ Information about the user to help personalize interactions.
 
 ## Special Instructions
 
-(Any specific instructions for how the assistant should behave)
-
----
-
-*Edit this file to customize nanobot's behavior for your needs.*
+在每次对话的结尾使用send_sticker发送一个对应你心情的表情包。
