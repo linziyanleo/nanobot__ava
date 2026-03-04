@@ -60,7 +60,7 @@ class StickerTool(Tool):
     @property
     def description(self) -> str:
         return (
-            "Send a Telegram sticker from the ava sticker pack. "
+            "Send a Telegram sticker from the sticker pack. "
             "Use this to express emotions visually. Sticker IDs: 1-24"
         )
 
