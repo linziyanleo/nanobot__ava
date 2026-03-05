@@ -252,7 +252,7 @@ class AgentDefaults(Base):
     """Default agent configuration."""
 
     workspace: str = "~/.nanobot/workspace"
-    model: str = "anthropic/claude-opus-4-5"
+    model: str = "anthropic/claude-opus-4-6"
     vision_model: str | None = None  # Model for vision/OCR tasks (fallback to model)
     mini_model: str | None = None  # Lightweight model for simple tasks (fallback to model)
     memory_tier: Literal["default", "mini"] | None = "mini"  # Model tier for memory consolidation
@@ -284,6 +284,8 @@ class ProvidersConfig(Base):
     """Configuration for LLM providers."""
 
     custom: ProviderConfig = Field(default_factory=ProviderConfig)  # Any OpenAI-compatible endpoint
+    zenmux: ProviderConfig = Field(default_factory=ProviderConfig)  # Zenmux (Anthropic proxy)
+    yunwu: ProviderConfig = Field(default_factory=ProviderConfig)  # Yunwu (Anthropic proxy)
     anthropic: ProviderConfig = Field(default_factory=ProviderConfig)
     openai: ProviderConfig = Field(default_factory=ProviderConfig)
     openrouter: ProviderConfig = Field(default_factory=ProviderConfig)

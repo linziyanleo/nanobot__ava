@@ -159,6 +159,46 @@ PROVIDERS: tuple[ProviderSpec, ...] = (
         model_overrides=(),
     ),
 
+    # === Anthropic proxy gateways (route to Anthropic-compatible endpoints) ==
+
+    # Zenmux: Anthropic-compatible proxy gateway
+    ProviderSpec(
+        name="zenmux",
+        keywords=("zenmux",),
+        env_key="ANTHROPIC_API_KEY",
+        display_name="Zenmux",
+        litellm_prefix="",
+        skip_prefixes=(),
+        env_extras=(),
+        is_gateway=True,
+        is_local=False,
+        detect_by_key_prefix="",
+        detect_by_base_keyword="zenmux",
+        default_api_base="https://zenmux.ai/api/anthropic",
+        strip_model_prefix=True,
+        model_overrides=(),
+        supports_prompt_caching=True,
+    ),
+
+    # Yunwu: Anthropic-compatible proxy gateway
+    ProviderSpec(
+        name="yunwu",
+        keywords=("yunwu",),
+        env_key="ANTHROPIC_API_KEY",
+        display_name="Yunwu",
+        litellm_prefix="",
+        skip_prefixes=(),
+        env_extras=(),
+        is_gateway=True,
+        is_local=False,
+        detect_by_key_prefix="",
+        detect_by_base_keyword="yunwu",
+        default_api_base="https://yunwu.ai/v1/messages",
+        strip_model_prefix=True,
+        model_overrides=(),
+        supports_prompt_caching=True,
+    ),
+
     # === Standard providers (matched by model-name keywords) ===============
 
     # Anthropic: LiteLLM recognizes "claude-*" natively, no prefix needed.
