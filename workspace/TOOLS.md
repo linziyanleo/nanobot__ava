@@ -99,6 +99,36 @@ vision(url: str, prompt: str = "描述这张图片的内容。") -> str
 - `prompt` controls the analysis: use `"请仅输出图像中的文本内容。"` for OCR, or ask specific questions about the image
 - Returns the model's text response describing/analyzing the image
 
+## Sticker
+
+### send_sticker
+
+Send a Telegram sticker from the configured sticker pack. Use to express emotions visually or add playful reactions.
+
+```
+send_sticker(sticker_id: int, chat_id: str = None) -> str
+```
+
+**Parameters:**
+
+- `sticker_id` (int, required): Sticker number from the pack. Available IDs and their meanings are loaded from config.
+- `chat_id` (str, optional): Telegram chat ID. If omitted, uses the current chat context automatically.
+
+**Examples:**
+
+```
+send_sticker(sticker_id=4)                          # 发送表情到当前聊天
+send_sticker(sticker_id=14, chat_id="12345678")     # 发送到指定聊天
+```
+
+**Notes:**
+
+- Only works on the Telegram channel
+- Sticker pack and emoji mappings are configured in `~/.nanobot/sticker.json`
+- The tool reads pack data at startup and caches it; modify the config file to switch packs or update stickers
+- When a sticker is sent, the agent suppresses the text reply for that turn (via `_sent_in_turn`)
+- Choose stickers naturally based on conversation emotion; works best as a standalone reaction at the end of a reply
+
 ## Communication
 
 ### message

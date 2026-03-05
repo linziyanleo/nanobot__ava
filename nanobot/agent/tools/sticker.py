@@ -1,43 +1,16 @@
 """Sticker tool for sending Telegram stickers."""
 
 import json
-import urllib.request
-import urllib.error
+from pathlib import Path
 from typing import Any
+
+import httpx
 
 from nanobot.agent.tools.base import Tool
 from nanobot.config.loader import load_config
 
-# Sticker pack name
-STICKER_PACK_NAME = "ava_01"
-
-# Sticker ID to emoji mapping
-STICKER_EMOJIS = {
-    1: "😌",
-    2: "😲",
-    3: "😴",
-    4: "😊",
-    5: "🤕",
-    6: "💃",
-    7: "😤",
-    8: "🤪",
-    9: "🎸",
-    10: "🎮",
-    11: "😎",
-    12: "🤩",
-    13: "😑",
-    14: "❤️",
-    15: "🤔",
-    16: "🎧",
-    17: "🙂",
-    18: "😱",
-    19: "🫨",
-    20: "😳",
-    21: "✨",
-    22: "😪",
-    23: "👊",
-    24: "🪼",
-}
+DEFAULT_STICKER_PACK_NAME = "ava_01"
+STICKER_CONFIG_PATH = Path.home() / ".nanobot" / "sticker.json"
 
 
 class StickerTool(Tool):
@@ -48,6 +21,7 @@ class StickerTool(Tool):
         self._default_chat_id = None
         self._sticker_cache: dict[str, str] | None = None
         self._sent_in_turn: bool = False
+        self._sticker_config: dict | None = None
 
     def set_context(self, channel: str, chat_id: str) -> None:
         """Set the current chat context."""
@@ -59,25 +33,62 @@ class StickerTool(Tool):
 
     @property
     def description(self) -> str:
+        sticker_data = self._get_sticker_data()
+        if not sticker_data:
+            return (
+                "Send a Telegram sticker from the sticker pack. "
+                "Use this to express emotions visually. "
+                "Sticker config not found at ~/.nanobot/sticker.json"
+            )
+
+        parts = []
+        for sid in sorted(sticker_data.keys()):
+            info = sticker_data[sid]
+            emoji = info.get("emoji", "")
+            meaning = info.get("meaning", "")
+            label = f"{sid}={emoji}"
+            if meaning:
+                label += f"({meaning})"
+            parts.append(label)
+
+        min_id = min(sticker_data.keys())
+        max_id = max(sticker_data.keys())
+        listing = ", ".join(parts)
         return (
-            "Send a Telegram sticker from the sticker pack. "
-            "Use this to express emotions visually. Sticker IDs: 1-24"
+            f"Send a Telegram sticker from the sticker pack. "
+            f"Use this to express emotions visually. "
+            f"Sticker IDs: {min_id}-{max_id}. {listing}"
         )
 
     @property
     def parameters(self) -> dict[str, Any]:
+        sticker_data = self._get_sticker_data()
+        if sticker_data:
+            min_id = min(sticker_data.keys())
+            max_id = max(sticker_data.keys())
+        else:
+            min_id, max_id = 1, 24
+
+        parts = []
+        for sid in sorted((sticker_data or {}).keys()):
+            info = sticker_data[sid]
+            emoji = info.get("emoji", "")
+            meaning = info.get("meaning", "")
+            aliases = info.get("aliases", [])
+            label = f"{sid}={emoji}"
+            if meaning:
+                label += f"({meaning})"
+            if aliases:
+                label += f"[{'/'.join(aliases)}]"
+            parts.append(label)
+        sticker_desc = ". ".join(parts) if parts else f"Sticker ID ({min_id}-{max_id})"
+
         return {
             "type": "object",
             "properties": {
                 "sticker_id": {
                     "type": "integer",
-                    "description": (
-                        "Sticker ID (1-24). "
-                        "1=😌, 2=😲, 3=😴, 4=😊, 5=🤕, 6=💃, 7=😤, 8=🤪, "
-                        "9=🎸, 10=🎮, 11=😎, 12=🤩, 13=😑, 14=❤️, 15=🤔, "
-                        "16=🎧, 17=🙂, 18=😱, 19=🫨, 20=😳, 21=✨, 22=😪, "
-                        "23=👊, 24=🪼"
-                    ),
+                    "description": f"Sticker ID ({min_id}-{max_id}). {sticker_desc}",
                 },
                 "chat_id": {
                     "type": "string",
@@ -90,6 +101,57 @@ class StickerTool(Tool):
             "required": ["sticker_id"],
         }
 
+    def _load_sticker_config(self) -> dict:
+        """Load sticker pack config from ~/.nanobot/sticker.json, cache the result."""
+        if self._sticker_config is not None:
+            return self._sticker_config
+
+        if not STICKER_CONFIG_PATH.exists():
+            self._sticker_config = {}
+            return self._sticker_config
+
+        try:
+            with open(STICKER_CONFIG_PATH, "r", encoding="utf-8") as f:
+                self._sticker_config = json.load(f)
+        except (json.JSONDecodeError, IOError):
+            self._sticker_config = {}
+
+        return self._sticker_config
+
+    def _get_pack(self, pack_name: str | None = None) -> dict:
+        """Get the active sticker pack config."""
+        config = self._load_sticker_config()
+        packs = config.get("packs", {})
+
+        if pack_name and pack_name in packs:
+            return packs[pack_name]
+
+        if packs:
+            return next(iter(packs.values()))
+
+        return {}
+
+    def _get_pack_name(self) -> str:
+        """Get the active pack's Telegram sticker set name."""
+        pack = self._get_pack()
+        return pack.get("name", DEFAULT_STICKER_PACK_NAME)
+
+    def _get_sticker_data(self) -> dict[int, dict]:
+        """Get {sticker_id: {"emoji": ..., "meaning": ..., "aliases": [...]}} from config."""
+        pack = self._get_pack()
+        raw = pack.get("stickers", {})
+        result: dict[int, dict] = {}
+        for key, value in raw.items():
+            try:
+                sid = int(key)
+                if isinstance(value, dict):
+                    result[sid] = value
+                else:
+                    result[sid] = {"emoji": value, "meaning": "", "aliases": []}
+            except (ValueError, TypeError):
+                continue
+        return result
+
     def _get_config(self) -> dict:
         """Load config and extract telegram settings."""
         if not self._config:
@@ -101,38 +163,27 @@ class StickerTool(Tool):
             }
         return self._config
 
-    def _build_opener(self, proxy: str | None):
-        """Build a urllib opener with optional proxy support."""
-        handlers = []
-        if proxy:
-            proxy_handler = urllib.request.ProxyHandler({
-                "http": proxy,
-                "https": proxy,
-            })
-            handlers.append(proxy_handler)
+    def _build_client(self, proxy: str | None) -> httpx.Client:
+        """Build an httpx client with optional SOCKS5 proxy support."""
+        # Ensure socks5:// is converted to socks5h:// for DNS-over-proxy
+        if proxy and proxy.startswith("socks5://"):
+            proxy = "socks5h://" + proxy[len("socks5://"):]
+        return httpx.Client(proxy=proxy, timeout=15)
 
-        if handlers:
-            return urllib.request.build_opener(*handlers)
-        return None
-
-    def _get_sticker_file_ids(self, token: str, proxy: str | None) -> dict[str, str]:
+    def _get_sticker_file_ids(self, token: str, pack_name: str, proxy: str | None) -> dict[str, str]:
         """Fetch all sticker file_ids from the pack and cache them. Returns emoji->file_id map."""
         if self._sticker_cache is not None:
             return self._sticker_cache
 
-        url = f"https://api.telegram.org/bot{token}/getStickerSet?name={STICKER_PACK_NAME}"
+        url = f"https://api.telegram.org/bot{token}/getStickerSet?name={pack_name}"
         try:
-            opener = self._build_opener(proxy)
-            if opener:
-                response = opener.open(url, timeout=10)
-            else:
-                response = urllib.request.urlopen(url, timeout=10)
+            with self._build_client(proxy) as client:
+                response = client.get(url)
+                data = response.json()
 
-            data = json.loads(response.read().decode())
             if data.get("ok"):
                 sticker_set = data.get("result", {})
                 stickers = sticker_set.get("stickers", [])
-                # Build emoji -> file_id cache
                 cache = {}
                 for sticker in stickers:
                     emoji = sticker.get("emoji")
@@ -141,49 +192,47 @@ class StickerTool(Tool):
                         cache[emoji] = file_id
                 self._sticker_cache = cache
                 return cache
-        except (urllib.error.URLError, json.JSONDecodeError):
-            pass
+        except (httpx.HTTPError, json.JSONDecodeError) as e:
+            return {}
 
         return {}
 
     def _send_sticker(self, token: str, chat_id: str, file_id: str, proxy: str | None) -> tuple[bool, str]:
         """Send sticker to chat."""
         url = f"https://api.telegram.org/bot{token}/sendSticker"
-        data = {
+        payload = {
             "chat_id": chat_id,
             "sticker": file_id,
         }
 
         try:
-            opener = self._build_opener(proxy)
+            with self._build_client(proxy) as client:
+                response = client.post(url, json=payload)
+                result = response.json()
 
-            req = urllib.request.Request(
-                url,
-                data=json.dumps(data).encode("utf-8"),
-                headers={"Content-Type": "application/json"},
-            )
-
-            if opener:
-                response = opener.open(req, timeout=10)
-            else:
-                response = urllib.request.urlopen(req, timeout=10)
-
-            result = json.loads(response.read().decode())
             if result.get("ok"):
                 return True, "Sticker sent successfully"
             return False, result.get("description", "Unknown error")
-        except urllib.error.URLError as e:
+        except httpx.HTTPError as e:
             return False, f"Network error: {e}"
         except json.JSONDecodeError as e:
             return False, f"Response parse error: {e}"
 
     async def execute(self, sticker_id: int, chat_id: str | None = None, **kwargs) -> str:
         """Execute the sticker send."""
-        # Validate sticker_id
-        if not 1 <= sticker_id <= 24:
-            return f"Error: Sticker ID must be between 1-24, got {sticker_id}"
+        sticker_data = self._get_sticker_data()
+        if not sticker_data:
+            return "Error: No sticker config found. Create ~/.nanobot/sticker.json with pack data."
 
-        # Get config
+        min_id = min(sticker_data.keys())
+        max_id = max(sticker_data.keys())
+        if not min_id <= sticker_id <= max_id:
+            return f"Error: Sticker ID must be between {min_id}-{max_id}, got {sticker_id}"
+
+        sticker_info = sticker_data.get(sticker_id)
+        if not sticker_info:
+            return f"Error: No sticker mapped for sticker_id {sticker_id}"
+
         cfg = self._get_config()
         token = cfg.get("token")
         proxy = cfg.get("proxy")
@@ -191,25 +240,24 @@ class StickerTool(Tool):
         if not token:
             return "Error: Telegram token not configured in ~/.nanobot/config.json"
 
-        # Resolve chat_id
         target_chat_id = chat_id or self._default_chat_id
         if not target_chat_id:
             return "Error: No chat_id provided and no default chat context"
 
-        # Get emoji for this sticker_id
-        emoji = STICKER_EMOJIS.get(sticker_id)
+        emoji = sticker_info.get("emoji")
         if not emoji:
-            return f"Error: No emoji mapped for sticker_id {sticker_id}"
+            return f"Error: No emoji defined for sticker_id {sticker_id} in config"
 
-        # Get file_id from cache or API
-        file_id_map = self._get_sticker_file_ids(token, proxy)
+        pack_name = self._get_pack_name()
+        file_id_map = self._get_sticker_file_ids(token, pack_name, proxy)
         file_id = file_id_map.get(emoji)
         if not file_id:
-            return f"Error: Could not find sticker with emoji {emoji} in pack {STICKER_PACK_NAME}"
+            return f"Error: Could not find sticker with emoji {emoji} in pack {pack_name}"
 
-        # Send it
         success, msg = self._send_sticker(token, target_chat_id, file_id, proxy)
         if success:
             self._sent_in_turn = True
-            return f"✓ Sticker {sticker_id} ({emoji}) sent to {target_chat_id}"
+            meaning = sticker_info.get("meaning", "")
+            label = f"{emoji} - {meaning}" if meaning else emoji
+            return f"✓ Sticker {sticker_id} ({label}) sent to {target_chat_id}"
         return f"Error: {msg}"

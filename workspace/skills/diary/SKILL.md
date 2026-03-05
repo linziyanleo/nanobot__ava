@@ -1,6 +1,6 @@
 ---
 name: diary
-description:  Nonobot每日日记技能。每天 00:05 自动执行，读取前一天的所有会话历史，智能提取印象深刻的事情、看法和感受。日记存放在 workspace/diary/ 目录。
+description:  Nonobot 每日日记技能。每天 00:05 自动执行，读取前一天的所有会话历史，智能提取印象深刻的事情、看法和感受。日记存放在 workspace/diary/ 目录。
 license: MIT
 ---
 
