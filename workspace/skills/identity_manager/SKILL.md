@@ -2,7 +2,8 @@
 
 ## 功能描述
 
-管理 nanobot 的 identity_map.yaml，实现"识人"功能的增删改查。通过这个 skill，Ava 可以：
+管理 nanobot 的 identity_map.yaml，实现"识人"功能的增删改查。通过这个 skill，我可以：
+
 - 添加新联系人
 - 更新现有联系人的多平台账号
 - 查询联系人信息
@@ -38,11 +39,13 @@ persons:
 **场景**: 第一次认识某个人，需要记录他的信息
 
 **步骤**:
+
 1. 读取 identity_map.yaml
 2. 在 `persons` 下添加新条目
 3. 写入文件
 
 **示例代码** (Python):
+
 ```python
 import yaml
 
@@ -50,7 +53,7 @@ def add_person(person_key: str, display_name: str, channel: str, account_id: str
     # 读取现有文件
     with open('workspace/memory/identity_map.yaml', 'r', encoding='utf-8') as f:
         data = yaml.safe_load(f) or {'persons': {}}
-    
+
     # 添加新人
     data['persons'][person_key] = {
         'display_name': display_name,
@@ -59,15 +62,16 @@ def add_person(person_key: str, display_name: str, channel: str, account_id: str
             'id': [account_id]
         }]
     }
-    
+
     # 写回文件
     with open('workspace/memory/identity_map.yaml', 'w', encoding='utf-8') as f:
         yaml.dump(data, f, allow_unicode=True, default_flow_style=False)
-    
+
     return f"✅ 已添加 {display_name} 到通讯录！"
 ```
 
 **使用示例**:
+
 ```bash
 # 添加新人 Tony
 python -c "
@@ -88,6 +92,7 @@ with open('workspace/memory/identity_map.yaml', 'w') as f:
 **场景**: 已经认识的人，又在一个新平台联系上了
 
 **步骤**:
+
 1. 读取 identity_map.yaml
 2. 找到对应 person
 3. 检查该平台是否已存在
@@ -96,15 +101,16 @@ with open('workspace/memory/identity_map.yaml', 'w') as f:
 4. 写入文件
 
 **示例代码** (Python):
+
 ```python
 def add_account(person_key: str, channel: str, account_id: str):
     with open('workspace/memory/identity_map.yaml', 'r', encoding='utf-8') as f:
         data = yaml.safe_load(f)
-    
+
     person = data['persons'].get(person_key)
     if not person:
         return f"❌ 未找到联系人：{person_key}"
-    
+
     # 查找该平台是否已存在
     for item in person['ids']:
         if item['channel'] == channel:
@@ -118,10 +124,10 @@ def add_account(person_key: str, channel: str, account_id: str):
             'channel': channel,
             'id': [account_id]
         })
-    
+
     with open('workspace/memory/identity_map.yaml', 'w', encoding='utf-8') as f:
         yaml.dump(data, f, allow_unicode=True, default_flow_style=False)
-    
+
     return f"✅ 已为 {person['display_name']} 添加 {channel} 账号！"
 ```
 
@@ -130,15 +136,16 @@ def add_account(person_key: str, channel: str, account_id: str):
 **场景**: 想知道某个人的所有账号信息
 
 **示例代码**:
+
 ```python
 def get_person(person_key: str):
     with open('workspace/memory/identity_map.yaml', 'r', encoding='utf-8') as f:
         data = yaml.safe_load(f)
-    
+
     person = data['persons'].get(person_key)
     if not person:
         return None
-    
+
     return {
         'key': person_key,
         'display_name': person['display_name'],
@@ -151,11 +158,12 @@ def get_person(person_key: str):
 **场景**: 收到消息，想知道是谁发的
 
 **示例代码**:
+
 ```python
 def lookup_by_account(channel: str, account_id: str):
     with open('workspace/memory/identity_map.yaml', 'r', encoding='utf-8') as f:
         data = yaml.safe_load(f)
-    
+
     for person_key, person in data['persons'].items():
         for item in person['ids']:
             if item['channel'] == channel and account_id in item['id']:
@@ -163,7 +171,7 @@ def lookup_by_account(channel: str, account_id: str):
                     'person_key': person_key,
                     'display_name': person['display_name']
                 }
-    
+
     return None  # 未找到
 ```
 
@@ -172,19 +180,20 @@ def lookup_by_account(channel: str, account_id: str):
 **场景**: 联系人的称呼变了
 
 **示例代码**:
+
 ```python
 def update_display_name(person_key: str, new_display_name: str):
     with open('workspace/memory/identity_map.yaml', 'r', encoding='utf-8') as f:
         data = yaml.safe_load(f)
-    
+
     if person_key not in data['persons']:
         return f"❌ 未找到联系人：{person_key}"
-    
+
     data['persons'][person_key]['display_name'] = new_display_name
-    
+
     with open('workspace/memory/identity_map.yaml', 'w', encoding='utf-8') as f:
         yaml.dump(data, f, allow_unicode=True, default_flow_style=False)
-    
+
     return f"✅ 已更新称呼为：{new_display_name}"
 ```
 
@@ -193,19 +202,20 @@ def update_display_name(person_key: str, new_display_name: str):
 **场景**: 需要移除某个联系人
 
 **示例代码**:
+
 ```python
 def remove_person(person_key: str):
     with open('workspace/memory/identity_map.yaml', 'r', encoding='utf-8') as f:
         data = yaml.safe_load(f)
-    
+
     if person_key not in data['persons']:
         return f"❌ 未找到联系人：{person_key}"
-    
+
     del data['persons'][person_key]
-    
+
     with open('workspace/memory/identity_map.yaml', 'w', encoding='utf-8') as f:
         yaml.dump(data, f, allow_unicode=True, default_flow_style=False)
-    
+
     return f"✅ 已删除联系人：{person_key}"
 ```
 
@@ -214,15 +224,16 @@ def remove_person(person_key: str):
 **场景**: 某人在某个平台的账号不再使用
 
 **示例代码**:
+
 ```python
 def remove_account(person_key: str, channel: str, account_id: str = None):
     with open('workspace/memory/identity_map.yaml', 'r', encoding='utf-8') as f:
         data = yaml.safe_load(f)
-    
+
     person = data['persons'].get(person_key)
     if not person:
         return f"❌ 未找到联系人：{person_key}"
-    
+
     # 找到并删除对应平台
     for i, item in enumerate(person['ids']):
         if item['channel'] == channel:
@@ -237,10 +248,10 @@ def remove_account(person_key: str, channel: str, account_id: str = None):
                 # 删除整个平台
                 person['ids'].pop(i)
             break
-    
+
     with open('workspace/memory/identity_map.yaml', 'w', encoding='utf-8') as f:
         yaml.dump(data, f, allow_unicode=True, default_flow_style=False)
-    
+
     return f"✅ 已删除账号！"
 ```
 
@@ -249,6 +260,7 @@ def remove_account(person_key: str, channel: str, account_id: str = None):
 ### 使用 exec 工具直接操作
 
 **添加新人**:
+
 ```bash
 python3 -c "
 import yaml
@@ -266,6 +278,7 @@ print('✅ 已添加新人！')
 ```
 
 **添加账号**:
+
 ```bash
 python3 -c "
 import yaml
@@ -290,6 +303,7 @@ if person:
 ```
 
 **查询所有人**:
+
 ```bash
 python3 -c "
 import yaml
@@ -314,24 +328,27 @@ for key, person in data['persons'].items():
 ## 实际使用场景
 
 ### 场景 1: 新用户第一次在 Telegram 联系
+
 ```
 用户: "你好，我是 Tony"
-Ava: (调用 memory map_identity 或执行脚本添加)
+我: (调用 memory map_identity 或执行脚本添加)
 → 在 identity_map.yaml 中添加 tony 的 Telegram 账号
 ```
 
 ### 场景 2: 老用户在飞书上联系了
+
 ```
 (飞书收到消息，channel=feishu, chat_id=ou_xxx)
-Ava: (调用 lookup_by_account 查找)
+我: (调用 lookup_by_account 查找)
 → 如果找到，用 display_name 称呼用户
 → 如果没找到，询问用户身份并添加
 ```
 
 ### 场景 3: 用户换了新账号
+
 ```
 用户: "我换了个 Telegram 号，现在是 99999999"
-Ava: (调用 remove_account 删除旧号，add_account 添加新号)
+我: (调用 remove_account 删除旧号，add_account 添加新号)
 → 更新 identity_map.yaml
 ```
 
@@ -351,4 +368,4 @@ nanobot memory map_identity --person leo --display_name "Leo / 主人"
 ---
 
 **最后更新**: 2026-02-28
-**维护者**: Ava & Leo
+**维护者**: Diana & Leo

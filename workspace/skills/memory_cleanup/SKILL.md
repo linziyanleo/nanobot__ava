@@ -1,6 +1,6 @@
 ---
 name: memory_cleanup
-description: "整理 Ava 的记忆系统，去芜存菁。保留重要信息（偏好、身份、项目背景），清理临时信息（时间线条目、过程细节）。"
+description: "整理我的记忆系统，去芜存菁。保留重要信息（偏好、身份、项目背景），清理临时信息（时间线条目、过程细节）。"
 metadata: {"nanobot":{"emoji":"🧹","requires":{"bins":["python3"]}}}
 ---
 
@@ -17,12 +17,14 @@ python3 skills/memory_cleanup/memory_cleanup.py
 ## 整理规则
 
 ### ✅ 保留在 MEMORY.md
+
 - 用户偏好（沟通风格、技术偏好等）
 - 身份信息（姓名、角色、关系）
 - 项目背景（技术栈、架构决策）
 - 长期有效的上下文
 
 ### 📝 移到 HISTORY.md
+
 - 时间线条目（`[YYYY-MM-DD HH:MM] ...`）
 - 临时状态（"进行中"、"testing"）
 - 过程细节（debug 记录、临时笔记）

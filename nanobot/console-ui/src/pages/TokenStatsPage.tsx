@@ -27,6 +27,7 @@ interface TokenRecord {
   user_message: string;
   output_content: string;
   system_prompt_preview: string;
+  conversation_history: string;
   full_request_payload: string;
   finish_reason: string;
 }
@@ -541,6 +542,20 @@ function RecordRow({
                   <p className="text-[var(--text-secondary)] mb-1">系统提示词:</p>
                   <CopyablePre className="bg-[var(--bg-primary)] rounded-lg p-3 text-xs whitespace-pre-wrap break-all max-h-32 overflow-y-auto text-[var(--text-secondary)]">
                     {r.system_prompt_preview}
+                  </CopyablePre>
+                </div>
+              )}
+              {r.conversation_history && (
+                <div>
+                  <p className="text-[var(--text-secondary)] mb-1">对话历史:</p>
+                  <CopyablePre className="bg-[var(--bg-primary)] rounded-lg p-3 text-xs whitespace-pre-wrap break-all max-h-64 overflow-y-auto text-[var(--text-secondary)]">
+                    {(() => {
+                      try {
+                        return JSON.stringify(JSON.parse(r.conversation_history), null, 2);
+                      } catch {
+                        return r.conversation_history;
+                      }
+                    })()}
                   </CopyablePre>
                 </div>
               )}

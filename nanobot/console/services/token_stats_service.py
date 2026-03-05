@@ -27,6 +27,7 @@ class TokenUsageRecord:
     user_message: str = ""
     output_content: str = ""
     system_prompt_preview: str = ""
+    conversation_history: str = ""
     full_request_payload: str = ""
     finish_reason: str = ""
 
@@ -61,6 +62,7 @@ class TokenStatsCollector:
         user_message: str = "",
         output_content: str = "",
         system_prompt: str = "",
+        conversation_history: str = "",
         full_request_payload: str = "",
         finish_reason: str = "",
     ) -> None:
@@ -76,6 +78,7 @@ class TokenStatsCollector:
             user_message=user_message,
             output_content=output_content,
             system_prompt_preview=system_prompt,
+            conversation_history=conversation_history,
             full_request_payload=full_request_payload,
             finish_reason=finish_reason,
         )
@@ -236,6 +239,7 @@ class TokenStatsCollector:
                     user_message=item.get("user_message", ""),
                     output_content=item.get("output_content", ""),
                     system_prompt_preview=item.get("system_prompt_preview", ""),
+                    conversation_history=item.get("conversation_history", ""),
                     full_request_payload=item.get("full_request_payload", ""),
                     finish_reason=item.get("finish_reason", ""),
                 ))

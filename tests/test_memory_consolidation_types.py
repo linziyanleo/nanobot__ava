@@ -30,7 +30,7 @@ def _make_tool_response(
     history_entry,
     memory_update,
     person_memory_update=None,
-    ava_memory_update=None,
+    my_memory_update=None,
 ):
     """Create an LLMResponse with a save_memory tool call."""
     args = {
@@ -39,8 +39,8 @@ def _make_tool_response(
     }
     if person_memory_update is not None:
         args["person_memory_update"] = person_memory_update
-    if ava_memory_update is not None:
-        args["ava_memory_update"] = ava_memory_update
+    if my_memory_update is not None:
+        args["my_memory_update"] = my_memory_update
 
     return LLMResponse(
         content=None,
@@ -191,15 +191,15 @@ class TestMemoryConsolidationTypeHandling:
         )
 
     @pytest.mark.asyncio
-    async def test_ava_memory_update_written(self, tmp_path: Path) -> None:
-        """Ava self memory should be persisted when ava_memory_update is provided."""
+    async def test_my_memory_update_written(self, tmp_path: Path) -> None:
+        """My self memory should be persisted when my_memory_update is provided."""
         store = MemoryStore(tmp_path)
         provider = AsyncMock()
         provider.chat = AsyncMock(
             return_value=_make_tool_response(
-                history_entry="[2026-01-01] Updated Ava self memory.",
+                history_entry="[2026-01-01] Updated My self memory.",
                 memory_update="# Global Memory\n- Shared fact",
-                ava_memory_update="# Ava Self Memory\n- 擅长结构化总结",
+                my_memory_update="# My Self Memory\n- 擅长结构化总结",
             )
         )
         session = _make_session(message_count=60)
@@ -208,8 +208,8 @@ class TestMemoryConsolidationTypeHandling:
         result = await store.consolidate(session, provider, "test-model", memory_window=50)
 
         assert result is True
-        assert store.ava_memory_file.exists()
-        assert "擅长结构化总结" in store.ava_memory_file.read_text(encoding="utf-8")
+        assert store.my_memory_file.exists()
+        assert "擅长结构化总结" in store.my_memory_file.read_text(encoding="utf-8")
 
     def test_stability_rules_remove_history_style_and_dedupe(self) -> None:
         """Rule layer should drop history-style lines and dedupe bullets."""

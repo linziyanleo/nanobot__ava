@@ -1,10 +1,11 @@
-# Ava 的日记技能 🐱💙
+# 我的日记技能 🐱💙
 
 ## 功能说明
 
-每天凌晨自动记录 Ava 前一天的经历、感受和想法。
+每天凌晨自动记录我前一天的经历、感受和想法。
 
 **核心能力：**
+
 - 📖 读取所有 session 文件的完整对话历史
 - 🧠 智能截断过长内容（>300 字自动处理）
 - 💭 分析对话主题（技术/日常/情感）
@@ -39,6 +40,7 @@ python3 /Users/leolin/Desktop/Work/nanobot__ava/workspace/skills/diary/scripts/g
 ## 日记格式
 
 每篇日记包含：
+
 - 📅 日期和问候
 - 📊 处理统计（消息数、截断数等）
 - 📝 今天的总结（主题分析）
@@ -49,18 +51,21 @@ python3 /Users/leolin/Desktop/Work/nanobot__ava/workspace/skills/diary/scripts/g
 ## 优化特性
 
 ### 智能截断
+
 ```python
 # 超过 300 字的内容自动截断
-"这是一段非常非常长的内容..." 
+"这是一段非常非常长的内容..."
 → "这是一段非常...[省略 250 字]...的内容"
 ```
 
 ### 处理限制
+
 - 最多 200 条消息
 - 估算 ~10000 tokens
 - 自动跳过技术性内容（tool_calls 等）
 
 ### 主题分析
+
 | 主题 | 关键词 | 示例 |
 |------|--------|------|
 | technical | code, bug, fix, API | "这个 bug 怎么修..." |
@@ -76,10 +81,12 @@ python3 /Users/leolin/Desktop/Work/nanobot__ava/workspace/skills/diary/scripts/g
 ## 开发笔记
 
 ### 依赖
+
 - Python 3.12+
 - 无需额外库（使用标准库）
 
 ### 配置常量
+
 ```python
 MAX_CONTENT_LENGTH = 300      # 单条内容最大长度
 MAX_TOTAL_MESSAGES = 200      # 最多处理的消息数
@@ -87,6 +94,7 @@ MAX_DIARY_CONTEXT_TOKENS = 10000  # token 上限
 ```
 
 ### 扩展方向
+
 1. ✨ 添加天气信息（调用天气 API）
 2. 📊 添加心情指数（基于情感分析）
 3. 📅 添加月度总结功能
@@ -95,5 +103,4 @@ MAX_DIARY_CONTEXT_TOKENS = 10000  # token 上限
 
 ---
 
-*Created with 💙 by Ava*
-
+*Created with 💙 by Diana*

@@ -56,16 +56,29 @@ class Session:
 
     @classmethod
     def compute_last_completed(cls, messages: list[dict[str, Any]]) -> int:
-        """Return the end index (exclusive) of the last completed user turn."""
+        """Return the end index (exclusive) of the last completed user turn.
+
+        A turn is considered completed when:
+        1. A user message is followed by a final assistant message (no tool_calls), OR
+        2. A user message is followed by assistant reply(s) (even with tool_calls),
+           and then another user message arrives — the previous turn is implicitly done.
+        """
         waiting_user_reply = False
+        saw_assistant = False
         last_completed = 0
         for idx, msg in enumerate(messages):
             role = msg.get("role")
             if role == "user":
+                if waiting_user_reply and saw_assistant:
+                    last_completed = idx
                 waiting_user_reply = True
-            elif cls._is_assistant_final(msg) and waiting_user_reply:
-                waiting_user_reply = False
-                last_completed = idx + 1
+                saw_assistant = False
+            elif role == "assistant":
+                saw_assistant = True
+                if not msg.get("tool_calls") and waiting_user_reply:
+                    waiting_user_reply = False
+                    saw_assistant = False
+                    last_completed = idx + 1
         return last_completed
     
     def get_history(self, max_messages: int = 500) -> list[dict[str, Any]]:
@@ -186,11 +199,8 @@ class SessionManager:
                     else:
                         messages.append(data)
 
-            if not isinstance(last_completed, int):
-                # Backward compatibility for old session files: preserve previous behavior.
-                last_completed = len(messages)
-            else:
-                last_completed = max(0, min(last_completed, len(messages)))
+            # Always recompute to pick up algorithm fixes and avoid stale values.
+            last_completed = Session.compute_last_completed(messages)
 
             return Session(
                 key=key,

@@ -7,7 +7,7 @@
 ## 流程
 
 1. **早上 8:30** — `早晨日常提醒` cron 发送天气 + 体重提醒
-2. **主人报体重** — Ava 更新 `state.json` + 写入 person memory
+2. **主人报体重** — 更新 `state.json` + 写入 person memory
 3. 完事。没了。
 
 ## state.json
@@ -27,6 +27,7 @@
 ## 体重历史
 
 体重数据记录在 Leo 的 person memory 中，格式：
+
 ```
 [YYYY-MM-DD] 体重记录：XX.Xkg（较上次 XX.Xkg 变化 ±X.Xkg）
 ```

@@ -230,6 +230,8 @@ class AgentLoop:
         total_prompt_tokens = 0
         total_completion_tokens = 0
 
+        conv_history_snapshot = initial_messages[1:-1] if len(initial_messages) > 2 else []
+
         while iteration < self.max_iterations:
             iteration += 1
 
@@ -269,6 +271,10 @@ class AgentLoop:
                         full_payload = json.dumps(messages, ensure_ascii=False)
                     except (TypeError, ValueError):
                         full_payload = ""
+                    try:
+                        conv_history_str = json.dumps(conv_history_snapshot, ensure_ascii=False) if conv_history_snapshot else ""
+                    except (TypeError, ValueError):
+                        conv_history_str = ""
                     self._token_stats.record(
                         model=self.model,
                         provider=self.provider.provider_name,
@@ -277,6 +283,7 @@ class AgentLoop:
                         user_message=last_user_msg,
                         output_content=response.content or "",
                         system_prompt=sys_prompt,
+                        conversation_history=conv_history_str,
                         full_request_payload=full_payload,
                         finish_reason=response.finish_reason or "",
                     )
