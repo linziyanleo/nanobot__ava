@@ -72,6 +72,7 @@ class AgentLoop:
         mcp_servers: dict | None = None,
         channels_config: ChannelsConfig | None = None,
         context_compression: ContextCompressionConfig | None = None,
+        memory_tier: str | None = "mini",
     ):
         from nanobot.config.schema import ContextCompressionConfig, ExecToolConfig
         self.bus = bus
@@ -81,6 +82,7 @@ class AgentLoop:
         self.model = model or provider.get_default_model()
         self.vision_model = vision_model or self.model
         self.mini_model = mini_model or self.model
+        self.memory_tier = memory_tier or "default"
         self.max_iterations = max_iterations
         self.temperature = temperature
         self.max_tokens = max_tokens
@@ -110,6 +112,7 @@ class AgentLoop:
             workspace=workspace,
             bus=bus,
             model=self.model,
+            mini_model=self.mini_model,
             temperature=self.temperature,
             max_tokens=self.max_tokens,
             reasoning_effort=reasoning_effort,
@@ -629,8 +632,9 @@ class AgentLoop:
 
     async def _consolidate_memory(self, session, archive_all: bool = False) -> bool:
         """Delegate to MemoryStore.consolidate(). Returns True on success."""
+        consolidation_model = self.get_model_for_tier(self.memory_tier)
         return await MemoryStore(self.workspace).consolidate(
-            session, self.provider, self.model,
+            session, self.provider, consolidation_model,
             archive_all=archive_all, memory_window=self.memory_window,
             categorized_store=self.categorized_memory,
         )

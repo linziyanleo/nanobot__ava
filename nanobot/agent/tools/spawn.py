@@ -32,7 +32,9 @@ class SpawnTool(Tool):
         return (
             "Spawn a subagent to handle a task in the background. "
             "Use this for complex or time-consuming tasks that can run independently. "
-            "The subagent will complete the task and report back when done."
+            "The subagent will complete the task and report back when done. "
+            "Choose tier='mini' for simple tasks (file lookups, formatting, summaries) "
+            "and tier='default' for complex multi-step tasks (code generation, analysis, debugging)."
         )
 
     @property
@@ -48,11 +50,19 @@ class SpawnTool(Tool):
                     "type": "string",
                     "description": "Optional short label for the task (for display)",
                 },
+                "tier": {
+                    "type": "string",
+                    "enum": ["default", "mini"],
+                    "description": (
+                        "Model tier: 'default' for complex tasks requiring strong reasoning, "
+                        "'mini' for simple tasks like file lookups, formatting, or summaries"
+                    ),
+                },
             },
             "required": ["task"],
         }
 
-    async def execute(self, task: str, label: str | None = None, **kwargs: Any) -> str:
+    async def execute(self, task: str, label: str | None = None, tier: str = "default", **kwargs: Any) -> str:
         """Spawn a subagent to execute the given task."""
         return await self._manager.spawn(
             task=task,
@@ -60,4 +70,5 @@ class SpawnTool(Tool):
             origin_channel=self._origin_channel,
             origin_chat_id=self._origin_chat_id,
             session_key=self._session_key,
+            model_tier=tier,
         )

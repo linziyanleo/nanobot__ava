@@ -27,6 +27,7 @@ class SubagentManager:
         workspace: Path,
         bus: MessageBus,
         model: str | None = None,
+        mini_model: str | None = None,
         temperature: float = 0.7,
         max_tokens: int = 4096,
         reasoning_effort: str | None = None,
@@ -40,6 +41,7 @@ class SubagentManager:
         self.workspace = workspace
         self.bus = bus
         self.model = model or provider.get_default_model()
+        self.mini_model = mini_model or self.model
         self.temperature = temperature
         self.max_tokens = max_tokens
         self.reasoning_effort = reasoning_effort
@@ -50,6 +52,12 @@ class SubagentManager:
         self._running_tasks: dict[str, asyncio.Task[None]] = {}
         self._session_tasks: dict[str, set[str]] = {}  # session_key -> {task_id, ...}
 
+    def _get_model_for_tier(self, tier: str) -> str:
+        """Return model name for the given tier."""
+        if tier == "mini":
+            return self.mini_model
+        return self.model
+
     async def spawn(
         self,
         task: str,
@@ -57,6 +65,7 @@ class SubagentManager:
         origin_channel: str = "cli",
         origin_chat_id: str = "direct",
         session_key: str | None = None,
+        model_tier: str = "default",
     ) -> str:
         """Spawn a subagent to execute a task in the background."""
         task_id = str(uuid.uuid4())[:8]
@@ -64,7 +73,7 @@ class SubagentManager:
         origin = {"channel": origin_channel, "chat_id": origin_chat_id}
 
         bg_task = asyncio.create_task(
-            self._run_subagent(task_id, task, display_label, origin)
+            self._run_subagent(task_id, task, display_label, origin, model_tier=model_tier)
         )
         self._running_tasks[task_id] = bg_task
         if session_key:
@@ -88,6 +97,7 @@ class SubagentManager:
         task: str,
         label: str,
         origin: dict[str, str],
+        model_tier: str = "default",
     ) -> None:
         """Execute the subagent task and announce the result."""
         logger.info("Subagent [{}] starting task: {}", task_id, label)
@@ -109,6 +119,9 @@ class SubagentManager:
             tools.register(WebSearchTool(api_key=self.brave_api_key, proxy=self.web_proxy))
             tools.register(WebFetchTool(proxy=self.web_proxy))
             
+            selected_model = self._get_model_for_tier(model_tier)
+            logger.info("Subagent [{}] using model tier '{}': {}", task_id, model_tier, selected_model)
+
             system_prompt = self._build_subagent_prompt()
             messages: list[dict[str, Any]] = [
                 {"role": "system", "content": system_prompt},
@@ -126,7 +139,7 @@ class SubagentManager:
                 response = await self.provider.chat(
                     messages=messages,
                     tools=tools.get_definitions(),
-                    model=self.model,
+                    model=selected_model,
                     temperature=self.temperature,
                     max_tokens=self.max_tokens,
                     reasoning_effort=self.reasoning_effort,

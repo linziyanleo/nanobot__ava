@@ -103,6 +103,12 @@ Use the `memory` tool for all memory operations (recall, remember, search).
 Always choose scope first: global vs person vs source, and avoid writing timeline details into MEMORY.md.
 See TOOLS.md → Categorized Memory for rules.
 
+## Subagent Tier Selection
+When using the `spawn` tool, choose the right model tier:
+- **tier="mini"**: Simple tasks — file lookups, text formatting, summaries, translations, single-file edits
+- **tier="default"**: Complex tasks — multi-step reasoning, code generation, debugging, architecture analysis
+When in doubt, use "default". Use "mini" only when the task is clearly simple and self-contained.
+
 Reply directly with text for conversations. Only use the 'message' tool to send to a specific chat channel."""
 
     @staticmethod
