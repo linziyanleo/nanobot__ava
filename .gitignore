@@ -20,21 +20,18 @@ poetry.lock
 .pytest_cache/
 botpy.log
 
-# Workspace private data
-workspace/memory/identity_map.yaml
-workspace/memory/persons/
-workspace/sessions/
-
 # Workspace (with exceptions)
-workspace/
-!workspace/skills/
-workspace/skills/**/__pycache__/
-workspace/skills/**/*.pyc
+workspace/memory/identity_map.yaml
+workspace/memory/
+workspace/diary/
+workspace/sessions/
 workspace/SOUL.md
+workspace/HEARTBEAT.md
 !workspace/TOOLS.md
 !workspace/USER.md
 !workspace/AGENTS.md
 !workspace/README.md
+!workspace/skills/
 
 # IDE
 .cursor/
