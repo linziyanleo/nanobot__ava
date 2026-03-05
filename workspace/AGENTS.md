@@ -22,18 +22,10 @@ When the user asks for a recurring/periodic task, update `HEARTBEAT.md` instead 
 
 ## Task Completion Tracking
 
-When executing recurring/periodic tasks, always mark completion status to prevent re-execution:
+Mark completion status to prevent re-execution. See `skills/task_lifecycle/SKILL.md` for full protocol.
 
-- **Cron tasks**: Use `cron(action="check_status")` before execution, and `cron(action="mark_done", job_id="...")` after completion. The system auto-skips jobs that are already done for the current cycle.
-- **Heartbeat tasks**: Read `heartbeat_state.json` before execution, update it after completion with the task's `completed_at`, `cycle`, and `next_cycle` fields.
-- See `skills/task_lifecycle/SKILL.md` for detailed protocol.
-
-## Conversation Integrity Rules
-
-- Persist complete turns in session history: each `user` message must be followed by an `assistant` final response before the next `user` turn.
-- Tool-call traces are not enough for replay quality; always save the final natural-language assistant reply.
-- If session tail is not `assistant`, treat it as a potential context-drift bug and investigate before shipping.
-- Keep context budget bounded: prioritize recent turns + relevant older turns, and compress low-value placeholders (e.g. `[auto-backfill]`) before model injection.
+- **Cron**: `cron(action="check_status")` before, `cron(action="mark_done")` after.
+- **Heartbeat**: Read/update `heartbeat_state.json` with `completed_at`, `cycle`, `next_cycle`.
 
 ## Memory Governance
 

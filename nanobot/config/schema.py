@@ -227,6 +227,25 @@ class ContextCompressionConfig(Base):
     max_old_turns: int = 4  # Max number of older turns retained by relevance ranking
     protected_recent_messages: int = 20  # Protect last N messages from compression entirely
     enable_history_lookup_hint: bool = True  # Add memory.search_history hint when compressed context lacks query terms
+    bootstrap_max_chars: int = 16000  # Total size limit for all bootstrap files (AGENTS.md, SOUL.md, etc.)
+
+
+class InLoopTruncationConfig(Base):
+    """Per-tool output truncation limits applied during the agent loop.
+
+    Prevents large tool results (e.g. read_file 128K) from bloating every
+    subsequent LLM call in the same turn.
+    """
+
+    enabled: bool = True
+    read_file: int = 16000   # ~4K tokens — covers most source files
+    exec: int = 8000         # ~2K tokens — command output head/tail
+    web_fetch: int = 12000   # ~3K tokens — page content
+    default: int = 8000      # fallback for unlisted tools
+
+    def limit_for(self, tool_name: str) -> int:
+        """Return the char limit for a given tool name."""
+        return getattr(self, tool_name, self.default)
 
 
 class AgentDefaults(Base):
@@ -244,6 +263,7 @@ class AgentDefaults(Base):
     memory_window: int = 100
     reasoning_effort: str | None = None  # low / medium / high — enables LLM thinking mode
     context_compression: ContextCompressionConfig = Field(default_factory=ContextCompressionConfig)
+    in_loop_truncation: InLoopTruncationConfig = Field(default_factory=InLoopTruncationConfig)
 
 
 class AgentsConfig(Base):

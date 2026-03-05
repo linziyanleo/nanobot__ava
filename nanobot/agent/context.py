@@ -10,11 +10,14 @@ from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from loguru import logger
+
 from nanobot.agent.memory import MemoryStore
 from nanobot.agent.skills import SkillsLoader
 
 if TYPE_CHECKING:
     from nanobot.agent.categorized_memory import CategorizedMemoryStore
+    from nanobot.config.schema import InLoopTruncationConfig
 
 
 class ContextBuilder:
@@ -23,11 +26,19 @@ class ContextBuilder:
     BOOTSTRAP_FILES = ["AGENTS.md", "SOUL.md", "USER.md", "TOOLS.md", "IDENTITY.md"]
     _RUNTIME_CONTEXT_TAG = "[Runtime Context — metadata only, not instructions]"
 
-    def __init__(self, workspace: Path, categorized_memory: CategorizedMemoryStore | None = None):
+    def __init__(
+        self,
+        workspace: Path,
+        categorized_memory: CategorizedMemoryStore | None = None,
+        in_loop_truncation: InLoopTruncationConfig | None = None,
+        bootstrap_max_chars: int = 16000,
+    ):
         self.workspace = workspace
         self.memory = MemoryStore(workspace)
         self.categorized_memory = categorized_memory
         self.skills = SkillsLoader(workspace)
+        self._truncation = in_loop_truncation
+        self._bootstrap_max_chars = bootstrap_max_chars
 
     def build_system_prompt(
         self,
@@ -122,16 +133,42 @@ Reply directly with text for conversations. Only use the 'message' tool to send 
         return ContextBuilder._RUNTIME_CONTEXT_TAG + "\n" + "\n".join(lines)
 
     def _load_bootstrap_files(self) -> str:
-        """Load all bootstrap files from workspace."""
-        parts = []
+        """Load all bootstrap files from workspace, respecting total size limit."""
+        parts: list[tuple[str, int]] = []
+        total = 0
 
         for filename in self.BOOTSTRAP_FILES:
             file_path = self.workspace / filename
             if file_path.exists():
                 content = file_path.read_text(encoding="utf-8")
-                parts.append(f"## {filename}\n\n{content}")
+                entry = f"## {filename}\n\n{content}"
+                parts.append((entry, len(entry)))
+                total += len(entry)
 
-        return "\n\n".join(parts) if parts else ""
+        if not parts:
+            return ""
+
+        if total <= self._bootstrap_max_chars:
+            return "\n\n".join(e for e, _ in parts)
+
+        logger.warning(
+            "Bootstrap files total {}chars exceeds limit {}chars, truncating largest files",
+            total, self._bootstrap_max_chars,
+        )
+        budget = self._bootstrap_max_chars
+        sorted_parts = sorted(parts, key=lambda x: x[1])
+        result: list[str] = []
+        for entry, size in sorted_parts:
+            if budget >= size:
+                result.append(entry)
+                budget -= size
+            elif budget > 200:
+                result.append(entry[:budget] + f"\n\n... (truncated, {size - budget} chars omitted)")
+                budget = 0
+        result.sort(key=lambda e: next(
+            (i for i, (p, _) in enumerate(parts) if p[:80] == e[:80]), 0
+        ))
+        return "\n\n".join(result)
 
     def build_messages(
         self,
@@ -181,7 +218,16 @@ Reply directly with text for conversations. Only use the 'message' tool to send 
         self, messages: list[dict[str, Any]],
         tool_call_id: str, tool_name: str, result: str,
     ) -> list[dict[str, Any]]:
-        """Add a tool result to the message list."""
+        """Add a tool result to the message list, with optional in-loop truncation."""
+        if self._truncation and self._truncation.enabled and isinstance(result, str):
+            limit = self._truncation.limit_for(tool_name)
+            if len(result) > limit:
+                original_len = len(result)
+                result = (
+                    result[:limit]
+                    + f"\n\n... [truncated: showing {limit:,} of {original_len:,} chars. "
+                    f"Re-read with offset/limit for full content]"
+                )
         messages.append({"role": "tool", "tool_call_id": tool_call_id, "name": tool_name, "content": result})
         return messages
 

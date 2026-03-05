@@ -33,7 +33,7 @@ from nanobot.providers.base import LLMProvider
 from nanobot.session.manager import Session, SessionManager
 
 if TYPE_CHECKING:
-    from nanobot.config.schema import ChannelsConfig, ContextCompressionConfig, ExecToolConfig
+    from nanobot.config.schema import ChannelsConfig, ContextCompressionConfig, ExecToolConfig, InLoopTruncationConfig
     from nanobot.cron.service import CronService
 
 
@@ -73,8 +73,9 @@ class AgentLoop:
         channels_config: ChannelsConfig | None = None,
         context_compression: ContextCompressionConfig | None = None,
         memory_tier: str | None = "mini",
+        in_loop_truncation: InLoopTruncationConfig | None = None,
     ):
-        from nanobot.config.schema import ContextCompressionConfig, ExecToolConfig
+        from nanobot.config.schema import ContextCompressionConfig, ExecToolConfig, InLoopTruncationConfig as _ILT
         self.bus = bus
         self.channels_config = channels_config
         self.provider = provider
@@ -95,9 +96,15 @@ class AgentLoop:
         compression_cfg = context_compression or ContextCompressionConfig()
         self._compression_enabled = compression_cfg.enabled
         self._history_lookup_hint_enabled = compression_cfg.enable_history_lookup_hint
+        self._in_loop_truncation = in_loop_truncation or _ILT()
 
         self.categorized_memory = CategorizedMemoryStore(workspace)
-        self.context = ContextBuilder(workspace, categorized_memory=self.categorized_memory)
+        self.context = ContextBuilder(
+            workspace,
+            categorized_memory=self.categorized_memory,
+            in_loop_truncation=self._in_loop_truncation,
+            bootstrap_max_chars=compression_cfg.bootstrap_max_chars,
+        )
         self.history_compressor = HistoryCompressor(
             max_chars=compression_cfg.max_chars,
             recent_turns=compression_cfg.recent_turns,
@@ -119,6 +126,7 @@ class AgentLoop:
             brave_api_key=brave_api_key,
             exec_config=self.exec_config,
             restrict_to_workspace=restrict_to_workspace,
+            in_loop_truncation=self._in_loop_truncation,
         )
 
         self._running = False

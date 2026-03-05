@@ -14,7 +14,7 @@ from nanobot.agent.tools.shell import ExecTool
 from nanobot.agent.tools.web import WebFetchTool, WebSearchTool
 from nanobot.bus.events import InboundMessage
 from nanobot.bus.queue import MessageBus
-from nanobot.config.schema import ExecToolConfig
+from nanobot.config.schema import ExecToolConfig, InLoopTruncationConfig
 from nanobot.providers.base import LLMProvider
 
 
@@ -35,8 +35,9 @@ class SubagentManager:
         web_proxy: str | None = None,
         exec_config: "ExecToolConfig | None" = None,
         restrict_to_workspace: bool = False,
+        in_loop_truncation: "InLoopTruncationConfig | None" = None,
     ):
-        from nanobot.config.schema import ExecToolConfig
+        from nanobot.config.schema import ExecToolConfig, InLoopTruncationConfig as _ILT
         self.provider = provider
         self.workspace = workspace
         self.bus = bus
@@ -49,6 +50,7 @@ class SubagentManager:
         self.web_proxy = web_proxy
         self.exec_config = exec_config or ExecToolConfig()
         self.restrict_to_workspace = restrict_to_workspace
+        self._truncation = in_loop_truncation or _ILT()
         self._running_tasks: dict[str, asyncio.Task[None]] = {}
         self._session_tasks: dict[str, set[str]] = {}  # session_key -> {task_id, ...}
 
@@ -169,6 +171,15 @@ class SubagentManager:
                         args_str = json.dumps(tool_call.arguments, ensure_ascii=False)
                         logger.debug("Subagent [{}] executing: {} with arguments: {}", task_id, tool_call.name, args_str)
                         result = await tools.execute(tool_call.name, tool_call.arguments)
+                        if self._truncation and self._truncation.enabled and isinstance(result, str):
+                            limit = self._truncation.limit_for(tool_call.name)
+                            if len(result) > limit:
+                                original_len = len(result)
+                                result = (
+                                    result[:limit]
+                                    + f"\n\n... [truncated: showing {limit:,} of {original_len:,} chars. "
+                                    f"Re-read with offset/limit for full content]"
+                                )
                         messages.append({
                             "role": "tool",
                             "tool_call_id": tool_call.id,

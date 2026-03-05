@@ -392,6 +392,7 @@ def gateway(
         channels_config=config.channels,
         context_compression=config.agents.defaults.context_compression,
         memory_tier=config.agents.defaults.memory_tier,
+        in_loop_truncation=config.agents.defaults.in_loop_truncation,
     )
 
     # Set cron callback (needs agent)
@@ -746,6 +747,7 @@ def agent(
         channels_config=config.channels,
         context_compression=config.agents.defaults.context_compression,
         memory_tier=config.agents.defaults.memory_tier,
+        in_loop_truncation=config.agents.defaults.in_loop_truncation,
     )
 
     # Show spinner when logs are off (no output to miss); skip when logs are on
@@ -1243,6 +1245,7 @@ def cron_run(
         channels_config=config.channels,
         context_compression=config.agents.defaults.context_compression,
         memory_tier=config.agents.defaults.memory_tier,
+        in_loop_truncation=config.agents.defaults.in_loop_truncation,
     )
 
     store_path = get_data_dir() / "cron" / "jobs.json"
