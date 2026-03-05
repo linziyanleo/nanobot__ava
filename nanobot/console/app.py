@@ -27,7 +27,7 @@ class Services:
     config: ConfigService
     files: FileService
     gateway: GatewayService
-    chat: ChatService
+    chat: ChatService | None = None
     token_stats: TokenStatsCollector | None = None
 
 
@@ -68,7 +68,11 @@ def create_console_app(
         audit=AuditService(console_dir),
         config=ConfigService(nanobot_dir),
         files=FileService(workspace, nanobot_dir),
-        gateway=GatewayService(skill_dir),
+        gateway=GatewayService(
+            skill_dir,
+            gateway_port=config.gateway.port,
+            console_port=console_cfg.port,
+        ),
         chat=ChatService(agent_loop, workspace),
         token_stats=token_stats_collector,
     )
@@ -99,6 +103,94 @@ def create_console_app(
     app.include_router(file_routes.router)
     app.include_router(gateway_routes.router)
     app.include_router(chat_routes.router)
+    app.include_router(user_routes.router)
+    app.include_router(audit_routes.router)
+    app.include_router(token_routes.router)
+
+    static_dir = Path(__file__).parent.parent / "console-ui" / "dist"
+    if static_dir.exists():
+        app.mount("/assets", StaticFiles(directory=str(static_dir / "assets")), name="static-assets")
+
+        index_html = static_dir / "index.html"
+
+        @app.get("/{full_path:path}")
+        async def spa_fallback(request: Request, full_path: str):
+            file_path = static_dir / full_path
+            if file_path.is_file():
+                return FileResponse(file_path)
+            return FileResponse(index_html)
+
+    return app
+
+
+def create_console_app_standalone(
+    nanobot_dir: Path,
+    workspace: Path,
+    gateway_port: int = 18790,
+    console_port: int = 6688,
+    secret_key: str = "change-me-in-production",
+    expire_minutes: int = 480,
+    token_stats_dir: str = "",
+) -> FastAPI:
+    """Create a console app that runs independently from the gateway process.
+
+    This variant does not require a live AgentLoop — ChatService is set to None,
+    and TokenStatsCollector reads from the shared JSON file on disk.
+    """
+    global _services
+
+    console_dir = nanobot_dir / "console"
+    console_dir.mkdir(parents=True, exist_ok=True)
+
+    auth.configure(secret_key=secret_key, expire_minutes=expire_minutes)
+
+    skill_dir = Path(__file__).parent.parent / "skills"
+
+    users = UserService(console_dir)
+    users.ensure_default_admin()
+
+    token_stats = None
+    if token_stats_dir:
+        token_stats = TokenStatsCollector(data_dir=Path(token_stats_dir))
+
+    _services = Services(
+        users=users,
+        audit=AuditService(console_dir),
+        config=ConfigService(nanobot_dir),
+        files=FileService(workspace, nanobot_dir),
+        gateway=GatewayService(
+            skill_dir,
+            gateway_port=gateway_port,
+            console_port=console_port,
+        ),
+        chat=None,  # type: ignore[arg-type]
+        token_stats=token_stats,
+    )
+
+    app = FastAPI(
+        title="Nanobot Console",
+        description="Web management console for Nanobot (standalone)",
+        version="0.1.0",
+        docs_url="/api/docs",
+        redoc_url=None,
+    )
+
+    setup_cors(app)
+
+    from nanobot.console.routes import (
+        auth_routes,
+        config_routes,
+        file_routes,
+        gateway_routes,
+        user_routes,
+        audit_routes,
+        token_routes,
+    )
+
+    app.include_router(auth_routes.router)
+    app.include_router(config_routes.router)
+    app.include_router(file_routes.router)
+    app.include_router(gateway_routes.router)
     app.include_router(user_routes.router)
     app.include_router(audit_routes.router)
     app.include_router(token_routes.router)

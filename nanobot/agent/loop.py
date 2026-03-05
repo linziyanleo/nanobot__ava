@@ -278,6 +278,7 @@ class AgentLoop:
                         output_content=response.content or "",
                         system_prompt=sys_prompt,
                         full_request_payload=full_payload,
+                        finish_reason=response.finish_reason or "",
                     )
 
             if response.has_tool_calls:

@@ -6,9 +6,17 @@ import json
 from datetime import datetime, timezone
 from pathlib import Path
 
-from passlib.hash import bcrypt
+import bcrypt as _bcrypt
 
 from nanobot.console.models import UserInfo
+
+
+def _hash_password(password: str) -> str:
+    return _bcrypt.hashpw(password.encode("utf-8"), _bcrypt.gensalt()).decode("utf-8")
+
+
+def _verify_password(password: str, hashed: str) -> bool:
+    return _bcrypt.checkpw(password.encode("utf-8"), hashed.encode("utf-8"))
 
 
 class UserService:
@@ -44,7 +52,7 @@ class UserService:
             raise ValueError(f"User '{username}' already exists")
         now = datetime.now(timezone.utc).isoformat()
         data[username] = {
-            "password_hash": bcrypt.hash(password),
+            "password_hash": _hash_password(password),
             "role": role,
             "created_at": now,
         }
@@ -56,7 +64,7 @@ class UserService:
         if username not in data:
             raise ValueError(f"User '{username}' not found")
         if password:
-            data[username]["password_hash"] = bcrypt.hash(password)
+            data[username]["password_hash"] = _hash_password(password)
         if role:
             data[username]["role"] = role
         self._save(data)
@@ -79,7 +87,7 @@ class UserService:
         user_data = data.get(username)
         if not user_data:
             return None
-        if not bcrypt.verify(password, user_data["password_hash"]):
+        if not _verify_password(password, user_data["password_hash"]):
             return None
         return UserInfo(
             username=username,

@@ -38,7 +38,71 @@ EXIT_COMMANDS = {"exit", "quit", "/exit", "/quit", ":q"}
 # ============================================================================
 
 GATEWAY_PID_FILE = Path.home() / ".nanobot" / "gateway.pid"
+CONSOLE_PID_FILE = Path.home() / ".nanobot" / "console.pid"
 GATEWAY_DEFAULT_PORT = 18790
+
+
+def _check_console_running() -> int | None:
+    """Check if the console process is already running."""
+    if not CONSOLE_PID_FILE.exists():
+        return None
+    try:
+        pid = int(CONSOLE_PID_FILE.read_text().strip())
+        os.kill(pid, 0)
+        return pid
+    except (ProcessLookupError, ValueError, PermissionError):
+        try:
+            CONSOLE_PID_FILE.unlink()
+        except Exception:
+            pass
+        return None
+
+
+def _run_console_server(
+    nanobot_dir_str: str,
+    workspace_str: str,
+    host: str,
+    c_port: int,
+    gw_port: int,
+    secret_key: str,
+    expire_minutes: int,
+    token_stats_dir: str,
+    pid_file_str: str,
+) -> None:
+    """Run the console UI server in a separate process (must be module-level for pickling)."""
+    import signal as _sig
+
+    pid_path = Path(pid_file_str)
+    pid_path.parent.mkdir(parents=True, exist_ok=True)
+    pid_path.write_text(str(os.getpid()))
+
+    def _cleanup_console_pid(*_args):
+        try:
+            pid_path.unlink(missing_ok=True)
+        except Exception:
+            pass
+        raise SystemExit(0)
+
+    _sig.signal(_sig.SIGTERM, _cleanup_console_pid)
+    atexit.register(lambda: pid_path.unlink(missing_ok=True))
+
+    import uvicorn
+    from nanobot.console.app import create_console_app_standalone
+
+    app = create_console_app_standalone(
+        nanobot_dir=Path(nanobot_dir_str),
+        workspace=Path(workspace_str),
+        gateway_port=gw_port,
+        console_port=c_port,
+        secret_key=secret_key,
+        expire_minutes=expire_minutes,
+        token_stats_dir=token_stats_dir,
+    )
+    uvicorn_config = uvicorn.Config(
+        app, host=host, port=c_port, log_level="warning",
+    )
+    server = uvicorn.Server(uvicorn_config)
+    server.run()
 
 
 def check_gateway_running() -> int | None:
@@ -533,8 +597,14 @@ def gateway(
     if console_cfg.enabled:
         console.print(f"[green]✓[/green] Console: http://localhost:{console_port}")
 
+    if console_cfg.enabled:
+        existing_console_pid = _check_console_running()
+        if existing_console_pid:
+            console.print(f"[green]✓[/green] Console already running (PID: {existing_console_pid}), reusing")
+        else:
+            _start_console_process()
+
     async def run():
-        uvicorn_server = None
         try:
             await cron.start()
             await heartbeat.start()
@@ -544,32 +614,10 @@ def gateway(
                 channels.start_all(),
             ]
 
-            if console_cfg.enabled:
-                import uvicorn
-                from nanobot.console.app import create_console_app
-
-                console_app = create_console_app(
-                    nanobot_dir=get_data_dir(),
-                    workspace=config.workspace_path,
-                    agent_loop=agent,
-                    config=config,
-                    token_stats_collector=token_stats_collector,
-                )
-                uvicorn_config = uvicorn.Config(
-                    console_app,
-                    host=config.gateway.host,
-                    port=console_port,
-                    log_level="warning",
-                )
-                uvicorn_server = uvicorn.Server(uvicorn_config)
-                tasks.append(uvicorn_server.serve())
-
             await asyncio.gather(*tasks)
         except KeyboardInterrupt:
             console.print("\nShutting down...")
         finally:
-            if uvicorn_server:
-                uvicorn_server.should_exit = True
             await agent.close_mcp()
             heartbeat.stop()
             cron.stop()
@@ -704,6 +752,107 @@ def gateway_stop_cmd(
     except Exception as e:
         console.print(f"[red]Error: {e}[/red]")
         raise typer.Exit(1)
+
+    _stop_console_process()
+
+
+def _stop_console_process(quiet: bool = False) -> bool:
+    """Stop the console process if running. Returns True if a process was stopped."""
+    pid = _check_console_running()
+    if pid is None:
+        return False
+    try:
+        os.kill(pid, signal.SIGTERM)
+        import time
+        for _ in range(10):
+            time.sleep(0.5)
+            try:
+                os.kill(pid, 0)
+            except ProcessLookupError:
+                break
+        if not quiet:
+            console.print(f"[green]✓[/green] Console process stopped (PID: {pid})")
+    except (ProcessLookupError, ValueError, PermissionError):
+        pass
+    try:
+        CONSOLE_PID_FILE.unlink(missing_ok=True)
+    except Exception:
+        pass
+    return True
+
+
+def _start_console_process() -> int | None:
+    """Start the console process. Returns the new PID, or None on failure."""
+    import multiprocessing
+    from nanobot.config.loader import load_config, get_data_dir
+
+    config = load_config()
+    console_cfg = config.gateway.console
+
+    if not console_cfg.enabled:
+        console.print("[yellow]Console is disabled in config[/yellow]")
+        return None
+
+    console_port = console_cfg.port
+
+    if check_port_in_use(console_port):
+        existing = _check_console_running()
+        if existing:
+            console.print(f"[yellow]Console already running (PID: {existing})[/yellow]")
+            return existing
+        console.print(f"[red]Error: Port {console_port} is already in use[/red]")
+        return None
+
+    proc = multiprocessing.Process(
+        target=_run_console_server,
+        kwargs={
+            "nanobot_dir_str": str(get_data_dir()),
+            "workspace_str": str(config.workspace_path),
+            "host": config.gateway.host,
+            "c_port": console_port,
+            "gw_port": config.gateway.port,
+            "secret_key": console_cfg.secret_key,
+            "expire_minutes": console_cfg.token_expire_minutes,
+            "token_stats_dir": str(get_data_dir() / "console"),
+            "pid_file_str": str(CONSOLE_PID_FILE),
+        },
+        daemon=False,
+    )
+    proc.start()
+    console.print(f"[green]✓[/green] Console started (PID: {proc.pid})")
+    console.print(f"[green]✓[/green] http://localhost:{console_port}")
+    return proc.pid
+
+
+# ============================================================================
+# Console Management Commands
+# ============================================================================
+
+
+@app.command("console-stop")
+def console_stop_cmd():
+    """Stop the console UI server."""
+    pid = _check_console_running()
+    if not pid:
+        console.print(f"{__logo__} Console Status\n")
+        console.print("Status: [yellow]Not running[/yellow]")
+        return
+
+    console.print(f"{__logo__} Stopping Console\n")
+    _stop_console_process()
+
+
+@app.command("console-restart")
+def console_restart_cmd():
+    """Restart (or start) the console UI server."""
+    console.print(f"{__logo__} Restarting Console\n")
+
+    if _check_console_running():
+        _stop_console_process()
+        import time
+        time.sleep(0.5)
+
+    _start_console_process()
 
 
 # ============================================================================

@@ -1,5 +1,5 @@
-import { useEffect, useState, useCallback } from 'react';
-import { RefreshCw, BarChart3, List, ChevronDown, ChevronUp, Trash2 } from 'lucide-react';
+import { useEffect, useState, useCallback, useRef } from 'react';
+import { RefreshCw, BarChart3, List, ChevronDown, ChevronUp, Trash2, Copy, Check } from 'lucide-react';
 import {
   BarChart,
   Bar,
@@ -28,6 +28,7 @@ interface TokenRecord {
   output_content: string;
   system_prompt_preview: string;
   full_request_payload: string;
+  finish_reason: string;
 }
 
 interface ModelStats {
@@ -233,6 +234,7 @@ export default function TokenStatsPage() {
                   <th className="text-left px-4 py-3 font-medium">Provider</th>
                   <th className="text-right px-4 py-3 font-medium">Prompt</th>
                   <th className="text-right px-4 py-3 font-medium">Completion</th>
+                  <th className="text-center px-4 py-3 font-medium">Type</th>
                   <th className="text-right px-4 py-3 font-medium">Total</th>
                   <th className="text-center px-4 py-3 font-medium w-10"></th>
                 </tr>
@@ -240,13 +242,13 @@ export default function TokenStatsPage() {
               <tbody>
                 {loading ? (
                   <tr>
-                    <td colSpan={7} className="text-center py-8 text-[var(--text-secondary)]">
+                    <td colSpan={8} className="text-center py-8 text-[var(--text-secondary)]">
                       加载中...
                     </td>
                   </tr>
                 ) : records.length === 0 ? (
                   <tr>
-                    <td colSpan={7} className="text-center py-8 text-[var(--text-secondary)]">
+                    <td colSpan={8} className="text-center py-8 text-[var(--text-secondary)]">
                       暂无数据
                     </td>
                   </tr>
@@ -438,6 +440,34 @@ export default function TokenStatsPage() {
   );
 }
 
+function CopyablePre({ children, className }: { children: string; className?: string }) {
+  const [copied, setCopied] = useState(false);
+  const preRef = useRef<HTMLPreElement>(null);
+
+  const handleCopy = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    const text = preRef.current?.textContent ?? children;
+    await navigator.clipboard.writeText(text);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1500);
+  };
+
+  return (
+    <div className="relative group/copy">
+      <pre ref={preRef} className={className}>
+        {children}
+      </pre>
+      <button
+        onClick={handleCopy}
+        className="absolute bottom-2 right-2 p-1.5 rounded-md bg-[var(--bg-tertiary)] border border-[var(--border)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] opacity-0 group-hover/copy:opacity-100 transition-opacity"
+        title="复制到剪贴板"
+      >
+        {copied ? <Check className="w-3.5 h-3.5 text-[var(--success)]" /> : <Copy className="w-3.5 h-3.5" />}
+      </button>
+    </div>
+  );
+}
+
 function RecordRow({
   record: r,
   expanded,
@@ -460,6 +490,19 @@ function RecordRow({
         <td className="px-4 py-2.5 text-xs">{r.provider}</td>
         <td className="px-4 py-2.5 text-right text-cyan-400 text-xs">{formatTokens(r.prompt_tokens)}</td>
         <td className="px-4 py-2.5 text-right text-emerald-400 text-xs">{formatTokens(r.completion_tokens)}</td>
+        <td className="px-4 py-2.5 text-center">
+          <span
+            className={`inline-block px-1.5 py-0.5 rounded text-[10px] font-medium ${
+              r.finish_reason === 'tool_use' || r.finish_reason === 'tool_calls'
+                ? 'bg-amber-500/15 text-amber-400'
+                : r.finish_reason === 'end_turn' || r.finish_reason === 'stop'
+                  ? 'bg-emerald-500/15 text-emerald-400'
+                  : 'bg-gray-500/15 text-gray-400'
+            }`}
+          >
+            {r.finish_reason || '—'}
+          </span>
+        </td>
         <td className="px-4 py-2.5 text-right font-medium text-xs">{formatTokens(r.total_tokens)}</td>
         <td className="px-4 py-2.5 text-center">
           {expanded ? (
@@ -471,7 +514,7 @@ function RecordRow({
       </tr>
       {expanded && (
         <tr className="bg-[var(--bg-tertiary)]/20">
-          <td colSpan={7} className="px-4 py-3">
+          <td colSpan={8} className="px-4 py-3">
             <div className="space-y-2 text-xs">
               <div>
                 <span className="text-[var(--text-secondary)]">Session:</span>{' '}
@@ -480,31 +523,31 @@ function RecordRow({
               {r.user_message && (
                 <div>
                   <p className="text-[var(--text-secondary)] mb-1">用户输入:</p>
-                  <pre className="bg-[var(--bg-primary)] rounded-lg p-3 text-xs whitespace-pre-wrap break-all max-h-40 overflow-y-auto">
+                  <CopyablePre className="bg-[var(--bg-primary)] rounded-lg p-3 text-xs whitespace-pre-wrap break-all max-h-40 overflow-y-auto">
                     {r.user_message}
-                  </pre>
+                  </CopyablePre>
                 </div>
               )}
               {r.output_content && (
                 <div>
                   <p className="text-[var(--text-secondary)] mb-1">模型输出:</p>
-                  <pre className="bg-[var(--bg-primary)] rounded-lg p-3 text-xs whitespace-pre-wrap break-all max-h-40 overflow-y-auto">
+                  <CopyablePre className="bg-[var(--bg-primary)] rounded-lg p-3 text-xs whitespace-pre-wrap break-all max-h-40 overflow-y-auto">
                     {r.output_content}
-                  </pre>
+                  </CopyablePre>
                 </div>
               )}
               {r.system_prompt_preview && (
                 <div>
                   <p className="text-[var(--text-secondary)] mb-1">系统提示词:</p>
-                  <pre className="bg-[var(--bg-primary)] rounded-lg p-3 text-xs whitespace-pre-wrap break-all max-h-32 overflow-y-auto text-[var(--text-secondary)]">
+                  <CopyablePre className="bg-[var(--bg-primary)] rounded-lg p-3 text-xs whitespace-pre-wrap break-all max-h-32 overflow-y-auto text-[var(--text-secondary)]">
                     {r.system_prompt_preview}
-                  </pre>
+                  </CopyablePre>
                 </div>
               )}
               {r.full_request_payload && (
                 <div>
                   <p className="text-[var(--text-secondary)] mb-1">完整 API 请求:</p>
-                  <pre className="bg-[var(--bg-primary)] rounded-lg p-3 text-xs whitespace-pre-wrap break-all max-h-64 overflow-y-auto text-[var(--text-secondary)]">
+                  <CopyablePre className="bg-[var(--bg-primary)] rounded-lg p-3 text-xs whitespace-pre-wrap break-all max-h-64 overflow-y-auto text-[var(--text-secondary)]">
                     {(() => {
                       try {
                         return JSON.stringify(JSON.parse(r.full_request_payload), null, 2);
@@ -512,7 +555,7 @@ function RecordRow({
                         return r.full_request_payload;
                       }
                     })()}
-                  </pre>
+                  </CopyablePre>
                 </div>
               )}
             </div>

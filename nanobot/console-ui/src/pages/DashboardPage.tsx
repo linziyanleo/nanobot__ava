@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useCallback } from 'react'
 import { Server, Settings, FileText, MessageSquare, Activity } from 'lucide-react'
 import { api } from '../api/client'
 import { useAuth } from '../stores/auth'
@@ -8,6 +8,8 @@ interface GatewayStatusData {
   running: boolean
   pid: number | null
   uptime_seconds: number | null
+  gateway_port: number | null
+  console_port: number | null
 }
 
 export default function DashboardPage() {
@@ -15,9 +17,15 @@ export default function DashboardPage() {
   const { user } = useAuth()
   const navigate = useNavigate()
 
-  useEffect(() => {
+  const loadStatus = useCallback(() => {
     api<GatewayStatusData>('/gateway/status').then(setStatus).catch(() => {})
   }, [])
+
+  useEffect(() => {
+    loadStatus()
+    const interval = setInterval(loadStatus, 10000)
+    return () => clearInterval(interval)
+  }, [loadStatus])
 
   const formatUptime = (s: number | null) => {
     if (s == null) return 'N/A'
@@ -101,15 +109,17 @@ export default function DashboardPage() {
           </div>
           <div>
             <p className="text-[var(--text-secondary)]">Gateway Port</p>
-            <p className="font-medium">18790</p>
+            <p className="font-medium">{status?.gateway_port ?? '—'}</p>
           </div>
           <div>
-            <p className="text-[var(--text-secondary)]">Console Version</p>
-            <p className="font-medium">0.1.0</p>
+            <p className="text-[var(--text-secondary)]">Console Port</p>
+            <p className="font-medium">{status?.console_port ?? '—'}</p>
           </div>
           <div>
             <p className="text-[var(--text-secondary)]">Status</p>
-            <p className="font-medium text-[var(--success)]">Online</p>
+            <p className={`font-medium ${status?.running ? 'text-[var(--success)]' : 'text-[var(--danger)]'}`}>
+              {status?.running ? 'Online' : 'Offline'}
+            </p>
           </div>
         </div>
       </div>

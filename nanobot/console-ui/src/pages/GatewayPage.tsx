@@ -7,6 +7,8 @@ interface GatewayStatusData {
   running: boolean
   pid: number | null
   uptime_seconds: number | null
+  gateway_port: number | null
+  console_port: number | null
 }
 
 export default function GatewayPage() {

@@ -12,10 +12,17 @@ from nanobot.console.models import ChatSessionCreateRequest, UserInfo
 router = APIRouter(prefix="/api/chat", tags=["chat"])
 
 
+def _get_chat_service():
+    from nanobot.console.app import get_services
+    svc = get_services().chat
+    if svc is None:
+        raise HTTPException(status_code=503, detail="Chat service unavailable (gateway offline)")
+    return svc
+
+
 @router.get("/sessions")
 async def list_sessions(user: UserInfo = Depends(auth.require_role("admin", "editor", "viewer"))):
-    from nanobot.console.app import get_services
-    return get_services().chat.list_sessions(user.username)
+    return _get_chat_service().list_sessions(user.username)
 
 
 @router.post("/sessions")
@@ -23,8 +30,7 @@ async def create_session(
     body: ChatSessionCreateRequest,
     user: UserInfo = Depends(auth.require_role("admin", "editor", "viewer")),
 ):
-    from nanobot.console.app import get_services
-    sid = get_services().chat.create_session(user.username, body.title)
+    sid = _get_chat_service().create_session(user.username, body.title)
     return {"session_id": sid}
 
 
@@ -33,8 +39,7 @@ async def delete_session(
     session_id: str,
     user: UserInfo = Depends(auth.require_role("admin", "editor", "viewer")),
 ):
-    from nanobot.console.app import get_services
-    if not get_services().chat.delete_session(session_id):
+    if not _get_chat_service().delete_session(session_id):
         raise HTTPException(status_code=404, detail="Session not found")
     return {"ok": True}
 
@@ -44,8 +49,7 @@ async def get_history(
     session_id: str,
     user: UserInfo = Depends(auth.require_role("admin", "editor", "viewer")),
 ):
-    from nanobot.console.app import get_services
-    return get_services().chat.get_history(session_id)
+    return _get_chat_service().get_history(session_id)
 
 
 @router.websocket("/ws/{session_id}")
@@ -53,6 +57,7 @@ async def chat_ws(websocket: WebSocket, session_id: str):
     user = await auth.get_ws_user(websocket)
     await websocket.accept()
 
+    svc_chat = _get_chat_service()
     from nanobot.console.app import get_services
     svc = get_services()
 
@@ -76,7 +81,7 @@ async def chat_ws(websocket: WebSocket, session_id: str):
             async def on_progress(chunk: str):
                 await websocket.send_json({"type": "progress", "content": chunk})
 
-            response = await svc.chat.send_message(
+            response = await svc_chat.send_message(
                 session_id=session_id,
                 message=content,
                 user_id=user.username,

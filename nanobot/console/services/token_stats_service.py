@@ -28,6 +28,7 @@ class TokenUsageRecord:
     output_content: str = ""
     system_prompt_preview: str = ""
     full_request_payload: str = ""
+    finish_reason: str = ""
 
 
 class TokenStatsCollector:
@@ -44,6 +45,7 @@ class TokenStatsCollector:
         self._lock = threading.Lock()
         self._dirty = False
         self._file = data_dir / "token_stats.json"
+        self._last_mtime: float = 0.0
         self._load()
 
     # ------------------------------------------------------------------
@@ -60,6 +62,7 @@ class TokenStatsCollector:
         output_content: str = "",
         system_prompt: str = "",
         full_request_payload: str = "",
+        finish_reason: str = "",
     ) -> None:
         """Append a single LLM call record."""
         rec = TokenUsageRecord(
@@ -74,6 +77,7 @@ class TokenStatsCollector:
             output_content=output_content,
             system_prompt_preview=system_prompt,
             full_request_payload=full_request_payload,
+            finish_reason=finish_reason,
         )
         with self._lock:
             self._records.append(rec)
@@ -84,17 +88,20 @@ class TokenStatsCollector:
 
     def get_records(self, limit: int = 100, offset: int = 0) -> list[dict[str, Any]]:
         """Return records in reverse-chronological order (newest first)."""
+        self._reload_if_changed()
         with self._lock:
             reversed_records = list(reversed(self._records))
             sliced = reversed_records[offset: offset + limit]
             return [asdict(r) for r in sliced]
 
     def get_total_count(self) -> int:
+        self._reload_if_changed()
         with self._lock:
             return len(self._records)
 
     def get_summary(self) -> dict[str, Any]:
         """Full summary: totals + by_model + by_provider."""
+        self._reload_if_changed()
         return {
             "totals": self.get_totals(),
             "by_model": self.get_by_model(),
@@ -141,6 +148,7 @@ class TokenStatsCollector:
 
     def get_timeline(self, interval: str = "hour") -> list[dict[str, Any]]:
         """Aggregate records by time bucket. interval: 'hour' or 'day'."""
+        self._reload_if_changed()
         with self._lock:
             buckets: dict[str, dict[str, int]] = defaultdict(
                 lambda: {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0, "calls": 0}
@@ -179,6 +187,7 @@ class TokenStatsCollector:
             self._data_dir.mkdir(parents=True, exist_ok=True)
             with open(self._file, "w", encoding="utf-8") as f:
                 json.dump(data, f, ensure_ascii=False, indent=None)
+            self._last_mtime = self._file.stat().st_mtime
         except Exception as e:
             logger.warning("Failed to flush token stats: {}", e)
 
@@ -186,10 +195,29 @@ class TokenStatsCollector:
     # Internal
     # ------------------------------------------------------------------
 
+    def _reload_if_changed(self) -> None:
+        """Re-read from disk if another process has written a newer version."""
+        try:
+            if not self._file.exists():
+                return
+            mtime = self._file.stat().st_mtime
+            if mtime <= self._last_mtime:
+                return
+        except OSError:
+            return
+        with self._lock:
+            if not self._dirty:
+                self._records.clear()
+                self._load_inner()
+
     def _load(self) -> None:
+        self._load_inner()
+
+    def _load_inner(self) -> None:
         if not self._file.exists():
             return
         try:
+            self._last_mtime = self._file.stat().st_mtime
             with open(self._file, encoding="utf-8") as f:
                 raw = json.load(f)
             if not isinstance(raw, list):
@@ -209,6 +237,7 @@ class TokenStatsCollector:
                     output_content=item.get("output_content", ""),
                     system_prompt_preview=item.get("system_prompt_preview", ""),
                     full_request_payload=item.get("full_request_payload", ""),
+                    finish_reason=item.get("finish_reason", ""),
                 ))
             if len(self._records) > self._max_records:
                 self._records = self._records[-self._max_records:]

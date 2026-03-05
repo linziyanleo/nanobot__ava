@@ -101,6 +101,8 @@ class GatewayStatus(BaseModel):
     running: bool
     pid: int | None = None
     uptime_seconds: float | None = None
+    gateway_port: int | None = None
+    console_port: int | None = None
 
 
 class GatewayRestartRequest(BaseModel):
