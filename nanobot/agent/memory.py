@@ -206,17 +206,24 @@ person={person_name or "unmapped"}
    Exclude one-off timeline details and operational noise."""
 
         try:
-            response = await provider.chat(
+            chat_kwargs = dict(
                 messages=[
-                    {"role": "system", "content": "You are a memory consolidation agent. Call the save_memory tool with your consolidation of the conversation."},
+                    {"role": "system", "content": "You are a memory consolidation agent. You MUST call the save_memory tool with your consolidation result. Do NOT reply with plain text."},
                     {"role": "user", "content": prompt},
                 ],
                 tools=_SAVE_MEMORY_TOOL,
                 model=model,
+                tool_choice="required",
             )
+            response = await provider.chat(**chat_kwargs)
 
             if not response.has_tool_calls:
-                logger.warning("Memory consolidation: LLM did not call save_memory, skipping")
+                logger.warning("Memory consolidation: LLM did not call save_memory (attempt 1), retrying")
+                chat_kwargs["tool_choice"] = {"type": "function", "function": {"name": "save_memory"}}
+                response = await provider.chat(**chat_kwargs)
+
+            if not response.has_tool_calls:
+                logger.warning("Memory consolidation: LLM did not call save_memory after retry, skipping")
                 return False
 
             args = response.tool_calls[0].arguments

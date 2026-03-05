@@ -72,7 +72,7 @@ class AgentLoop:
         mcp_servers: dict | None = None,
         channels_config: ChannelsConfig | None = None,
         context_compression: ContextCompressionConfig | None = None,
-        memory_tier: str | None = "mini",
+        memory_tier: str | None = "default",
         in_loop_truncation: InLoopTruncationConfig | None = None,
         token_stats: Any | None = None,
     ):
@@ -694,20 +694,20 @@ class AgentLoop:
         model_override: str | None = None,
     ) -> str:
         """Process a message directly (for CLI or cron usage).
-        
+
         Args:
             model_override: If provided, temporarily use this model for the request.
         """
         await self._connect_mcp()
         session = self.sessions.get_or_create(session_key)
         msg = InboundMessage(channel=channel, sender_id="user", chat_id=chat_id, content=content)
-        
+
         # Temporarily swap model if override provided
         original_model = None
         if model_override:
             original_model = self.model
             self.model = model_override
-        
+
         try:
             response = await self._process_message(msg, session_key=session_key, on_progress=on_progress)
             return response.content if response else ""
@@ -717,10 +717,10 @@ class AgentLoop:
 
     def get_model_for_tier(self, tier: str | None) -> str:
         """Get model name for a given tier.
-        
+
         Args:
             tier: "mini" for lightweight model, "default"/None for main model.
-        
+
         Returns:
             The appropriate model name.
         """
