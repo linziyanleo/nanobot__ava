@@ -1,7 +1,7 @@
 import { NavLink } from 'react-router-dom'
 import {
   LayoutDashboard, Settings, FileText, MessageSquare,
-  Server, Users, ClipboardList, LogOut, Bot,
+  Server, BarChart3, Users, ClipboardList, LogOut, Bot,
 } from 'lucide-react'
 import { useAuth } from '../../stores/auth'
 import { cn } from '../../lib/utils'
@@ -12,6 +12,7 @@ const navItems = [
   { to: '/files', icon: FileText, label: 'Files' },
   { to: '/chat', icon: MessageSquare, label: 'Chat' },
   { to: '/gateway', icon: Server, label: 'Gateway' },
+  { to: '/tokens', icon: BarChart3, label: 'Token Stats' },
   { to: '/users', icon: Users, label: 'Users', admin: true },
   { to: '/audit', icon: ClipboardList, label: 'Audit', admin: true },
 ]

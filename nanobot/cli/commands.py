@@ -293,7 +293,7 @@ def _make_provider(config: Config):
 
     # OpenAI Codex (OAuth)
     if provider_name == "openai_codex" or model.startswith("openai-codex/"):
-        return OpenAICodexProvider(default_model=model)
+        return OpenAICodexProvider(default_model=model, provider_name="openai_codex")
 
     # Custom: direct OpenAI-compatible endpoint, bypasses LiteLLM
     if provider_name == "custom":
@@ -301,6 +301,7 @@ def _make_provider(config: Config):
             api_key=p.api_key if p else "no-key",
             api_base=config.get_api_base(model) or "http://localhost:8000/v1",
             default_model=model,
+            provider_name="custom",
         )
 
     from nanobot.providers.registry import find_by_name
@@ -366,6 +367,15 @@ def gateway(
     provider = _make_provider(config)
     session_manager = SessionManager(config.workspace_path)
 
+    if config.gateway.console.enabled:
+        _console_port = config.gateway.console.port
+        if _console_port != port and check_port_in_use(_console_port):
+            console.print(f"[red]Error: Console port {_console_port} is already in use[/red]")
+            raise typer.Exit(1)
+
+    from nanobot.console.services.token_stats_service import TokenStatsCollector
+    token_stats_collector = TokenStatsCollector(data_dir=get_data_dir() / "console")
+
     # Create cron service first (callback set after agent creation)
     cron_store_path = get_data_dir() / "cron" / "jobs.json"
     cron = CronService(cron_store_path)
@@ -393,6 +403,7 @@ def gateway(
         context_compression=config.agents.defaults.context_compression,
         memory_tier=config.agents.defaults.memory_tier,
         in_loop_truncation=config.agents.defaults.in_loop_truncation,
+        token_stats=token_stats_collector,
     )
 
     # Set cron callback (needs agent)
@@ -518,8 +529,9 @@ def gateway(
     console.print(f"[green]✓[/green] Gateway PID: {os.getpid()}")
 
     console_cfg = config.gateway.console
+    console_port = console_cfg.port if console_cfg.enabled else port
     if console_cfg.enabled:
-        console.print(f"[green]✓[/green] Console: http://{config.gateway.host}:{port}")
+        console.print(f"[green]✓[/green] Console: http://localhost:{console_port}")
 
     async def run():
         uvicorn_server = None
@@ -541,11 +553,12 @@ def gateway(
                     workspace=config.workspace_path,
                     agent_loop=agent,
                     config=config,
+                    token_stats_collector=token_stats_collector,
                 )
                 uvicorn_config = uvicorn.Config(
                     console_app,
                     host=config.gateway.host,
-                    port=port,
+                    port=console_port,
                     log_level="warning",
                 )
                 uvicorn_server = uvicorn.Server(uvicorn_config)

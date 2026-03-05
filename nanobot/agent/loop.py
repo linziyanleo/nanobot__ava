@@ -74,6 +74,7 @@ class AgentLoop:
         context_compression: ContextCompressionConfig | None = None,
         memory_tier: str | None = "mini",
         in_loop_truncation: InLoopTruncationConfig | None = None,
+        token_stats: Any | None = None,
     ):
         from nanobot.config.schema import ContextCompressionConfig, ExecToolConfig, InLoopTruncationConfig as _ILT
         self.bus = bus
@@ -97,6 +98,7 @@ class AgentLoop:
         self._compression_enabled = compression_cfg.enabled
         self._history_lookup_hint_enabled = compression_cfg.enable_history_lookup_hint
         self._in_loop_truncation = in_loop_truncation or _ILT()
+        self._token_stats = token_stats
 
         self.categorized_memory = CategorizedMemoryStore(workspace)
         self.context = ContextBuilder(
@@ -250,6 +252,33 @@ class AgentLoop:
                 total_completion_tokens += completion_tokens
                 logger.debug("💰 LLM 调用 Token 消耗：{} (prompt: {} + completion: {})",
                            call_tokens, prompt_tokens, completion_tokens)
+
+                if self._token_stats:
+                    last_user_msg = ""
+                    sys_prompt = ""
+                    for m in reversed(messages):
+                        if m.get("role") == "user" and not last_user_msg:
+                            c = m.get("content", "")
+                            last_user_msg = c if isinstance(c, str) else str(c)
+                    for m in messages:
+                        if m.get("role") == "system":
+                            c = m.get("content", "")
+                            sys_prompt = c if isinstance(c, str) else str(c)
+                            break
+                    try:
+                        full_payload = json.dumps(messages, ensure_ascii=False)
+                    except (TypeError, ValueError):
+                        full_payload = ""
+                    self._token_stats.record(
+                        model=self.model,
+                        provider=self.provider.provider_name,
+                        usage=response.usage,
+                        session_key=session.key if session else "",
+                        user_message=last_user_msg,
+                        output_content=response.content or "",
+                        system_prompt=sys_prompt,
+                        full_request_payload=full_payload,
+                    )
 
             if response.has_tool_calls:
                 if on_progress:

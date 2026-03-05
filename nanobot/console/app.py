@@ -5,7 +5,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
+from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from nanobot.console import auth
@@ -15,6 +16,7 @@ from nanobot.console.services.chat_service import ChatService
 from nanobot.console.services.config_service import ConfigService
 from nanobot.console.services.file_service import FileService
 from nanobot.console.services.gateway_service import GatewayService
+from nanobot.console.services.token_stats_service import TokenStatsCollector
 from nanobot.console.services.user_service import UserService
 
 
@@ -26,6 +28,7 @@ class Services:
     files: FileService
     gateway: GatewayService
     chat: ChatService
+    token_stats: TokenStatsCollector | None = None
 
 
 _services: Services | None = None
@@ -42,6 +45,7 @@ def create_console_app(
     workspace: Path,
     agent_loop,
     config,
+    token_stats_collector: TokenStatsCollector | None = None,
 ) -> FastAPI:
     global _services
 
@@ -66,6 +70,7 @@ def create_console_app(
         files=FileService(workspace, nanobot_dir),
         gateway=GatewayService(skill_dir),
         chat=ChatService(agent_loop, workspace),
+        token_stats=token_stats_collector,
     )
 
     app = FastAPI(
@@ -86,6 +91,7 @@ def create_console_app(
         chat_routes,
         user_routes,
         audit_routes,
+        token_routes,
     )
 
     app.include_router(auth_routes.router)
@@ -95,9 +101,19 @@ def create_console_app(
     app.include_router(chat_routes.router)
     app.include_router(user_routes.router)
     app.include_router(audit_routes.router)
+    app.include_router(token_routes.router)
 
     static_dir = Path(__file__).parent.parent / "console-ui" / "dist"
     if static_dir.exists():
-        app.mount("/", StaticFiles(directory=str(static_dir), html=True), name="console-ui")
+        app.mount("/assets", StaticFiles(directory=str(static_dir / "assets")), name="static-assets")
+
+        index_html = static_dir / "index.html"
+
+        @app.get("/{full_path:path}")
+        async def spa_fallback(request: Request, full_path: str):
+            file_path = static_dir / full_path
+            if file_path.is_file():
+                return FileResponse(file_path)
+            return FileResponse(index_html)
 
     return app

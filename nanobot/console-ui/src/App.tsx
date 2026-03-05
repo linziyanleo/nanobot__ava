@@ -8,6 +8,7 @@ import ConfigPage from './pages/ConfigPage'
 import FilesPage from './pages/FilesPage'
 import ChatPage from './pages/ChatPage'
 import GatewayPage from './pages/GatewayPage'
+import TokenStatsPage from './pages/TokenStatsPage'
 import UsersPage from './pages/UsersPage'
 import AuditPage from './pages/AuditPage'
 
@@ -43,6 +44,7 @@ export default function App() {
           <Route path="files" element={<FilesPage />} />
           <Route path="chat" element={<ChatPage />} />
           <Route path="gateway" element={<GatewayPage />} />
+          <Route path="tokens" element={<TokenStatsPage />} />
           <Route path="users" element={<ProtectedRoute adminOnly><UsersPage /></ProtectedRoute>} />
           <Route path="audit" element={<ProtectedRoute adminOnly><AuditPage /></ProtectedRoute>} />
         </Route>

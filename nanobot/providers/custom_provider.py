@@ -12,8 +12,9 @@ from nanobot.providers.base import LLMProvider, LLMResponse, ToolCallRequest
 
 class CustomProvider(LLMProvider):
 
-    def __init__(self, api_key: str = "no-key", api_base: str = "http://localhost:8000/v1", default_model: str = "default"):
-        super().__init__(api_key, api_base)
+    def __init__(self, api_key: str = "no-key", api_base: str = "http://localhost:8000/v1",
+                 default_model: str = "default", provider_name: str = "custom"):
+        super().__init__(api_key, api_base, provider_name=provider_name)
         self.default_model = default_model
         self._client = AsyncOpenAI(api_key=api_key, base_url=api_base)
 

@@ -315,6 +315,7 @@ class ConsoleConfig(Base):
     """Web console configuration."""
 
     enabled: bool = True
+    port: int = 6688
     secret_key: str = "change-me-in-production"
     token_expire_minutes: int = 480  # 8 hours
 

@@ -37,6 +37,11 @@ export const useAuth = create<AuthState>((set, get) => ({
 
   checkAuth: async () => {
     try {
+      const token = localStorage.getItem('token')
+      if (!token) {
+        set({ user: null, loading: false })
+        return
+      }
       const user = await api<User>('/auth/me')
       set({ user, loading: false })
     } catch {

@@ -39,7 +39,7 @@ class LiteLLMProvider(LLMProvider):
         extra_headers: dict[str, str] | None = None,
         provider_name: str | None = None,
     ):
-        super().__init__(api_key, api_base)
+        super().__init__(api_key, api_base, provider_name=provider_name or "unknown")
         self.default_model = default_model
         self.extra_headers = extra_headers or {}
 
