@@ -19,8 +19,20 @@ class FileService:
         }
 
     def _resolve_and_validate(self, path: str) -> Path:
-        """Resolve path and validate it's within allowed roots."""
-        resolved = Path(path).resolve()
+        """Resolve path and validate it's within allowed roots.
+
+        Accepts both absolute paths and paths prefixed with a root name
+        (e.g. ``workspace/sessions/foo.jsonl``).
+        """
+        p = Path(path)
+        if not p.is_absolute():
+            parts = p.parts
+            if parts and parts[0] in self._roots:
+                resolved = (self._roots[parts[0]] / Path(*parts[1:])).resolve()
+            else:
+                resolved = p.resolve()
+        else:
+            resolved = p.resolve()
         for root in self._roots.values():
             try:
                 resolved.relative_to(root)
@@ -61,6 +73,15 @@ class FileService:
             content=resolved.read_text("utf-8"),
             mtime=resolved.stat().st_mtime,
         )
+
+    def delete_file(self, path: str) -> bool:
+        resolved = self._resolve_and_validate(path)
+        if not resolved.exists():
+            raise FileNotFoundError(f"File not found: {path}")
+        if not resolved.is_file():
+            raise ValueError(f"Not a file: {path}")
+        resolved.unlink()
+        return True
 
     def write_file(self, path: str, content: str, expected_mtime: float) -> FileContent:
         resolved = self._resolve_and_validate(path)

@@ -649,6 +649,21 @@ def gateway(
         else:
             _start_console_process(dev=dev)
 
+    # Build the gateway-embedded console app (with ChatService + AgentLoop)
+    import uvicorn
+    from nanobot.console.app import create_console_app
+    gateway_app = create_console_app(
+        nanobot_dir=get_data_dir(),
+        workspace=config.workspace_path,
+        agent_loop=agent,
+        config=config,
+        token_stats_collector=token_stats_collector,
+    )
+    gateway_uvicorn = uvicorn.Server(uvicorn.Config(
+        gateway_app, host=config.gateway.host, port=port, log_level="warning",
+    ))
+    console.print(f"[green]✓[/green] Gateway API: http://localhost:{port}")
+
     async def run():
         try:
             await cron.start()
@@ -657,12 +672,14 @@ def gateway(
             tasks = [
                 agent.run(),
                 channels.start_all(),
+                gateway_uvicorn.serve(),
             ]
 
             await asyncio.gather(*tasks)
         except KeyboardInterrupt:
             console.print("\nShutting down...")
         finally:
+            gateway_uvicorn.should_exit = True
             await agent.close_mcp()
             heartbeat.stop()
             cron.stop()

@@ -19,6 +19,7 @@ export default function ChatPage() {
   const [streaming, setStreaming] = useState('')
   const [sending, setSending] = useState(false)
   const wsRef = useRef<WebSocket | null>(null)
+  const initializedRef = useRef(false)
   useAuth()
 
   const loadSessionList = useCallback(async () => {
@@ -66,14 +67,20 @@ export default function ChatPage() {
       metas.sort((a, b) => (b.updated_at || '').localeCompare(a.updated_at || ''))
       setSessions(metas)
 
-      if (metas.length > 0 && !activeSession) {
+      if (!initializedRef.current && metas.length > 0) {
+        initializedRef.current = true
         const firstScene = SCENE_ORDER.find((s) => metas.some((m) => m.scene === s)) || metas[0].scene
         setActiveScene(firstScene)
+        const firstSessionInScene = metas.find((m) => m.scene === firstScene)
+        if (firstSessionInScene) {
+          setActiveSession(firstSessionInScene.filename)
+          loadSessionMessages(firstSessionInScene.filename, firstSessionInScene.filepath)
+        }
       }
     } catch (err) {
       console.error('Failed to load sessions:', err)
     }
-  }, [activeSession])
+  }, [])
 
   const loadSessionMessages = useCallback(async (filename: string, filepath?: string) => {
     setLoadingMessages(true)
@@ -112,6 +119,23 @@ export default function ChatPage() {
 
   const handleSceneChange = (scene: SceneType) => {
     setActiveScene(scene)
+    wsRef.current?.close()
+    setStreaming('')
+
+    const sceneSessions = sessions.filter((s) => s.scene === scene)
+    if (sceneSessions.length > 0) {
+      const first = sceneSessions[0]
+      setActiveSession(first.filename)
+      loadSessionMessages(first.filename, first.filepath)
+      if (scene === 'console') {
+        const sid = first.filename.replace(/^console_/, '').replace(/\.jsonl$/, '')
+        connectWs(sid)
+      }
+    } else {
+      setActiveSession('')
+      setCurrentMeta(null)
+      setTurns([])
+    }
   }
 
   const [error, setError] = useState('')
@@ -164,9 +188,17 @@ export default function ChatPage() {
   }
 
   const handleDeleteSession = async (filename: string) => {
-    const sid = filename.replace(/^console_/, '').replace(/\.jsonl$/, '')
+    const meta = sessions.find((s) => s.filename === filename)
     try {
-      await api(`/chat/sessions/${sid}`, { method: 'DELETE' })
+      if (meta?.scene === 'console') {
+        const sid = filename.replace(/^console_/, '').replace(/\.jsonl$/, '')
+        await api(`/chat/sessions/${sid}`, { method: 'DELETE' })
+      } else if (meta?.filepath) {
+        await api('/files/delete', {
+          method: 'DELETE',
+          body: JSON.stringify({ path: meta.filepath }),
+        })
+      }
       if (activeSession === filename) {
         setActiveSession('')
         setCurrentMeta(null)
@@ -176,6 +208,29 @@ export default function ChatPage() {
       loadSessionList()
     } catch (err) {
       console.error('Failed to delete session:', err)
+    }
+  }
+
+  const handleRenameSession = async (filename: string, newName: string) => {
+    const meta = sessions.find((s) => s.filename === filename)
+    if (!meta?.filepath) return
+    try {
+      const data = await api<{ content: string }>(`/files/read?path=${encodeURIComponent(meta.filepath)}`)
+      const lines = data.content.split('\n')
+      if (lines[0]) {
+        const parsed = JSON.parse(lines[0])
+        if (parsed._type === 'metadata') {
+          parsed.key = newName
+          lines[0] = JSON.stringify(parsed)
+          await api('/files/write', {
+            method: 'PUT',
+            body: JSON.stringify({ path: meta.filepath, content: lines.join('\n'), expected_mtime: 0 }),
+          })
+          loadSessionList()
+        }
+      }
+    } catch (err) {
+      console.error('Failed to rename session:', err)
     }
   }
 
@@ -249,6 +304,7 @@ export default function ChatPage() {
           onSessionSelect={handleSessionSelect}
           onCreateConsole={handleCreateConsole}
           onDeleteSession={handleDeleteSession}
+          onRenameSession={handleRenameSession}
         />
         <MessageArea
           session={currentMeta}

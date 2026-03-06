@@ -3,12 +3,17 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Query
+from pydantic import BaseModel
 
 from nanobot.console import auth
 from nanobot.console.models import FileWriteRequest, UserInfo
 from nanobot.console.middleware import get_client_ip
 
 router = APIRouter(prefix="/api/files", tags=["files"])
+
+
+class FileDeleteRequest(BaseModel):
+    path: str
 
 
 @router.get("/tree")
@@ -54,3 +59,24 @@ async def write_file(
         target=body.path, ip=get_client_ip(request),
     )
     return result
+
+
+@router.delete("/delete")
+async def delete_file(
+    body: FileDeleteRequest,
+    request: Request,
+    user: UserInfo = Depends(auth.require_role("admin", "editor")),
+):
+    from nanobot.console.app import get_services
+
+    svc = get_services()
+    try:
+        svc.files.delete_file(body.path)
+    except (FileNotFoundError, PermissionError, ValueError) as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+    svc.audit.log(
+        user=user.username, role=user.role, action="file.delete",
+        target=body.path, ip=get_client_ip(request),
+    )
+    return {"ok": True}

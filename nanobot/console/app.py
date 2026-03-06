@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass
 from pathlib import Path
 
-from fastapi import FastAPI, Request
-from fastapi.responses import FileResponse
+from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
+from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 
 from nanobot.console import auth
@@ -194,6 +195,79 @@ def create_console_app_standalone(
     app.include_router(user_routes.router)
     app.include_router(audit_routes.router)
     app.include_router(token_routes.router)
+
+    # --- Chat reverse proxy to gateway ----------------------------------
+    gateway_base = f"http://127.0.0.1:{gateway_port}"
+
+    @app.api_route(
+        "/api/chat/{path:path}",
+        methods=["GET", "POST", "PUT", "DELETE", "PATCH"],
+    )
+    async def proxy_chat_http(request: Request, path: str):
+        import httpx
+        target = f"{gateway_base}/api/chat/{path}"
+        if request.url.query:
+            target = f"{target}?{request.url.query}"
+        body = await request.body()
+        try:
+            async with httpx.AsyncClient(timeout=60.0) as client:
+                resp = await client.request(
+                    method=request.method,
+                    url=target,
+                    headers={
+                        k: v for k, v in request.headers.items()
+                        if k.lower() not in ("host", "content-length")
+                    },
+                    content=body,
+                )
+            return Response(
+                content=resp.content,
+                status_code=resp.status_code,
+                headers=dict(resp.headers),
+            )
+        except httpx.ConnectError:
+            return Response(
+                content='{"detail":"Gateway offline — chat unavailable"}',
+                status_code=503,
+                media_type="application/json",
+            )
+
+    @app.websocket("/api/chat/ws/{session_id}")
+    async def proxy_chat_ws(websocket: WebSocket, session_id: str):
+        import websockets.asyncio.client as ws_client
+
+        await websocket.accept()
+        token = websocket.query_params.get("token", "")
+        gw_ws_url = (
+            f"ws://127.0.0.1:{gateway_port}"
+            f"/api/chat/ws/{session_id}?token={token}"
+        )
+        try:
+            async with ws_client.connect(gw_ws_url) as upstream:
+
+                async def client_to_upstream():
+                    try:
+                        while True:
+                            data = await websocket.receive_text()
+                            await upstream.send(data)
+                    except WebSocketDisconnect:
+                        await upstream.close()
+
+                async def upstream_to_client():
+                    try:
+                        async for msg in upstream:
+                            await websocket.send_text(msg if isinstance(msg, str) else msg.decode())
+                    except Exception:
+                        pass
+
+                await asyncio.gather(client_to_upstream(), upstream_to_client())
+        except Exception:
+            try:
+                await websocket.close(code=1011, reason="Gateway unreachable")
+            except Exception:
+                pass
+
+    # --- End chat proxy -------------------------------------------------
 
     static_dir = Path(__file__).parent.parent / "console-ui" / "dist"
     if static_dir.exists():
