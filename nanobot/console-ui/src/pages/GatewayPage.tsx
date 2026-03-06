@@ -38,7 +38,7 @@ export default function GatewayPage() {
   }, [countdown])
 
   const handleRestart = async (force: boolean = false) => {
-    if (!confirm(`Restart gateway${force ? ' (force)' : ''}? Console will briefly disconnect.`)) return
+    if (!confirm(`重启网关${force ? ' (强制)' : ''}? 控制台将短暂断开连接。`)) return;
     setRestarting(true)
     setMessage(null)
     try {
@@ -48,9 +48,9 @@ export default function GatewayPage() {
         body: JSON.stringify({ delay_ms: delayMs, force }),
       })
       setCountdown(Math.ceil(delayMs / 1000) + 5)
-      setMessage({ type: 'success', text: `Gateway restart scheduled in ${delayMs / 1000}s` })
+      setMessage({ type: 'success', text: `网关重启将在 ${delayMs / 1000}s 后执行` });
     } catch (err: unknown) {
-      setMessage({ type: 'error', text: err instanceof Error ? err.message : 'Restart failed' })
+      setMessage({ type: 'error', text: err instanceof Error ? err.message : '重启失败' });
     } finally {
       setRestarting(false)
     }
@@ -71,17 +71,19 @@ export default function GatewayPage() {
   return (
     <div>
       <div className="flex items-center justify-between mb-6">
-        <h1 className="text-2xl font-bold">Gateway</h1>
+        <h1 className="text-2xl font-bold">网关</h1>
         <button
           onClick={loadStatus}
           className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-[var(--bg-tertiary)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] text-sm"
         >
-          <RefreshCw className="w-4 h-4" /> Refresh
+          <RefreshCw className="w-4 h-4" /> 刷新
         </button>
       </div>
 
       {message && (
-        <div className={`mb-4 p-3 rounded-lg text-sm ${message.type === 'success' ? 'bg-[var(--success)]/10 text-[var(--success)]' : 'bg-[var(--danger)]/10 text-[var(--danger)]'}`}>
+        <div
+          className={`mb-4 p-3 rounded-lg text-sm ${message.type === 'success' ? 'bg-[var(--success)]/10 text-[var(--success)]' : 'bg-[var(--danger)]/10 text-[var(--danger)]'}`}
+        >
           {message.text}
         </div>
       )}
@@ -90,8 +92,8 @@ export default function GatewayPage() {
         <div className="mb-4 p-4 rounded-xl bg-[var(--warning)]/10 border border-[var(--warning)]/20 flex items-center gap-3">
           <AlertTriangle className="w-5 h-5 text-[var(--warning)]" />
           <div>
-            <p className="text-sm font-medium text-[var(--warning)]">Gateway Restarting</p>
-            <p className="text-xs text-[var(--text-secondary)]">Expected back in ~{countdown}s. Page will auto-reconnect.</p>
+            <p className="text-sm font-medium text-[var(--warning)]">网关重启中</p>
+            <p className="text-xs text-[var(--text-secondary)]">预计将在 ~{countdown}s 后恢复。页面将自动重新连接。</p>
           </div>
         </div>
       )}
@@ -102,20 +104,20 @@ export default function GatewayPage() {
             <Server className={`w-8 h-8 ${status?.running ? 'text-[var(--success)]' : 'text-[var(--danger)]'}`} />
           </div>
           <div>
-            <h2 className="text-xl font-semibold">
-              {status?.running ? 'Gateway Running' : 'Gateway Stopped'}
-            </h2>
+            <h2 className="text-xl font-semibold">{status?.running ? '网关运行中' : '网关未运行'}</h2>
             <p className="text-sm text-[var(--text-secondary)]">
-              {status?.running ? `PID: ${status.pid}` : 'Not detected'}
+              {status?.running ? `PID: ${status.pid}` : '未检测到'}
             </p>
           </div>
         </div>
 
         <div className="grid grid-cols-3 gap-4 mb-6">
           <div className="bg-[var(--bg-primary)] rounded-lg p-4">
-            <p className="text-xs text-[var(--text-secondary)] mb-1">Status</p>
-            <p className={`text-lg font-semibold ${status?.running ? 'text-[var(--success)]' : 'text-[var(--danger)]'}`}>
-              {status?.running ? 'Online' : 'Offline'}
+            <p className="text-xs text-[var(--text-secondary)] mb-1">状态</p>
+            <p
+              className={`text-lg font-semibold ${status?.running ? 'text-[var(--success)]' : 'text-[var(--danger)]'}`}
+            >
+              {status?.running ? '在线' : '离线'}
             </p>
           </div>
           <div className="bg-[var(--bg-primary)] rounded-lg p-4">
@@ -123,7 +125,7 @@ export default function GatewayPage() {
             <p className="text-lg font-semibold">{status?.pid ?? '-'}</p>
           </div>
           <div className="bg-[var(--bg-primary)] rounded-lg p-4">
-            <p className="text-xs text-[var(--text-secondary)] mb-1">Uptime</p>
+            <p className="text-xs text-[var(--text-secondary)] mb-1">运行时间</p>
             <p className="text-lg font-semibold">{formatUptime(status?.uptime_seconds ?? null)}</p>
           </div>
         </div>
@@ -149,5 +151,5 @@ export default function GatewayPage() {
         )}
       </div>
     </div>
-  )
+  );
 }

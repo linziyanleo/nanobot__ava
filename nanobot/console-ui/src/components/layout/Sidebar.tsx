@@ -7,15 +7,15 @@ import { useAuth } from '../../stores/auth'
 import { cn } from '../../lib/utils'
 
 const navItems = [
-  { to: '/', icon: LayoutDashboard, label: 'Dashboard' },
-  { to: '/config', icon: Settings, label: 'Config' },
-  { to: '/files', icon: FileText, label: 'Files' },
-  { to: '/chat', icon: MessageSquare, label: 'Chat' },
-  { to: '/gateway', icon: Server, label: 'Gateway' },
-  { to: '/tokens', icon: BarChart3, label: 'Token Stats' },
-  { to: '/users', icon: Users, label: 'Users', admin: true },
-  { to: '/audit', icon: ClipboardList, label: 'Audit', admin: true },
-]
+  { to: '/', icon: LayoutDashboard, label: '控制台' },
+  { to: '/config', icon: Settings, label: '配置' },
+  { to: '/files', icon: FileText, label: '文件' },
+  { to: '/chat', icon: MessageSquare, label: '聊天' },
+  { to: '/gateway', icon: Server, label: '网关' },
+  { to: '/tokens', icon: BarChart3, label: 'Token 统计' },
+  { to: '/users', icon: Users, label: '用户', admin: true },
+  { to: '/audit', icon: ClipboardList, label: '审计', admin: true },
+];
 
 export default function Sidebar() {
   const { user, logout, isAdmin } = useAuth()
@@ -25,14 +25,14 @@ export default function Sidebar() {
       <div className="p-5 border-b border-[var(--border)] flex items-center gap-3">
         <Bot className="w-7 h-7 text-[var(--accent)]" />
         <div>
-          <h1 className="text-base font-bold text-[var(--text-primary)]">Nanobot Console</h1>
-          <p className="text-xs text-[var(--text-secondary)]">Management Panel</p>
+          <h1 className="text-base font-bold text-[var(--text-primary)]">Nanobot 控制台</h1>
+          <p className="text-xs text-[var(--text-secondary)]">管理面板</p>
         </div>
       </div>
 
       <nav className="flex-1 py-3 px-3 space-y-0.5 overflow-y-auto">
-        {navItems.map((item) => {
-          if (item.admin && !isAdmin()) return null
+        {navItems.map(item => {
+          if (item.admin && !isAdmin()) return null;
           return (
             <NavLink
               key={item.to}
@@ -50,7 +50,7 @@ export default function Sidebar() {
               <item.icon className="w-4.5 h-4.5" />
               {item.label}
             </NavLink>
-          )
+          );
         })}
       </nav>
 
@@ -70,5 +70,5 @@ export default function Sidebar() {
         </div>
       </div>
     </aside>
-  )
+  );
 }

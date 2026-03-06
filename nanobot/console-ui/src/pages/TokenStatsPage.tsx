@@ -153,7 +153,7 @@ export default function TokenStatsPage() {
     <div>
       <div className="flex items-center justify-between mb-6">
         <div className="flex items-center gap-3">
-          <h1 className="text-2xl font-bold">Token Usage</h1>
+          <h1 className="text-2xl font-bold">Token 统计</h1>
           <div className="flex bg-[var(--bg-tertiary)] rounded-lg p-0.5">
             <button
               onClick={() => setView('records')}
@@ -205,11 +205,11 @@ export default function TokenStatsPage() {
       {summary && (
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
           <div className="bg-[var(--bg-secondary)] border border-[var(--border)] rounded-xl p-4">
-            <p className="text-xs text-[var(--text-secondary)] mb-1">Total Tokens</p>
+            <p className="text-xs text-[var(--text-secondary)] mb-1">总 Token</p>
             <p className="text-xl font-bold text-[var(--accent)]">{formatTokens(summary.totals.total_tokens)}</p>
           </div>
           <div className="bg-[var(--bg-secondary)] border border-[var(--border)] rounded-xl p-4">
-            <p className="text-xs text-[var(--text-secondary)] mb-1">LLM Calls</p>
+            <p className="text-xs text-[var(--text-secondary)] mb-1">LLM 调用</p>
             <p className="text-xl font-bold text-purple-400">{summary.totals.total_calls}</p>
           </div>
           <div className="bg-[var(--bg-secondary)] border border-[var(--border)] rounded-xl p-4">
@@ -232,10 +232,10 @@ export default function TokenStatsPage() {
                 <tr className="border-b border-[var(--border)] text-[var(--text-secondary)] text-xs">
                   <th className="text-left px-4 py-3 font-medium">时间</th>
                   <th className="text-left px-4 py-3 font-medium">模型</th>
-                  <th className="text-left px-4 py-3 font-medium">Provider</th>
+                  <th className="text-left px-4 py-3 font-medium">提供者</th>
                   <th className="text-right px-4 py-3 font-medium">Prompt</th>
                   <th className="text-right px-4 py-3 font-medium">Completion</th>
-                  <th className="text-center px-4 py-3 font-medium">Type</th>
+                  <th className="text-center px-4 py-3 font-medium">类型</th>
                   <th className="text-right px-4 py-3 font-medium">Total</th>
                   <th className="text-center px-4 py-3 font-medium w-10"></th>
                 </tr>
