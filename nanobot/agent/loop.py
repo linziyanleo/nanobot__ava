@@ -75,6 +75,7 @@ class AgentLoop:
         memory_tier: str | None = "default",
         in_loop_truncation: InLoopTruncationConfig | None = None,
         token_stats: Any | None = None,
+        record_full_request_payload: bool = False,
     ):
         from nanobot.config.schema import ContextCompressionConfig, ExecToolConfig, InLoopTruncationConfig as _ILT
         self.bus = bus
@@ -99,6 +100,7 @@ class AgentLoop:
         self._history_lookup_hint_enabled = compression_cfg.enable_history_lookup_hint
         self._in_loop_truncation = in_loop_truncation or _ILT()
         self._token_stats = token_stats
+        self._record_full_request_payload = record_full_request_payload
 
         self.categorized_memory = CategorizedMemoryStore(workspace)
         self.context = ContextBuilder(
@@ -267,10 +269,12 @@ class AgentLoop:
                             c = m.get("content", "")
                             sys_prompt = c if isinstance(c, str) else str(c)
                             break
-                    try:
-                        full_payload = json.dumps(messages, ensure_ascii=False)
-                    except (TypeError, ValueError):
-                        full_payload = ""
+                    full_payload = ""
+                    if self._record_full_request_payload:
+                        try:
+                            full_payload = json.dumps(messages, ensure_ascii=False)
+                        except (TypeError, ValueError):
+                            pass
                     try:
                         conv_history_str = json.dumps(conv_history_snapshot, ensure_ascii=False) if conv_history_snapshot else ""
                     except (TypeError, ValueError):

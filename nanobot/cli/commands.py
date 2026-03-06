@@ -468,6 +468,7 @@ def gateway(
         memory_tier=config.agents.defaults.memory_tier,
         in_loop_truncation=config.agents.defaults.in_loop_truncation,
         token_stats=token_stats_collector,
+        record_full_request_payload=config.token_stats.record_full_request_payload,
     )
 
     # Set cron callback (needs agent)

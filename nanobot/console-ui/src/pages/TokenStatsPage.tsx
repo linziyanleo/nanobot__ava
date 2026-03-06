@@ -559,7 +559,7 @@ function RecordRow({
                   </CopyablePre>
                 </div>
               )}
-              {r.full_request_payload && (
+              {r.full_request_payload && r.full_request_payload.length > 0 && (
                 <div>
                   <p className="text-[var(--text-secondary)] mb-1">完整 API 请求:</p>
                   <CopyablePre className="bg-[var(--bg-primary)] rounded-lg p-3 text-xs whitespace-pre-wrap break-all max-h-64 overflow-y-auto text-[var(--text-secondary)]">

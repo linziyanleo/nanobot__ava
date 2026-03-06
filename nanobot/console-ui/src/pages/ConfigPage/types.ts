@@ -106,10 +106,16 @@ export interface GatewayConfig {
   console?: ConsoleConfigType
 }
 
+export interface TokenStatsConfig {
+  enabled: boolean
+  record_full_request_payload: boolean
+}
+
 export interface NanobotConfig {
   agents: {
     defaults: AgentDefaults
   }
+  token_stats?: TokenStatsConfig
   channels: Record<string, ChannelBase>
   providers: Record<string, ProviderConfig>
   gateway: GatewayConfig

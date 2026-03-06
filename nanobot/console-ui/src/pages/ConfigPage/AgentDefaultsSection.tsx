@@ -25,18 +25,12 @@ export function AgentDefaultsSection({
   ]
 
   return (
-    <Section title="代理默认配置" infoKey="agents.defaults.model">
+    <Section title="通用配置" infoKey="agents.defaults.model">
       <div className="space-y-3">
         {simpleFields.map(({ key, label }) => {
-          const val = config[key]
-          if (val !== undefined && typeof val === 'object' && val !== null) return null
-          return renderField(
-            label,
-            val,
-            `agents.defaults.${key}`,
-            readOnly,
-            (v) => onChange({ ...config, [key]: v }),
-          )
+          const val = config[key];
+          if (val !== undefined && typeof val === 'object' && val !== null) return null;
+          return renderField(label, val, `agents.defaults.${key}`, readOnly, v => onChange({ ...config, [key]: v }));
         })}
       </div>
 
@@ -45,12 +39,8 @@ export function AgentDefaultsSection({
           <Section title="上下文压缩" infoKey="agents.defaults.contextCompression.enabled" defaultOpen={false}>
             <div className="space-y-3">
               {Object.entries(config.contextCompression).map(([key, val]) =>
-                renderField(
-                  key,
-                  val,
-                  `agents.defaults.contextCompression.${key}`,
-                  readOnly,
-                  (v) => onChange({ ...config, contextCompression: { ...config.contextCompression!, [key]: v } }),
+                renderField(key, val, `agents.defaults.contextCompression.${key}`, readOnly, v =>
+                  onChange({ ...config, contextCompression: { ...config.contextCompression!, [key]: v } }),
                 ),
               )}
             </div>
@@ -63,19 +53,15 @@ export function AgentDefaultsSection({
           <Section title="循环内截断" infoKey="agents.defaults.inLoopTruncation.enabled" defaultOpen={false}>
             <div className="space-y-3">
               {Object.entries(config.inLoopTruncation).map(([key, val]) => {
-                if (typeof val === 'function') return null
-                return renderField(
-                  key,
-                  val,
-                  `agents.defaults.inLoopTruncation.${key}`,
-                  readOnly,
-                  (v) => onChange({ ...config, inLoopTruncation: { ...config.inLoopTruncation!, [key]: v } }),
-                )
+                if (typeof val === 'function') return null;
+                return renderField(key, val, `agents.defaults.inLoopTruncation.${key}`, readOnly, v =>
+                  onChange({ ...config, inLoopTruncation: { ...config.inLoopTruncation!, [key]: v } }),
+                );
               })}
             </div>
           </Section>
         </div>
       )}
     </Section>
-  )
+  );
 }

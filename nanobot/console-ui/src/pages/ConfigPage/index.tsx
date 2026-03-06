@@ -9,6 +9,7 @@ import { ChannelSection } from './ChannelSection'
 import { ProviderSection } from './ProviderSection'
 import { GatewaySection } from './GatewaySection'
 import { ToolsSection } from './ToolsSection'
+import { TokenStatsSection } from './TokenStatsSection'
 import { CronJobsEditor } from './CronJobsEditor'
 
 const TAB_LABELS: Record<string, string> = {
@@ -210,6 +211,14 @@ export default function ConfigPage() {
                 config={parsed.agents.defaults}
                 readOnly={readOnly}
                 onChange={(defaults) => updateParsed((p) => ({ ...p, agents: { ...p.agents, defaults } }))}
+              />
+            )}
+
+            {parsed.token_stats && (
+              <TokenStatsSection
+                config={parsed.token_stats}
+                readOnly={readOnly}
+                onChange={(token_stats) => updateParsed((p) => ({ ...p, token_stats }))}
               />
             )}
 

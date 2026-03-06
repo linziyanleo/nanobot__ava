@@ -26,6 +26,9 @@ export const FIELD_INFO: Record<string, string> = {
   'agents.defaults.inLoopTruncation.exec': 'exec 工具输出截断上限(字符)',
   'agents.defaults.inLoopTruncation.webFetch': 'web_fetch 工具输出截断上限(字符)',
   'agents.defaults.inLoopTruncation.default': '其他工具输出截断的默认上限(字符)',
+  // token_stats
+  'token_stats.enabled': '是否启用 Token 用量统计',
+  'token_stats.record_full_request_payload': '记录完整的 LLM 请求负载（含消息上下文），会大幅增加存储用量',
   // channels
   'channels': '消息渠道配置，每个渠道可独立启用/禁用',
   'channels.whatsapp': 'WhatsApp 消息渠道',
