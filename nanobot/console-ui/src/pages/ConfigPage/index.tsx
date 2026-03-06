@@ -161,18 +161,6 @@ export default function ConfigPage() {
       <div className="flex items-center justify-between mb-4">
         <h1 className="text-2xl font-bold">配置管理</h1>
         <div className="flex items-center gap-2">
-          {!showCron && isAdmin() && selected && (
-            <button
-              onClick={() => {
-                const path = prompt('输入字段路径 (例如 providers.openai.apiKey):')
-                if (path) revealSecret(path)
-              }}
-              className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-[var(--bg-tertiary)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] text-sm transition-colors"
-            >
-              <Eye className="w-4 h-4" />
-              解密字段
-            </button>
-          )}
           <button
             onClick={() => loadConfig(selected)}
             className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-[var(--bg-tertiary)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] text-sm transition-colors"
@@ -194,7 +182,9 @@ export default function ConfigPage() {
       </div>
 
       {message && (
-        <div className={`mb-3 p-3 rounded-lg text-sm ${message.type === 'success' ? 'bg-[var(--success)]/10 text-[var(--success)]' : 'bg-[var(--danger)]/10 text-[var(--danger)]'}`}>
+        <div
+          className={`mb-3 p-3 rounded-lg text-sm ${message.type === 'success' ? 'bg-[var(--success)]/10 text-[var(--success)]' : 'bg-[var(--danger)]/10 text-[var(--danger)]'}`}
+        >
           {message.text}
         </div>
       )}
@@ -210,7 +200,7 @@ export default function ConfigPage() {
               <AgentDefaultsSection
                 config={parsed.agents.defaults}
                 readOnly={readOnly}
-                onChange={(defaults) => updateParsed((p) => ({ ...p, agents: { ...p.agents, defaults } }))}
+                onChange={defaults => updateParsed(p => ({ ...p, agents: { ...p.agents, defaults } }))}
               />
             )}
 
@@ -218,7 +208,7 @@ export default function ConfigPage() {
               <TokenStatsSection
                 config={parsed.token_stats}
                 readOnly={readOnly}
-                onChange={(token_stats) => updateParsed((p) => ({ ...p, token_stats }))}
+                onChange={token_stats => updateParsed(p => ({ ...p, token_stats }))}
               />
             )}
 
@@ -226,17 +216,17 @@ export default function ConfigPage() {
               <Section title="消息渠道" infoKey="channels" defaultOpen={true}>
                 <div className="space-y-3">
                   {Object.entries(parsed.channels).map(([name, channelConfig]) => {
-                    if (typeof channelConfig !== 'object' || channelConfig === null) return null
-                    if (!('enabled' in channelConfig)) return null
+                    if (typeof channelConfig !== 'object' || channelConfig === null) return null;
+                    if (!('enabled' in channelConfig)) return null;
                     return (
                       <ChannelSection
                         key={name}
                         name={name}
                         config={channelConfig as ChannelBase}
                         readOnly={readOnly}
-                        onChange={(c) => updateParsed((p) => ({ ...p, channels: { ...p.channels, [name]: c } }))}
+                        onChange={c => updateParsed(p => ({ ...p, channels: { ...p.channels, [name]: c } }))}
                       />
-                    )
+                    );
                   })}
                 </div>
               </Section>
@@ -251,7 +241,7 @@ export default function ConfigPage() {
                       name={name}
                       config={providerConfig}
                       readOnly={readOnly}
-                      onChange={(c) => updateParsed((p) => ({ ...p, providers: { ...p.providers, [name]: c } }))}
+                      onChange={c => updateParsed(p => ({ ...p, providers: { ...p.providers, [name]: c } }))}
                     />
                   ))}
                 </div>
@@ -262,7 +252,7 @@ export default function ConfigPage() {
               <GatewaySection
                 config={parsed.gateway}
                 readOnly={readOnly}
-                onChange={(gateway) => updateParsed((p) => ({ ...p, gateway }))}
+                onChange={gateway => updateParsed(p => ({ ...p, gateway }))}
               />
             )}
 
@@ -270,12 +260,12 @@ export default function ConfigPage() {
               <ToolsSection
                 config={parsed.tools}
                 readOnly={readOnly}
-                onChange={(tools) => updateParsed((p) => ({ ...p, tools }))}
+                onChange={tools => updateParsed(p => ({ ...p, tools }))}
               />
             )}
           </>
         ) : null}
       </div>
     </div>
-  )
+  );
 }

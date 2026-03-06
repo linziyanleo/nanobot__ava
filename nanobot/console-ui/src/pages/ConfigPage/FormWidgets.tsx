@@ -41,18 +41,17 @@ export function InfoButton({ tooltip }: { tooltip: string }) {
         className="p-0.5 rounded text-[var(--text-secondary)] hover:text-[var(--accent)] transition-colors"
         onMouseEnter={() => setShow(true)}
         onMouseLeave={() => setShow(false)}
-        onClick={(e) => e.preventDefault()}
+        onClick={e => e.preventDefault()}
       >
         <Info className="w-3.5 h-3.5" />
       </button>
       {show && (
-        <div className="absolute z-50 bottom-full left-1/2 -translate-x-1/2 mb-1.5 px-3 py-1.5 rounded-lg bg-[var(--bg-primary)] border border-[var(--border)] text-xs text-[var(--text-primary)] whitespace-nowrap shadow-lg">
+        <div className="absolute z-50 left-full left-2 mb-1.5 px-3 py-1.5 rounded-lg bg-[var(--bg-primary)] border border-[var(--border)] text-xs text-[var(--text-primary)] whitespace-nowrap shadow-lg">
           {tooltip}
-          <div className="absolute top-full left-1/2 -translate-x-1/2 -mt-px w-2 h-2 rotate-45 bg-[var(--bg-primary)] border-r border-b border-[var(--border)]" />
         </div>
       )}
     </div>
-  )
+  );
 }
 
 // ─── SensitiveInput ──────────────────────────────────────────────────────────
