@@ -59,6 +59,7 @@ class AgentLoop:
         model: str | None = None,
         vision_model: str | None = None,
         mini_model: str | None = None,
+        voice_model: str | None = None,
         max_iterations: int = 40,
         temperature: float = 0.1,
         max_tokens: int = 4096,
@@ -85,6 +86,7 @@ class AgentLoop:
         self.model = model or provider.get_default_model()
         self.vision_model = vision_model or self.model
         self.mini_model = mini_model or self.model
+        self.voice_model = voice_model
         self.memory_tier = memory_tier or "default"
         self.max_iterations = max_iterations
         self.temperature = temperature
@@ -279,9 +281,14 @@ class AgentLoop:
                         conv_history_str = json.dumps(conv_history_snapshot, ensure_ascii=False) if conv_history_snapshot else ""
                     except (TypeError, ValueError):
                         conv_history_str = ""
+                    _effective_provider = (
+                        self.model.split("/", 1)[0]
+                        if "/" in self.model
+                        else self.provider.provider_name
+                    )
                     self._token_stats.record(
                         model=self.model,
-                        provider=self.provider.provider_name,
+                        provider=_effective_provider,
                         usage=response.usage,
                         session_key=session.key if session else "",
                         user_message=last_user_msg,
@@ -538,12 +545,18 @@ class AgentLoop:
             channel=msg.channel, chat_id=msg.chat_id,
         )
 
-        # Use vision model when user message contains images
-        _vision_swap = None
-        if msg.media and self.vision_model != self.model:
+        # Use vision/voice model when user message contains images/audio
+        _model_swap = None
+        if msg.media and msg.media:
             import mimetypes as _mt
-            if any(_mt.guess_type(p)[0] and _mt.guess_type(p)[0].startswith("image/") for p in msg.media):
-                _vision_swap = self.model
+            _has_image = any(_mt.guess_type(p)[0] and _mt.guess_type(p)[0].startswith("image/") for p in msg.media)
+            _audio_exts = {"ogg", "mp3", "m4a", "wav", "aac", "flac", "opus"}
+            _has_audio = any(p.rsplit(".", 1)[-1].lower() in _audio_exts for p in msg.media if "." in p)
+            if _has_audio and self.voice_model and self.voice_model != self.model:
+                _model_swap = self.model
+                self.model = self.voice_model
+            elif _has_image and self.vision_model != self.model:
+                _model_swap = self.model
                 self.model = self.vision_model
 
         async def _bus_progress(content: str, *, tool_hint: bool = False) -> None:
@@ -559,8 +572,8 @@ class AgentLoop:
                 initial_messages, session, on_progress=on_progress or _bus_progress,
             )
         finally:
-            if _vision_swap is not None:
-                self.model = _vision_swap
+            if _model_swap is not None:
+                self.model = _model_swap
 
         # Check if any "delivery" tool already sent content to the user
         _sticker_sent = False
@@ -631,6 +644,8 @@ class AgentLoop:
                         if (c.get("type") == "image_url"
                                 and c.get("image_url", {}).get("url", "").startswith("data:image/")):
                             filtered.append({"type": "text", "text": "[image]"})
+                        elif c.get("type") == "input_audio":
+                            filtered.append({"type": "text", "text": "[audio]"})
                         else:
                             filtered.append(c)
                     if not filtered:

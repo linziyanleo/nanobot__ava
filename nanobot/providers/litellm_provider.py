@@ -96,6 +96,10 @@ class LiteLLMProvider(LLMProvider):
 
         Uses explicit prefix matching (not keyword) to avoid false positives
         like yunwu/claude-opus-4-6 matching Anthropic via the 'claude' keyword.
+
+        Also recognizes gateway-to-gateway routing (e.g. zenmux/gemini-* when
+        the current gateway is yunwu) if the target gateway has explicit config
+        in extra_model_configs.
         """
         if not self._gateway or "/" not in model:
             return False
@@ -104,7 +108,14 @@ class LiteLLMProvider(LLMProvider):
         if prefix == self._gateway.name:
             return False
         spec = find_by_name(prefix)
-        return spec is not None and not spec.is_gateway and not spec.is_local
+        if spec is None:
+            return False
+        if not spec.is_gateway and not spec.is_local:
+            return True
+        # Gateway-to-gateway: treat as cross-provider only when explicit config exists
+        if spec.is_gateway and prefix in self._extra_model_configs:
+            return True
+        return False
 
     def _get_model_config(self, model: str) -> tuple[str | None, str | None] | None:
         """Get (api_key, api_base) for a cross-provider model, or None."""
@@ -130,7 +141,17 @@ class LiteLLMProvider(LLMProvider):
         """Resolve model name by applying provider/gateway prefixes."""
         if self._gateway:
             if self._is_cross_provider(model):
-                # Cross-provider: skip gateway stripping, use standard resolution
+                from nanobot.providers.registry import find_by_name
+                prefix = model.split("/", 1)[0].lower().replace("-", "_")
+                target_spec = find_by_name(prefix)
+
+                if target_spec and target_spec.is_gateway:
+                    # Gateway-to-gateway: strip the gateway prefix, then route via
+                    # OpenAI-compatible interface (the target gateway exposes /v1).
+                    bare_model = model.split("/", 1)[1] if "/" in model else model
+                    return f"openai/{bare_model}"
+
+                # Standard cross-provider: skip gateway stripping, use standard resolution
                 spec = find_by_model(model)
                 if spec and spec.litellm_prefix:
                     model = self._canonicalize_explicit_prefix(model, spec.name, spec.litellm_prefix)

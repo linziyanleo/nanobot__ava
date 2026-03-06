@@ -196,23 +196,36 @@ Reply directly with text for conversations. Only use the 'message' tool to send 
             {"role": "user", "content": merged},
         ]
 
+    _AUDIO_EXTENSIONS = frozenset({"ogg", "mp3", "m4a", "wav", "aac", "flac", "opus"})
+    _AUDIO_FORMAT_MAP = {
+        "ogg": "wav", "mp3": "mp3", "m4a": "mp4",
+        "wav": "wav", "aac": "aac", "flac": "flac", "opus": "wav",
+    }
+
     def _build_user_content(self, text: str, media: list[str] | None) -> str | list[dict[str, Any]]:
-        """Build user message content with optional base64-encoded images."""
+        """Build user message content with optional base64-encoded images and audio."""
         if not media:
             return text
 
-        images = []
+        multimodal: list[dict[str, Any]] = []
         for path in media:
             p = Path(path)
-            mime, _ = mimetypes.guess_type(path)
-            if not p.is_file() or not mime or not mime.startswith("image/"):
+            if not p.is_file():
                 continue
-            b64 = base64.b64encode(p.read_bytes()).decode()
-            images.append({"type": "image_url", "image_url": {"url": f"data:{mime};base64,{b64}"}})
+            mime, _ = mimetypes.guess_type(path)
+            ext = p.suffix.lstrip(".").lower()
 
-        if not images:
+            if mime and mime.startswith("image/"):
+                b64 = base64.b64encode(p.read_bytes()).decode()
+                multimodal.append({"type": "image_url", "image_url": {"url": f"data:{mime};base64,{b64}"}})
+            elif ext in self._AUDIO_EXTENSIONS:
+                b64 = base64.b64encode(p.read_bytes()).decode()
+                fmt = self._AUDIO_FORMAT_MAP.get(ext, "wav")
+                multimodal.append({"type": "input_audio", "input_audio": {"data": b64, "format": fmt}})
+
+        if not multimodal:
             return text
-        return images + [{"type": "text", "text": text}]
+        return multimodal + [{"type": "text", "text": text}]
 
     def add_tool_result(
         self, messages: list[dict[str, Any]],
