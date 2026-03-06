@@ -434,6 +434,8 @@ def _make_provider(config: Config):
 @app.command()
 def gateway(
     port: int = typer.Option(GATEWAY_DEFAULT_PORT, "--port", "-p", help="Gateway port"),
+    workspace: str | None = typer.Option(None, "--workspace", "-w", help="Workspace directory"),
+    config: str | None = typer.Option(None, "--config", "-c", help="Config file path"),
     verbose: bool = typer.Option(False, "--verbose", "-v", help="Verbose output"),
     dev: bool = typer.Option(False, "--dev", help="Enable Vite dev server with HMR for console-ui"),
 ):
@@ -466,9 +468,12 @@ def gateway(
         import logging
         logging.basicConfig(level=logging.DEBUG)
 
-    console.print(f"{__logo__} Starting nanobot gateway on port {port}...")
+    config_path = Path(config) if config else None
+    config = load_config(config_path)
+    if workspace:
+        config.agents.defaults.workspace = workspace
 
-    config = load_config()
+    console.print(f"{__logo__} Starting nanobot gateway on port {port}...")
     sync_workspace_templates(config.workspace_path)
     bus = MessageBus()
     provider = _make_provider(config)
