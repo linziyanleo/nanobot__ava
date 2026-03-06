@@ -16,6 +16,10 @@ const SCENE_ICONS: Record<SceneType, React.ElementType> = {
   console: Monitor,
   cli: Terminal,
   other: MoreHorizontal,
+  feishu: Bot,
+  QQ: Bot,
+  wx: Bot,
+  discord: Bot,
 }
 
 export function SceneTabs({ sessions, activeScene, onSceneChange }: SceneTabsProps) {

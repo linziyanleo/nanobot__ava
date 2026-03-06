@@ -1,4 +1,4 @@
-export type SceneType = 'telegram' | 'cron' | 'heartbeat' | 'console' | 'cli' | 'other'
+export type SceneType = 'telegram' | 'cron' | 'heartbeat' | 'console' | 'cli' | 'feishu' | 'QQ' | 'wx' | 'discord' | 'other'
 
 export interface SessionMeta {
   filename: string
@@ -51,6 +51,10 @@ export const SCENE_LABELS: Record<SceneType, string> = {
   heartbeat: 'Heartbeat',
   console: 'Console',
   cli: 'CLI',
+  feishu: 'Feishu',
+  QQ: 'QQ',
+  wx: 'WeChat',
+  discord: 'Discord',
   other: 'Other',
 }
 
