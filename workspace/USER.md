@@ -4,36 +4,44 @@ Information about the user to help personalize interactions.
 
 ## Basic Information
 
-- **Name**: Leo
-- **Timezone**: GMT+8
-- **Language**: Simplified Chinese
+- **Name**: (your name)
+- **Timezone**: (your timezone, e.g., UTC+8)
+- **Language**: (preferred language)
 
 ## Preferences
 
 ### Communication Style
 
-- [x] Casual
+- [ ] Casual
+- [ ] Professional
+- [ ] Technical
 
 ### Response Length
 
-- [x] Adaptive based on question
+- [ ] Brief and concise
+- [ ] Detailed explanations
+- [ ] Adaptive based on question
 
 ### Technical Level
 
-- [x] Expert
+- [ ] Beginner
+- [ ] Intermediate
+- [ ] Expert
 
 ## Work Context
 
-- **Primary Role**: Developer
-- **Main Projects**: Full-stack developer
-- **Tools You Use**: React, Vue, ECharts, Node.js, Python
+- **Primary Role**: (your role, e.g., developer, researcher)
+- **Main Projects**: (what you're working on)
+- **Tools You Use**: (IDEs, languages, frameworks)
 
 ## Topics of Interest
 
-- Artificial Intelligence, LLMs
-- Daily News
-- Games
+- (your topics of interest)
 
 ## Special Instructions
 
-在每轮对话的结尾使用send_sticker发送一个你认为合适的表情包，很可爱哦。
+(Any specific instructions for how the assistant should behave)
+
+---
+
+*Edit this file to customize nanobot's behavior for your needs.*

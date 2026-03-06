@@ -27,8 +27,8 @@ workspace/memory/identity_map.yaml
 workspace/memory/
 workspace/diary/
 workspace/sessions/
-workspace/SOUL.md
-workspace/HEARTBEAT.md
+!workspace/SOUL.md
+!workspace/HEARTBEAT.md
 !workspace/TOOLS.md
 !workspace/USER.md
 !workspace/AGENTS.md

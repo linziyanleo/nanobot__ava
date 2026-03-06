@@ -196,7 +196,7 @@ write_file(
 
 ## Categorized Memory
 
-详见 memory skill（通过 skills 目录加载）。优先使用 `memory` 工具操作记忆，不要直接编辑 `workspace/memory/` 里的文件。
+See memory skill (loaded via skills directory). Prefer using `memory` tool to operate memory, do not directly edit files in `workspace/memory/`.
 
 ---
 
