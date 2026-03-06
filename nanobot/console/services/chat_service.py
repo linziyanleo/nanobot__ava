@@ -72,7 +72,7 @@ class ChatService:
         session_id: str,
         message: str,
         user_id: str,
-        on_progress: Callable[[str], Awaitable[None]] | None = None,
+        on_progress: Callable[..., Awaitable[None]] | None = None,
     ) -> str:
         session_key = f"console:{session_id}"
         response = await self._agent.process_direct(
