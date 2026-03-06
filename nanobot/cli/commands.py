@@ -68,15 +68,21 @@ def _run_console_server(
     expire_minutes: int,
     token_stats_dir: str,
     pid_file_str: str,
+    dev_mode: bool = False,
 ) -> None:
     """Run the console UI server in a separate process (must be module-level for pickling)."""
     import signal as _sig
+    import subprocess
 
     pid_path = Path(pid_file_str)
     pid_path.parent.mkdir(parents=True, exist_ok=True)
     pid_path.write_text(str(os.getpid()))
 
+    vite_proc: subprocess.Popen | None = None
+
     def _cleanup_console_pid(*_args):
+        if vite_proc and vite_proc.poll() is None:
+            vite_proc.terminate()
         try:
             pid_path.unlink(missing_ok=True)
         except Exception:
@@ -89,17 +95,34 @@ def _run_console_server(
     import uvicorn
     from nanobot.console.app import create_console_app_standalone
 
-    app = create_console_app_standalone(
+    if dev_mode:
+        # Dev mode: Vite dev server gets the main port (c_port) for HMR,
+        # uvicorn API server runs on c_port+1, Vite proxies /api to it.
+        api_port = c_port + 1
+        console_ui_dir = Path(__file__).parent.parent / "console-ui"
+        if not (console_ui_dir / "node_modules").exists():
+            subprocess.check_call(["npm", "install"], cwd=str(console_ui_dir))
+        vite_env = {**os.environ, "NANOBOT_CONSOLE_PORT": str(api_port)}
+        vite_proc = subprocess.Popen(
+            ["npx", "vite", "--host", host, "--port", str(c_port)],
+            cwd=str(console_ui_dir),
+            env=vite_env,
+        )
+        atexit.register(lambda: vite_proc.terminate() if vite_proc.poll() is None else None)
+    else:
+        api_port = c_port
+
+    console_app = create_console_app_standalone(
         nanobot_dir=Path(nanobot_dir_str),
         workspace=Path(workspace_str),
         gateway_port=gw_port,
-        console_port=c_port,
+        console_port=api_port,
         secret_key=secret_key,
         expire_minutes=expire_minutes,
         token_stats_dir=token_stats_dir,
     )
     uvicorn_config = uvicorn.Config(
-        app, host=host, port=c_port, log_level="warning",
+        console_app, host=host, port=api_port, log_level="warning",
     )
     server = uvicorn.Server(uvicorn_config)
     server.run()
@@ -412,6 +435,7 @@ def _make_provider(config: Config):
 def gateway(
     port: int = typer.Option(GATEWAY_DEFAULT_PORT, "--port", "-p", help="Gateway port"),
     verbose: bool = typer.Option(False, "--verbose", "-v", help="Verbose output"),
+    dev: bool = typer.Option(False, "--dev", help="Enable Vite dev server with HMR for console-ui"),
 ):
     """Start the nanobot gateway."""
     from nanobot.config.loader import load_config, get_data_dir
@@ -623,7 +647,7 @@ def gateway(
         if existing_console_pid:
             console.print(f"[green]✓[/green] Console already running (PID: {existing_console_pid}), reusing")
         else:
-            _start_console_process()
+            _start_console_process(dev=dev)
 
     async def run():
         try:
@@ -802,7 +826,7 @@ def _stop_console_process(quiet: bool = False) -> bool:
     return True
 
 
-def _start_console_process() -> int | None:
+def _start_console_process(dev: bool = False) -> int | None:
     """Start the console process. Returns the new PID, or None on failure."""
     import multiprocessing
     from nanobot.config.loader import load_config, get_data_dir
@@ -824,6 +848,10 @@ def _start_console_process() -> int | None:
         console.print(f"[red]Error: Port {console_port} is already in use[/red]")
         return None
 
+    if dev and check_port_in_use(console_port + 1):
+        console.print(f"[red]Error: API port {console_port + 1} is already in use (needed for dev mode)[/red]")
+        return None
+
     proc = multiprocessing.Process(
         target=_run_console_server,
         kwargs={
@@ -836,12 +864,17 @@ def _start_console_process() -> int | None:
             "expire_minutes": console_cfg.token_expire_minutes,
             "token_stats_dir": str(get_data_dir() / "console"),
             "pid_file_str": str(CONSOLE_PID_FILE),
+            "dev_mode": dev,
         },
         daemon=False,
     )
     proc.start()
     console.print(f"[green]✓[/green] Console started (PID: {proc.pid})")
-    console.print(f"[green]✓[/green] http://localhost:{console_port}")
+    if dev:
+        console.print(f"[green]✓[/green] Dev mode: Vite HMR at http://localhost:{console_port}")
+        console.print(f"[green]✓[/green] API server at http://localhost:{console_port + 1}")
+    else:
+        console.print(f"[green]✓[/green] http://localhost:{console_port}")
     return proc.pid
 
 
@@ -864,7 +897,9 @@ def console_stop_cmd():
 
 
 @app.command("console-restart")
-def console_restart_cmd():
+def console_restart_cmd(
+    dev: bool = typer.Option(False, "--dev", help="Enable Vite dev server with HMR for console-ui"),
+):
     """Restart (or start) the console UI server."""
     console.print(f"{__logo__} Restarting Console\n")
 
@@ -873,7 +908,7 @@ def console_restart_cmd():
         import time
         time.sleep(0.5)
 
-    _start_console_process()
+    _start_console_process(dev=dev)
 
 
 # ============================================================================
