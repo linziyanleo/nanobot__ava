@@ -118,12 +118,21 @@ export default function ChatPage() {
 
   const handleCreateConsole = async () => {
     setError('')
+    // #region agent log
+    fetch('http://127.0.0.1:7488/ingest/6fcc0ad3-864a-4717-8cdb-f4d9c3262d30',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'de1187'},body:JSON.stringify({sessionId:'de1187',location:'ChatPage/index.tsx:handleCreateConsole',message:'New Chat clicked',data:{sessionsCount:sessions.length},timestamp:Date.now(),hypothesisId:'A'})}).catch(()=>{});
+    // #endregion
     try {
       const title = `Chat ${sessions.filter((s) => s.scene === 'console').length + 1}`
+      // #region agent log
+      fetch('http://127.0.0.1:7488/ingest/6fcc0ad3-864a-4717-8cdb-f4d9c3262d30',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'de1187'},body:JSON.stringify({sessionId:'de1187',location:'ChatPage/index.tsx:handleCreateConsole:pre-api',message:'About to call POST /chat/sessions',data:{title},timestamp:Date.now(),hypothesisId:'B'})}).catch(()=>{});
+      // #endregion
       const res = await api<{ session_id: string }>('/chat/sessions', {
         method: 'POST',
         body: JSON.stringify({ title }),
       })
+      // #region agent log
+      fetch('http://127.0.0.1:7488/ingest/6fcc0ad3-864a-4717-8cdb-f4d9c3262d30',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'de1187'},body:JSON.stringify({sessionId:'de1187',location:'ChatPage/index.tsx:handleCreateConsole:success',message:'Session created successfully',data:{sessionId:res.session_id},timestamp:Date.now(),hypothesisId:'B'})}).catch(()=>{});
+      // #endregion
 
       const sid = res.session_id
       const newFilename = `console_${sid}.jsonl`
@@ -146,11 +155,10 @@ export default function ChatPage() {
       loadSessionList()
     } catch (err: any) {
       const msg = err?.message || String(err)
-      if (msg.includes('503') || msg.includes('405')) {
-        setError('Chat service unavailable — gateway may be offline. Console chat requires a running gateway.')
-      } else {
-        setError(msg)
-      }
+      // #region agent log
+      fetch('http://127.0.0.1:7488/ingest/6fcc0ad3-864a-4717-8cdb-f4d9c3262d30',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'de1187'},body:JSON.stringify({sessionId:'de1187',location:'ChatPage/index.tsx:handleCreateConsole:error',message:'Create session failed',data:{errorMsg:msg},timestamp:Date.now(),hypothesisId:'B'})}).catch(()=>{});
+      // #endregion
+      setError(msg)
       console.error('Failed to create session:', err)
     }
   }
@@ -216,7 +224,7 @@ export default function ChatPage() {
   const filteredSessions = sessions.filter((s) => s.scene === activeScene)
 
   return (
-    <div className="-m-6 h-screen flex flex-col">
+    <div className="-m-6 h-[calc(100vh)] flex flex-col overflow-hidden">
       {/* Top scene tabs bar */}
       <SceneTabs
         sessions={sessions}

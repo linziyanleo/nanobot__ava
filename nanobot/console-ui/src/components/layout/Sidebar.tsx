@@ -21,7 +21,7 @@ export default function Sidebar() {
   const { user, logout, isAdmin } = useAuth()
 
   return (
-    <aside className="w-60 h-screen bg-[var(--bg-secondary)] border-r border-[var(--border)] flex flex-col fixed left-0 top-0 z-20">
+    <aside className="w-60 shrink-0 h-screen bg-[var(--bg-secondary)] border-r border-[var(--border)] flex flex-col sticky left-0 top-0 z-20">
       <div className="p-5 border-b border-[var(--border)] flex items-center gap-3">
         <Bot className="w-7 h-7 text-[var(--accent)]" />
         <div>
