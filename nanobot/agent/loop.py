@@ -597,7 +597,12 @@ class AgentLoop:
         self._save_turn(session, all_msgs, 1 + len(history))
         self.sessions.save(session)
 
-        if _message_sent or (_sticker_sent and final_content is None):
+        _content_is_empty = (
+            final_content is None
+            or not final_content.strip()
+            or final_content.strip().lower() in ("(empty)", "empty", "…", "...")
+        )
+        if _message_sent or (_sticker_sent and _content_is_empty):
             return None
 
         if final_content is None:
