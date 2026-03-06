@@ -292,7 +292,7 @@ export function renderField(
   }
 
   if (typeof value === 'string') {
-    const isModel = key === 'model' || key === 'visionModel' || key === 'miniModel'
+    const isModel = key === 'model' || key === 'visionModel' || key === 'miniModel' || key === 'voiceModel'
     const isSensitive = isSensitiveKey(key)
     const isCopyable = key === 'apiKey' || key === 'apiBase'
 

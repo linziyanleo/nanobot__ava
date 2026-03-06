@@ -15,6 +15,7 @@ export function AgentDefaultsSection({
     { key: 'model', label: 'model' },
     { key: 'visionModel', label: 'visionModel' },
     { key: 'miniModel', label: 'miniModel' },
+    { key: 'voiceModel', label: 'voiceModel' },
     { key: 'memoryTier', label: 'memoryTier' },
     { key: 'provider', label: 'provider' },
     { key: 'maxTokens', label: 'maxTokens' },

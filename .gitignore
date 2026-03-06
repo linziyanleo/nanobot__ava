@@ -19,6 +19,8 @@ __pycache__/
 poetry.lock
 .pytest_cache/
 botpy.log
+*/package-lock.json
+package-lock.json
 
 # Workspace (with exceptions)
 workspace/memory/identity_map.yaml

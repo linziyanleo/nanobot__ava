@@ -1,4 +1,4 @@
-"""Voice transcription provider using Groq."""
+"""Voice transcription provider — supports any OpenAI-compatible transcription API."""
 
 import os
 from pathlib import Path
@@ -6,30 +6,42 @@ from pathlib import Path
 import httpx
 from loguru import logger
 
+_DEFAULT_MODEL = "whisper-large-v3"
+_DEFAULT_API_URL = "https://api.groq.com/openai/v1/audio/transcriptions"
 
-class GroqTranscriptionProvider:
+
+class TranscriptionProvider:
     """
-    Voice transcription provider using Groq's Whisper API.
+    Voice transcription provider using OpenAI-compatible /audio/transcriptions API.
 
-    Groq offers extremely fast transcription with a generous free tier.
+    Supports Groq, DashScope, OpenAI, and any other provider with a compatible endpoint.
     """
 
-    def __init__(self, api_key: str | None = None):
+    def __init__(
+        self,
+        model: str = _DEFAULT_MODEL,
+        api_key: str | None = None,
+        api_base: str | None = None,
+    ):
+        self.model = model
         self.api_key = api_key or os.environ.get("GROQ_API_KEY")
-        self.api_url = "https://api.groq.com/openai/v1/audio/transcriptions"
+        if api_base:
+            self.api_url = api_base.rstrip("/") + "/audio/transcriptions"
+        else:
+            self.api_url = _DEFAULT_API_URL
 
     async def transcribe(self, file_path: str | Path) -> str:
         """
-        Transcribe an audio file using Groq.
+        Transcribe an audio file.
 
         Args:
             file_path: Path to the audio file.
 
         Returns:
-            Transcribed text.
+            Transcribed text, or empty string on failure.
         """
         if not self.api_key:
-            logger.warning("Groq API key not configured for transcription")
+            logger.warning("Transcription API key not configured")
             return ""
 
         path = Path(file_path)
@@ -42,7 +54,7 @@ class GroqTranscriptionProvider:
                 with open(path, "rb") as f:
                     files = {
                         "file": (path.name, f),
-                        "model": (None, "whisper-large-v3"),
+                        "model": (None, self.model),
                     }
                     headers = {
                         "Authorization": f"Bearer {self.api_key}",
@@ -60,5 +72,9 @@ class GroqTranscriptionProvider:
                     return data.get("text", "")
 
         except Exception as e:
-            logger.error("Groq transcription error: {}", e)
+            logger.error("Transcription error: {}", e)
             return ""
+
+
+# Backward compatibility alias
+GroqTranscriptionProvider = TranscriptionProvider

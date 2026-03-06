@@ -4,6 +4,7 @@ export const FIELD_INFO: Record<string, string> = {
   'agents.defaults.model': '主力模型，格式为 provider/model-name',
   'agents.defaults.visionModel': '视觉/OCR 任务使用的模型，留空回退到主模型',
   'agents.defaults.miniModel': '轻量任务使用的小模型，留空回退到主模型',
+  'agents.defaults.voiceModel': '语音转写模型，格式 provider/model (如 groq/whisper-large-v3)，留空使用 Groq 默认',
   'agents.defaults.memoryTier': '记忆整合使用的模型层级 (default / mini)',
   'agents.defaults.provider': '指定 provider 或 auto 自动匹配',
   'agents.defaults.maxTokens': '单次 LLM 调用最大生成 token 数',

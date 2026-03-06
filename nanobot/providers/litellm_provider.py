@@ -38,10 +38,12 @@ class LiteLLMProvider(LLMProvider):
         default_model: str = "anthropic/claude-opus-4-6",
         extra_headers: dict[str, str] | None = None,
         provider_name: str | None = None,
+        extra_model_configs: dict[str, tuple[str, str | None]] | None = None,
     ):
         super().__init__(api_key, api_base, provider_name=provider_name or "unknown")
         self.default_model = default_model
         self.extra_headers = extra_headers or {}
+        self._extra_model_configs: dict[str, tuple[str, str | None]] = extra_model_configs or {}
 
         # Detect gateway / local deployment.
         # provider_name (from config key) is the primary signal;
@@ -51,6 +53,11 @@ class LiteLLMProvider(LLMProvider):
         # Configure environment variables
         if api_key:
             self._setup_env(api_key, api_base, default_model)
+
+        # Set up env vars for cross-provider models (mini/vision/voice)
+        for xp_name, (xp_key, xp_base) in self._extra_model_configs.items():
+            if xp_key:
+                self._setup_env_for_provider(xp_name, xp_key, xp_base)
 
         if api_base:
             litellm.api_base = api_base
@@ -84,9 +91,53 @@ class LiteLLMProvider(LLMProvider):
             resolved = resolved.replace("{api_base}", effective_base)
             os.environ.setdefault(env_name, resolved)
 
+    def _is_cross_provider(self, model: str) -> bool:
+        """Check if model targets a different provider than the current gateway.
+
+        Uses explicit prefix matching (not keyword) to avoid false positives
+        like yunwu/claude-opus-4-6 matching Anthropic via the 'claude' keyword.
+        """
+        if not self._gateway or "/" not in model:
+            return False
+        from nanobot.providers.registry import find_by_name
+        prefix = model.split("/", 1)[0].lower().replace("-", "_")
+        if prefix == self._gateway.name:
+            return False
+        spec = find_by_name(prefix)
+        return spec is not None and not spec.is_gateway and not spec.is_local
+
+    def _get_model_config(self, model: str) -> tuple[str | None, str | None] | None:
+        """Get (api_key, api_base) for a cross-provider model, or None."""
+        if "/" not in model:
+            return None
+        prefix = model.split("/", 1)[0].lower().replace("-", "_")
+        return self._extra_model_configs.get(prefix)
+
+    def _setup_env_for_provider(self, provider_name: str, api_key: str, api_base: str | None) -> None:
+        """Set environment variables for an additional provider (cross-provider routing)."""
+        from nanobot.providers.registry import find_by_name
+        spec = find_by_name(provider_name)
+        if not spec or not spec.env_key:
+            return
+        os.environ.setdefault(spec.env_key, api_key)
+        effective_base = api_base or spec.default_api_base
+        for env_name, env_val in spec.env_extras:
+            resolved = env_val.replace("{api_key}", api_key)
+            resolved = resolved.replace("{api_base}", effective_base)
+            os.environ.setdefault(env_name, resolved)
+
     def _resolve_model(self, model: str) -> str:
         """Resolve model name by applying provider/gateway prefixes."""
         if self._gateway:
+            if self._is_cross_provider(model):
+                # Cross-provider: skip gateway stripping, use standard resolution
+                spec = find_by_model(model)
+                if spec and spec.litellm_prefix:
+                    model = self._canonicalize_explicit_prefix(model, spec.name, spec.litellm_prefix)
+                    if not any(model.startswith(s) for s in spec.skip_prefixes):
+                        model = f"{spec.litellm_prefix}/{model}"
+                return model
+
             # Gateway mode: apply gateway prefix, skip provider-specific prefixes
             prefix = self._gateway.litellm_prefix
             if self._gateway.strip_model_prefix:
@@ -222,17 +273,21 @@ class LiteLLMProvider(LLMProvider):
         # Apply model-specific overrides (e.g. kimi-k2.5 temperature)
         self._apply_model_overrides(model, kwargs)
 
-        # Pass api_key directly — more reliable than env vars alone
-        if self.api_key:
-            kwargs["api_key"] = self.api_key
-
-        # Pass api_base for custom endpoints
-        if self.api_base:
-            kwargs["api_base"] = self.api_base
-
-        # Pass extra headers (e.g. APP-Code for AiHubMix)
-        if self.extra_headers:
-            kwargs["extra_headers"] = self.extra_headers
+        # For cross-provider models, use the registered config instead of gateway credentials
+        cross_config = self._get_model_config(original_model) if self._is_cross_provider(original_model) else None
+        if cross_config:
+            xp_key, xp_base = cross_config
+            if xp_key:
+                kwargs["api_key"] = xp_key
+            if xp_base:
+                kwargs["api_base"] = xp_base
+        else:
+            if self.api_key:
+                kwargs["api_key"] = self.api_key
+            if self.api_base:
+                kwargs["api_base"] = self.api_base
+            if self.extra_headers:
+                kwargs["extra_headers"] = self.extra_headers
 
         if reasoning_effort:
             kwargs["reasoning_effort"] = reasoning_effort

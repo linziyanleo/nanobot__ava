@@ -34,6 +34,7 @@ export interface AgentDefaults {
   model: string
   visionModel: string | null
   miniModel: string | null
+  voiceModel: string | null
   memoryTier?: string | null
   provider?: string
   maxTokens: number

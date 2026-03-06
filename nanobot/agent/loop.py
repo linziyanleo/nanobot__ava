@@ -591,11 +591,16 @@ class AgentLoop:
     def _save_turn(self, session: Session, messages: list[dict], skip: int) -> None:
         """Save new-turn messages into session, truncating large tool results."""
         from datetime import datetime
-        for m in messages[skip:]:
+        new_msgs = messages[skip:]
+        for idx, m in enumerate(new_msgs):
             entry = dict(m)
             role, content = entry.get("role"), entry.get("content")
             if role == "assistant" and not content and not entry.get("tool_calls"):
-                continue  # skip empty assistant messages — they poison session context
+                prev_role = new_msgs[idx - 1].get("role") if idx > 0 else None
+                if prev_role == "tool" or (session.messages and session.messages[-1].get("role") == "tool"):
+                    entry["content"] = ""
+                else:
+                    continue
             if role == "tool" and isinstance(content, str) and len(content) > self._TOOL_RESULT_MAX_CHARS:
                 entry["content"] = content[:self._TOOL_RESULT_MAX_CHARS] + "\n... (truncated)"
             elif role == "user":

@@ -121,10 +121,16 @@ class TelegramChannel(BaseChannel):
         config: TelegramConfig,
         bus: MessageBus,
         groq_api_key: str = "",
+        voice_model: str | None = None,
+        voice_api_key: str | None = None,
+        voice_api_base: str | None = None,
     ):
         super().__init__(config, bus)
         self.config: TelegramConfig = config
         self.groq_api_key = groq_api_key
+        self._voice_model = voice_model
+        self._voice_api_key = voice_api_key
+        self._voice_api_base = voice_api_base
         self._app: Application | None = None
         self._chat_ids: dict[str, int] = {}  # Map sender_id to chat_id for replies
         self._typing_tasks: dict[str, asyncio.Task] = {}  # chat_id -> typing loop task
@@ -387,8 +393,12 @@ class TelegramChannel(BaseChannel):
 
                 # Handle voice transcription
                 if media_type == "voice" or media_type == "audio":
-                    from nanobot.providers.transcription import GroqTranscriptionProvider
-                    transcriber = GroqTranscriptionProvider(api_key=self.groq_api_key)
+                    from nanobot.providers.transcription import TranscriptionProvider
+                    transcriber = TranscriptionProvider(
+                        model=self._voice_model or "whisper-large-v3",
+                        api_key=self._voice_api_key or self.groq_api_key,
+                        api_base=self._voice_api_base,
+                    )
                     transcription = await transcriber.transcribe(file_path)
                     if transcription:
                         logger.info("Transcribed {}: {}...", media_type, transcription[:50])

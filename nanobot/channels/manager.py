@@ -38,10 +38,15 @@ class ChannelManager:
         if self.config.channels.telegram.enabled:
             try:
                 from nanobot.channels.telegram import TelegramChannel
+                voice_model = self.config.agents.defaults.voice_model
+                voice_api_key, voice_api_base = self._resolve_voice_config(voice_model)
                 self.channels["telegram"] = TelegramChannel(
                     self.config.channels.telegram,
                     self.bus,
                     groq_api_key=self.config.providers.groq.api_key,
+                    voice_model=voice_model.split("/", 1)[-1] if voice_model and "/" in voice_model else None,
+                    voice_api_key=voice_api_key,
+                    voice_api_base=voice_api_base,
                 )
                 logger.info("Telegram channel enabled")
             except ImportError as e:
@@ -150,6 +155,14 @@ class ChannelManager:
                 logger.warning("Matrix channel not available: {}", e)
 
         self._validate_allow_from()
+
+    def _resolve_voice_config(self, voice_model: str | None) -> tuple[str | None, str | None]:
+        """Resolve api_key and api_base for the voice model's provider."""
+        if not voice_model:
+            return None, None
+        p = self.config.get_provider(voice_model)
+        api_base = self.config.get_api_base(voice_model)
+        return (p.api_key if p else None, api_base)
 
     def _validate_allow_from(self) -> None:
         for name, ch in self.channels.items():

@@ -375,12 +375,31 @@ def _make_provider(config: Config):
         console.print("Set one in ~/.nanobot/config.json under providers section")
         raise typer.Exit(1)
 
+    # Collect cross-provider configs for mini/vision/voice models
+    extra_model_configs: dict[str, tuple[str, str | None]] = {}
+    for alt_model in (
+        config.agents.defaults.mini_model,
+        config.agents.defaults.vision_model,
+        config.agents.defaults.voice_model,
+    ):
+        if not alt_model:
+            continue
+        alt_provider_name = config.get_provider_name(alt_model)
+        if alt_provider_name and alt_provider_name != provider_name:
+            alt_p = config.get_provider(alt_model)
+            if alt_p and alt_p.api_key:
+                extra_model_configs[alt_provider_name] = (
+                    alt_p.api_key,
+                    config.get_api_base(alt_model),
+                )
+
     return LiteLLMProvider(
         api_key=p.api_key if p else None,
         api_base=config.get_api_base(model),
         default_model=model,
         extra_headers=p.extra_headers if p else None,
         provider_name=provider_name,
+        extra_model_configs=extra_model_configs or None,
     )
 
 
@@ -639,9 +658,9 @@ def gateway_status_cmd():
     pid = check_gateway_running()
 
     if not pid:
-        console.print(f"{__logo__} Gateway Status\n")
-        console.print("Status: [yellow]Not running[/yellow]")
-        console.print("\n[dim]Use [cyan]nanobot gateway[/cyan] to start it[/dim]")
+        console.print(f"{__logo__} 网关状态\n")
+        console.print("状态: [yellow]未运行[/yellow]")
+        console.print("\n[dim]使用 [cyan]nanobot gateway[/cyan] 启动[/dim]")
         return
 
     # Get process info
@@ -672,12 +691,12 @@ def gateway_status_cmd():
             except (ValueError, IndexError):
                 rss_str = rss_kb
 
-            console.print(f"{__logo__} Gateway Status\n")
-            console.print(f"Status: [green]✓ Running[/green]")
+            console.print(f"{__logo__} 网关状态\n")
+            console.print(f"状态: [green]✓ 运行中[/green]")
             console.print(f"PID: [cyan]{pid}[/cyan]")
-            console.print(f"Port: [cyan]{GATEWAY_DEFAULT_PORT}[/cyan]")
-            console.print(f"Started: [dim]{start_time}[/dim]")
-            console.print(f"Uptime: [dim]{elapsed}[/dim]")
+            console.print(f"端口: [cyan]{GATEWAY_DEFAULT_PORT}[/cyan]")
+            console.print(f"启动时间: [dim]{start_time}[/dim]")
+            console.print(f"运行时间: [dim]{elapsed}[/dim]")
             console.print(f"Memory: [dim]{rss_str}[/dim]")
             console.print(f"PID File: [dim]{GATEWAY_PID_FILE}[/dim]")
         else:
@@ -698,12 +717,12 @@ def gateway_stop_cmd(
     pid = check_gateway_running()
 
     if not pid:
-        console.print(f"{__logo__} Gateway Status\n")
-        console.print("Status: [yellow]Not running[/yellow]")
-        console.print("\n[dim]Use [cyan]nanobot gateway[/cyan] to start it[/dim]")
+        console.print(f"{__logo__} 网关状态\n")
+        console.print("状态: [yellow]未运行[/yellow]")
+        console.print("\n[dim]使用 [cyan]nanobot gateway[/cyan] 启动[/dim]")
         return
 
-    console.print(f"{__logo__} Stopping Gateway\n")
+    console.print(f"{__logo__} 停止网关\n")
     console.print(f"PID: [cyan]{pid}[/cyan]")
 
     try:

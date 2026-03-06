@@ -255,6 +255,7 @@ class AgentDefaults(Base):
     model: str = "anthropic/claude-opus-4-6"
     vision_model: str | None = None  # Model for vision/OCR tasks (fallback to model)
     mini_model: str | None = None  # Lightweight model for simple tasks (fallback to model)
+    voice_model: str | None = None  # Model for voice transcription (e.g. "groq/whisper-large-v3")
     memory_tier: Literal["default", "mini"] | None = "default"  # Model tier for memory consolidation
     provider: str = "auto"  # Provider name (e.g. "anthropic", "openrouter") or "auto" for auto-detection
     max_tokens: int = 8192
