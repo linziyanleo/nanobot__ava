@@ -2,19 +2,34 @@ import { useEffect, useState, useRef, useCallback } from 'react'
 import { Save, RefreshCw, Eye } from 'lucide-react'
 import { api } from '../../api/client'
 import { useAuth } from '../../stores/auth'
-import type { ConfigItem, ConfigData, NanobotConfig, ChannelBase } from './types'
+import type { ConfigItem, ConfigData, NanobotConfig, ChannelBase, CronStore } from './types'
 import { Section } from './FormWidgets'
 import { AgentDefaultsSection } from './AgentDefaultsSection'
 import { ChannelSection } from './ChannelSection'
 import { ProviderSection } from './ProviderSection'
 import { GatewaySection } from './GatewaySection'
 import { ToolsSection } from './ToolsSection'
+import { CronJobsEditor } from './CronJobsEditor'
+
+const TAB_LABELS: Record<string, string> = {
+  'config.json': '通用配置',
+  'cron/jobs.json': '定时任务',
+}
+
+function getTabLabel(name: string): string {
+  return TAB_LABELS[name] ?? name
+}
+
+function isCronConfig(name: string): boolean {
+  return name === 'cron/jobs.json'
+}
 
 export default function ConfigPage() {
   const [configs, setConfigs] = useState<ConfigItem[]>([])
   const [selected, setSelected] = useState<string>('')
   const [data, setData] = useState<ConfigData | null>(null)
   const [parsed, setParsed] = useState<NanobotConfig | null>(null)
+  const [cronStore, setCronStore] = useState<CronStore | null>(null)
   const [saving, setSaving] = useState(false)
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
   const [dirty, setDirty] = useState(false)
@@ -39,9 +54,17 @@ export default function ConfigPage() {
       setData(d)
       originalRef.current = d.content
       try {
-        setParsed(JSON.parse(d.content))
+        const obj = JSON.parse(d.content)
+        if (isCronConfig(name)) {
+          setCronStore(obj)
+          setParsed(null)
+        } else {
+          setParsed(obj)
+          setCronStore(null)
+        }
       } catch {
         setParsed(null)
+        setCronStore(null)
       }
       setDirty(false)
     } catch (err: unknown) {
@@ -58,11 +81,18 @@ export default function ConfigPage() {
     })
   }, [])
 
+  const updateCronStore = useCallback((store: CronStore) => {
+    setCronStore(store)
+    setDirty(true)
+  }, [])
+
   const saveConfig = async () => {
-    if (!data || !selected || !parsed) return
+    if (!data || !selected) return
+    const payload = isCronConfig(selected) ? cronStore : parsed
+    if (!payload) return
     setSaving(true)
     setMessage(null)
-    const content = JSON.stringify(parsed, null, 2)
+    const content = JSON.stringify(payload, null, 2)
     try {
       const result = await api<{ mtime: number }>(`/config/${selected}`, {
         method: 'PUT',
@@ -92,8 +122,9 @@ export default function ConfigPage() {
   }
 
   const readOnly = !canEdit()
+  const showCron = isCronConfig(selected)
+  const hasContent = showCron ? !!cronStore : !!parsed
 
-  // ── Tab buttons (shared between loading and loaded states) ──
   const tabBar = (
     <div className="flex gap-1 mb-3">
       {configs.map((c) => (
@@ -106,13 +137,13 @@ export default function ConfigPage() {
               : 'bg-[var(--bg-secondary)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
           }`}
         >
-          {c.name}
+          {getTabLabel(c.name)}
         </button>
       ))}
     </div>
   )
 
-  if (!parsed) {
+  if (!hasContent) {
     return (
       <div className="h-[calc(100vh-3rem)] flex flex-col">
         <div className="flex items-center justify-between mb-4">
@@ -129,7 +160,7 @@ export default function ConfigPage() {
       <div className="flex items-center justify-between mb-4">
         <h1 className="text-2xl font-bold">配置管理</h1>
         <div className="flex items-center gap-2">
-          {isAdmin() && selected && (
+          {!showCron && isAdmin() && selected && (
             <button
               onClick={() => {
                 const path = prompt('输入字段路径 (例如 providers.openai.apiKey):')
@@ -170,70 +201,71 @@ export default function ConfigPage() {
       {tabBar}
 
       <div className="flex-1 overflow-y-auto space-y-4 pb-8">
-        {/* Agents */}
-        {parsed.agents?.defaults && (
-          <AgentDefaultsSection
-            config={parsed.agents.defaults}
-            readOnly={readOnly}
-            onChange={(defaults) => updateParsed((p) => ({ ...p, agents: { ...p.agents, defaults } }))}
-          />
-        )}
+        {showCron && cronStore ? (
+          <CronJobsEditor store={cronStore} readOnly={readOnly} onChange={updateCronStore} />
+        ) : parsed ? (
+          <>
+            {parsed.agents?.defaults && (
+              <AgentDefaultsSection
+                config={parsed.agents.defaults}
+                readOnly={readOnly}
+                onChange={(defaults) => updateParsed((p) => ({ ...p, agents: { ...p.agents, defaults } }))}
+              />
+            )}
 
-        {/* Channels */}
-        {parsed.channels && (
-          <Section title="消息渠道" infoKey="channels" defaultOpen={true}>
-            <div className="space-y-3">
-              {Object.entries(parsed.channels).map(([name, channelConfig]) => {
-                if (typeof channelConfig !== 'object' || channelConfig === null) return null
-                if (!('enabled' in channelConfig)) return null
-                return (
-                  <ChannelSection
-                    key={name}
-                    name={name}
-                    config={channelConfig as ChannelBase}
-                    readOnly={readOnly}
-                    onChange={(c) => updateParsed((p) => ({ ...p, channels: { ...p.channels, [name]: c } }))}
-                  />
-                )
-              })}
-            </div>
-          </Section>
-        )}
+            {parsed.channels && (
+              <Section title="消息渠道" infoKey="channels" defaultOpen={true}>
+                <div className="space-y-3">
+                  {Object.entries(parsed.channels).map(([name, channelConfig]) => {
+                    if (typeof channelConfig !== 'object' || channelConfig === null) return null
+                    if (!('enabled' in channelConfig)) return null
+                    return (
+                      <ChannelSection
+                        key={name}
+                        name={name}
+                        config={channelConfig as ChannelBase}
+                        readOnly={readOnly}
+                        onChange={(c) => updateParsed((p) => ({ ...p, channels: { ...p.channels, [name]: c } }))}
+                      />
+                    )
+                  })}
+                </div>
+              </Section>
+            )}
 
-        {/* Providers */}
-        {parsed.providers && (
-          <Section title="LLM 服务商" infoKey="providers" defaultOpen={true}>
-            <div className="space-y-3">
-              {Object.entries(parsed.providers).map(([name, providerConfig]) => (
-                <ProviderSection
-                  key={name}
-                  name={name}
-                  config={providerConfig}
-                  readOnly={readOnly}
-                  onChange={(c) => updateParsed((p) => ({ ...p, providers: { ...p.providers, [name]: c } }))}
-                />
-              ))}
-            </div>
-          </Section>
-        )}
+            {parsed.providers && (
+              <Section title="LLM 服务商" infoKey="providers" defaultOpen={true}>
+                <div className="space-y-3">
+                  {Object.entries(parsed.providers).map(([name, providerConfig]) => (
+                    <ProviderSection
+                      key={name}
+                      name={name}
+                      config={providerConfig}
+                      readOnly={readOnly}
+                      onChange={(c) => updateParsed((p) => ({ ...p, providers: { ...p.providers, [name]: c } }))}
+                    />
+                  ))}
+                </div>
+              </Section>
+            )}
 
-        {/* Gateway */}
-        {parsed.gateway && (
-          <GatewaySection
-            config={parsed.gateway}
-            readOnly={readOnly}
-            onChange={(gateway) => updateParsed((p) => ({ ...p, gateway }))}
-          />
-        )}
+            {parsed.gateway && (
+              <GatewaySection
+                config={parsed.gateway}
+                readOnly={readOnly}
+                onChange={(gateway) => updateParsed((p) => ({ ...p, gateway }))}
+              />
+            )}
 
-        {/* Tools */}
-        {parsed.tools && (
-          <ToolsSection
-            config={parsed.tools}
-            readOnly={readOnly}
-            onChange={(tools) => updateParsed((p) => ({ ...p, tools }))}
-          />
-        )}
+            {parsed.tools && (
+              <ToolsSection
+                config={parsed.tools}
+                readOnly={readOnly}
+                onChange={(tools) => updateParsed((p) => ({ ...p, tools }))}
+              />
+            )}
+          </>
+        ) : null}
       </div>
     </div>
   )

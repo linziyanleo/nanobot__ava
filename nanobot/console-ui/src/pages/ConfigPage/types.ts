@@ -115,3 +115,49 @@ export interface NanobotConfig {
   gateway: GatewayConfig
   tools: ToolsConfig
 }
+
+// ─── Cron Job Types ──────────────────────────────────────────────────────────
+
+export interface CronSchedule {
+  kind: 'at' | 'every' | 'cron'
+  atMs: number | null
+  everyMs: number | null
+  expr: string | null
+  tz: string | null
+}
+
+export interface CronPayload {
+  kind: 'system_event' | 'agent_turn'
+  message: string
+  deliver: boolean
+  channel: string | null
+  to: string | null
+  modelTier: 'default' | 'mini' | null
+}
+
+export interface CronJobState {
+  nextRunAtMs: number | null
+  lastRunAtMs: number | null
+  lastStatus: 'ok' | 'error' | 'skipped' | null
+  lastError: string | null
+  taskCompletedAtMs: number | null
+  taskCycleId: string | null
+}
+
+export interface CronJob {
+  id: string
+  name: string
+  enabled: boolean
+  schedule: CronSchedule
+  payload: CronPayload
+  state: CronJobState
+  createdAtMs: number
+  updatedAtMs: number
+  deleteAfterRun: boolean
+  source: 'cli' | 'schedule'
+}
+
+export interface CronStore {
+  version: number
+  jobs: CronJob[]
+}
