@@ -145,12 +145,16 @@ class TelegramChannel(BaseChannel):
 
         self._running = True
 
-        # Build the application with larger connection pool to avoid pool-timeout on long runs
-        req_kwargs: dict = dict(connection_pool_size=16, pool_timeout=5.0, connect_timeout=30.0, read_timeout=30.0)
+        # Separate request objects: one for general API calls, one for long-polling get_updates.
+        # When using unstable proxies (SOCKS5, etc.), shorter read_timeout on the polling request
+        # reduces "Server disconnected" log spam while the built-in retry loop reconnects.
+        common: dict = dict(connection_pool_size=16, pool_timeout=5.0, connect_timeout=20.0)
         if self.config.proxy:
-            req_kwargs["proxy"] = self.config.proxy
-        req = HTTPXRequest(**req_kwargs)
-        builder = Application.builder().token(self.config.token).request(req).get_updates_request(req)
+            common["proxy"] = self.config.proxy
+
+        api_req = HTTPXRequest(**common, read_timeout=20.0)
+        poll_req = HTTPXRequest(**common, read_timeout=15.0)
+        builder = Application.builder().token(self.config.token).request(api_req).get_updates_request(poll_req)
         self._app = builder.build()
         self._app.add_error_handler(self._on_error)
 
@@ -187,7 +191,8 @@ class TelegramChannel(BaseChannel):
         # Start polling (this runs until stopped)
         await self._app.updater.start_polling(
             allowed_updates=["message"],
-            drop_pending_updates=True  # Ignore old messages on startup
+            drop_pending_updates=True,
+            poll_interval=1.0,
         )
 
         # Keep running until stopped
@@ -498,8 +503,12 @@ class TelegramChannel(BaseChannel):
             logger.debug("Typing indicator stopped for {}: {}", chat_id, e)
 
     async def _on_error(self, update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
-        """Log polling / handler errors instead of silently swallowing them."""
-        logger.error("Telegram error: {}", context.error)
+        """Log polling / handler errors; demote transient network errors to debug."""
+        from telegram.error import NetworkError
+        if isinstance(context.error, NetworkError):
+            logger.debug("Telegram transient network error (will retry): {}", context.error)
+        else:
+            logger.error("Telegram error: {}", context.error)
 
     def _get_extension(self, media_type: str, mime_type: str | None) -> str:
         """Get file extension based on media type."""
