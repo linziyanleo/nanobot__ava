@@ -47,8 +47,8 @@ def _compute_next_run(schedule: CronSchedule, now_ms: int) -> int | None:
 
 def _validate_schedule_for_add(schedule: CronSchedule) -> None:
     """Validate schedule fields that would otherwise create non-runnable jobs."""
-    if schedule.tz and schedule.kind != "cron":
-        raise ValueError("tz can only be used with cron schedules")
+    if schedule.tz and schedule.kind not in ("cron", "at"):
+        raise ValueError("tz can only be used with cron or at schedules")
 
     if schedule.kind == "cron" and schedule.tz:
         try:

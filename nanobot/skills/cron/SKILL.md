@@ -25,9 +25,9 @@ Dynamic task (agent executes each time):
 cron(action="add", message="Check HKUDS/nanobot GitHub stars and report", every_seconds=600)
 ```
 
-One-time scheduled task (compute ISO datetime from current time):
+One-time scheduled task (use **local time** directly — the server parses it in its local timezone):
 ```
-cron(action="add", message="Remind me about the meeting", at="<ISO datetime>")
+cron(action="add", message="Remind me about the meeting", at="2026-03-05T14:30:00", tz="Asia/Shanghai")
 ```
 
 Timezone-aware cron:
@@ -62,14 +62,18 @@ cron(action="remove", job_id="abc123")
 |-----------|------------|
 | every 20 minutes | every_seconds: 1200 |
 | every hour | every_seconds: 3600 |
-| every day at 8am | cron_expr: "0 8 * * *" |
-| weekdays at 5pm | cron_expr: "0 17 * * 1-5" |
+| every day at 8am | cron_expr: "0 8 * * *", tz: "Asia/Shanghai" |
+| weekdays at 5pm | cron_expr: "0 17 * * 1-5", tz: "Asia/Shanghai" |
 | 9am Vancouver time daily | cron_expr: "0 9 * * *", tz: "America/Vancouver" |
-| at a specific time | at: ISO datetime string (compute from current time) |
+| remind me at 3pm today | at: "2026-03-05T15:00:00", tz: "Asia/Shanghai" |
 
 ## Timezone
 
-Use `tz` with `cron_expr` to schedule in a specific IANA timezone. Without `tz`, the server's local timezone is used.
+**IMPORTANT**: Always pass `tz` with the user's IANA timezone (check `Current Time` in system prompt for the timezone abbreviation, then map to IANA — CST → `Asia/Shanghai`, PST → `America/Los_Angeles`, etc.).
+
+- For `cron_expr`: `tz` determines when the cron fires.
+- For `at`: `tz` determines how the datetime string is interpreted. Without `tz`, the server's local timezone is used.
+- For `at`, always use the **target local time** directly (e.g. if user says "noon", use `T12:00:00`). Do NOT manually convert to UTC.
 
 ## Task Completion Tracking
 
