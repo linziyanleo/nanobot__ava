@@ -538,6 +538,14 @@ class AgentLoop:
             channel=msg.channel, chat_id=msg.chat_id,
         )
 
+        # Use vision model when user message contains images
+        _vision_swap = None
+        if msg.media and self.vision_model != self.model:
+            import mimetypes as _mt
+            if any(_mt.guess_type(p)[0] and _mt.guess_type(p)[0].startswith("image/") for p in msg.media):
+                _vision_swap = self.model
+                self.model = self.vision_model
+
         async def _bus_progress(content: str, *, tool_hint: bool = False) -> None:
             meta = dict(msg.metadata or {})
             meta["_progress"] = True
@@ -546,9 +554,13 @@ class AgentLoop:
                 channel=msg.channel, chat_id=msg.chat_id, content=content, metadata=meta,
             ))
 
-        final_content, _, all_msgs = await self._run_agent_loop(
-            initial_messages, session, on_progress=on_progress or _bus_progress,
-        )
+        try:
+            final_content, _, all_msgs = await self._run_agent_loop(
+                initial_messages, session, on_progress=on_progress or _bus_progress,
+            )
+        finally:
+            if _vision_swap is not None:
+                self.model = _vision_swap
 
         # Check if any "delivery" tool already sent content to the user
         _sticker_sent = False

@@ -63,7 +63,7 @@ export default function DashboardPage() {
       icon: MessageSquare,
       label: '聊天',
       value: '开始',
-      sub: '测试 agent 对话',
+      sub: '测试 Agent 对话',
       color: 'text-purple-400',
       onClick: () => navigate('/chat'),
     },

@@ -1,72 +1,72 @@
-import { useEffect, useState } from 'react'
-import { Server, RefreshCw, Power, AlertTriangle } from 'lucide-react'
-import { api } from '../api/client'
-import { useAuth } from '../stores/auth'
+import { useEffect, useState } from 'react';
+import { Server, RefreshCw, Power, AlertTriangle } from 'lucide-react';
+import { api } from '../api/client';
+import { useAuth } from '../stores/auth';
 
 interface GatewayStatusData {
-  running: boolean
-  pid: number | null
-  uptime_seconds: number | null
-  gateway_port: number | null
-  console_port: number | null
+  running: boolean;
+  pid: number | null;
+  uptime_seconds: number | null;
+  gateway_port: number | null;
+  console_port: number | null;
 }
 
 export default function GatewayPage() {
-  const [status, setStatus] = useState<GatewayStatusData | null>(null)
-  const [restarting, setRestarting] = useState(false)
-  const [countdown, setCountdown] = useState(0)
-  const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
-  const { isAdmin } = useAuth()
+  const [status, setStatus] = useState<GatewayStatusData | null>(null);
+  const [restarting, setRestarting] = useState(false);
+  const [countdown, setCountdown] = useState(0);
+  const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const { isAdmin } = useAuth();
 
   const loadStatus = async () => {
     try {
-      const s = await api<GatewayStatusData>('/gateway/status')
-      setStatus(s)
+      const s = await api<GatewayStatusData>('/gateway/status');
+      setStatus(s);
     } catch {}
-  }
+  };
 
   useEffect(() => {
-    loadStatus()
-    const interval = setInterval(loadStatus, 10000)
-    return () => clearInterval(interval)
-  }, [])
+    loadStatus();
+    const interval = setInterval(loadStatus, 10000);
+    return () => clearInterval(interval);
+  }, []);
 
   useEffect(() => {
-    if (countdown <= 0) return
-    const timer = setTimeout(() => setCountdown(countdown - 1), 1000)
-    return () => clearTimeout(timer)
-  }, [countdown])
+    if (countdown <= 0) return;
+    const timer = setTimeout(() => setCountdown(countdown - 1), 1000);
+    return () => clearTimeout(timer);
+  }, [countdown]);
 
   const handleRestart = async (force: boolean = false) => {
     if (!confirm(`重启网关${force ? ' (强制)' : ''}? 控制台将短暂断开连接。`)) return;
-    setRestarting(true)
-    setMessage(null)
+    setRestarting(true);
+    setMessage(null);
     try {
-      const delayMs = 5000
+      const delayMs = 5000;
       await api('/gateway/restart', {
         method: 'POST',
         body: JSON.stringify({ delay_ms: delayMs, force }),
-      })
-      setCountdown(Math.ceil(delayMs / 1000) + 5)
+      });
+      setCountdown(Math.ceil(delayMs / 1000) + 5);
       setMessage({ type: 'success', text: `网关重启将在 ${delayMs / 1000}s 后执行` });
     } catch (err: unknown) {
       setMessage({ type: 'error', text: err instanceof Error ? err.message : '重启失败' });
     } finally {
-      setRestarting(false)
+      setRestarting(false);
     }
-  }
+  };
 
   const formatUptime = (s: number | null) => {
-    if (s == null) return 'N/A'
-    const d = Math.floor(s / 86400)
-    const h = Math.floor((s % 86400) / 3600)
-    const m = Math.floor((s % 3600) / 60)
-    const parts = []
-    if (d > 0) parts.push(`${d}d`)
-    if (h > 0) parts.push(`${h}h`)
-    parts.push(`${m}m`)
-    return parts.join(' ')
-  }
+    if (s == null) return 'N/A';
+    const d = Math.floor(s / 86400);
+    const h = Math.floor((s % 86400) / 3600);
+    const m = Math.floor((s % 3600) / 60);
+    const parts = [];
+    if (d > 0) parts.push(`${d}天`);
+    if (h > 0) parts.push(`${h}小时`);
+    parts.push(`${m}分钟`);
+    return parts.join(' ');
+  };
 
   return (
     <div>
@@ -111,7 +111,7 @@ export default function GatewayPage() {
           </div>
         </div>
 
-        <div className="grid grid-cols-3 gap-4 mb-6">
+        <div className="grid grid-cols-4 gap-4 mb-6">
           <div className="bg-[var(--bg-primary)] rounded-lg p-4">
             <p className="text-xs text-[var(--text-secondary)] mb-1">状态</p>
             <p
@@ -123,6 +123,10 @@ export default function GatewayPage() {
           <div className="bg-[var(--bg-primary)] rounded-lg p-4">
             <p className="text-xs text-[var(--text-secondary)] mb-1">PID</p>
             <p className="text-lg font-semibold">{status?.pid ?? '-'}</p>
+          </div>
+          <div className="bg-[var(--bg-primary)] rounded-lg p-4">
+            <p className="text-xs text-[var(--text-secondary)] mb-1">端口</p>
+            <p className="text-lg font-semibold">{status?.gateway_port ?? '-'}</p>
           </div>
           <div className="bg-[var(--bg-primary)] rounded-lg p-4">
             <p className="text-xs text-[var(--text-secondary)] mb-1">运行时间</p>
