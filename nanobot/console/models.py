@@ -97,6 +97,25 @@ class AuditQueryResponse(BaseModel):
     size: int
 
 
+class MediaRecord(BaseModel):
+    id: str
+    timestamp: str
+    prompt: str
+    reference_image: str | None = None
+    output_images: list[str] = Field(default_factory=list)
+    output_text: str = ""
+    model: str = ""
+    status: str = "success"
+    error: str | None = None
+
+
+class MediaListResponse(BaseModel):
+    records: list[MediaRecord]
+    total: int
+    page: int
+    size: int
+
+
 class GatewayStatus(BaseModel):
     running: bool
     pid: int | None = None

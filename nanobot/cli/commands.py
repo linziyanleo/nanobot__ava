@@ -398,12 +398,13 @@ def _make_provider(config: Config):
         console.print("Set one in ~/.nanobot/config.json under providers section")
         raise typer.Exit(1)
 
-    # Collect cross-provider configs for mini/vision/voice models
+    # Collect cross-provider configs for mini/vision/voice/image_gen models
     extra_model_configs: dict[str, tuple[str, str | None]] = {}
     for alt_model in (
         config.agents.defaults.mini_model,
         config.agents.defaults.vision_model,
         config.agents.defaults.voice_model,
+        config.agents.defaults.image_gen_model,
     ):
         if not alt_model:
             continue
@@ -424,6 +425,17 @@ def _make_provider(config: Config):
         provider_name=provider_name,
         extra_model_configs=extra_model_configs or None,
     )
+
+
+def _get_image_gen_config(config) -> tuple[str | None, str | None, str | None]:
+    """Extract image generation model config (model, api_key, api_base)."""
+    model = config.agents.defaults.image_gen_model
+    if not model:
+        return None, None, None
+    p = config.get_provider(model)
+    if not p or not p.api_key:
+        return model, None, None
+    return model, p.api_key, p.api_base
 
 
 # ============================================================================
@@ -493,6 +505,7 @@ def gateway(
     cron = CronService(cron_store_path)
 
     # Create agent with cron service
+    ig_model, ig_key, ig_base = _get_image_gen_config(config)
     agent = AgentLoop(
         bus=bus,
         provider=provider,
@@ -516,6 +529,9 @@ def gateway(
         context_compression=config.agents.defaults.context_compression,
         memory_tier=config.agents.defaults.memory_tier,
         in_loop_truncation=config.agents.defaults.in_loop_truncation,
+        image_gen_model=ig_model,
+        image_gen_api_key=ig_key,
+        image_gen_api_base=ig_base,
         token_stats=token_stats_collector,
         record_full_request_payload=config.token_stats.record_full_request_payload,
     )
@@ -967,6 +983,7 @@ def agent(
     else:
         logger.disable("nanobot")
 
+    ig_model, ig_key, ig_base = _get_image_gen_config(config)
     agent_loop = AgentLoop(
         bus=bus,
         provider=provider,
@@ -989,6 +1006,9 @@ def agent(
         context_compression=config.agents.defaults.context_compression,
         memory_tier=config.agents.defaults.memory_tier,
         in_loop_truncation=config.agents.defaults.in_loop_truncation,
+        image_gen_model=ig_model,
+        image_gen_api_key=ig_key,
+        image_gen_api_base=ig_base,
     )
 
     # Show spinner when logs are off (no output to miss); skip when logs are on
@@ -1467,6 +1487,7 @@ def cron_run(
     config = load_config()
     provider = _make_provider(config)
     bus = MessageBus()
+    ig_model, ig_key, ig_base = _get_image_gen_config(config)
     agent_loop = AgentLoop(
         bus=bus,
         provider=provider,
@@ -1488,6 +1509,9 @@ def cron_run(
         context_compression=config.agents.defaults.context_compression,
         memory_tier=config.agents.defaults.memory_tier,
         in_loop_truncation=config.agents.defaults.in_loop_truncation,
+        image_gen_model=ig_model,
+        image_gen_api_key=ig_key,
+        image_gen_api_base=ig_base,
     )
 
     store_path = get_data_dir() / "cron" / "jobs.json"

@@ -65,6 +65,22 @@ async def get_ws_user(websocket: WebSocket) -> UserInfo:
     return UserInfo(username=username, role=role, created_at=created_at)
 
 
+async def optional_user(token: str = Depends(OAuth2PasswordBearer(tokenUrl="/api/auth/login", auto_error=False))) -> UserInfo | None:
+    """Return user if valid token is present, None otherwise."""
+    if not token:
+        return None
+    try:
+        payload = verify_token(token)
+        username = payload.get("sub")
+        role = payload.get("role")
+        created_at = payload.get("created_at", "")
+        if not username or not role:
+            return None
+        return UserInfo(username=username, role=role, created_at=created_at)
+    except HTTPException:
+        return None
+
+
 def require_role(*allowed_roles: str) -> Callable:
     """Dependency that checks if current user has one of the allowed roles."""
 

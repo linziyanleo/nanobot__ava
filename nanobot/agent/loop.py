@@ -22,6 +22,7 @@ from nanobot.agent.tools.filesystem import EditFileTool, ListDirTool, ReadFileTo
 from nanobot.agent.tools.memory_tool import MemoryTool
 from nanobot.agent.tools.message import MessageTool
 from nanobot.agent.tools.registry import ToolRegistry
+from nanobot.agent.tools.image_gen import ImageGenTool
 from nanobot.agent.tools.shell import ExecTool
 from nanobot.agent.tools.spawn import SpawnTool
 from nanobot.agent.tools.vision import VisionTool
@@ -75,6 +76,9 @@ class AgentLoop:
         context_compression: ContextCompressionConfig | None = None,
         memory_tier: str | None = "default",
         in_loop_truncation: InLoopTruncationConfig | None = None,
+        image_gen_model: str | None = None,
+        image_gen_api_key: str | None = None,
+        image_gen_api_base: str | None = None,
         token_stats: Any | None = None,
         record_full_request_payload: bool = False,
     ):
@@ -87,6 +91,9 @@ class AgentLoop:
         self.vision_model = vision_model or self.model
         self.mini_model = mini_model or self.model
         self.voice_model = voice_model
+        self.image_gen_model = image_gen_model
+        self._image_gen_api_key = image_gen_api_key
+        self._image_gen_api_base = image_gen_api_base
         self.memory_tier = memory_tier or "default"
         self.max_iterations = max_iterations
         self.temperature = temperature
@@ -167,6 +174,13 @@ class AgentLoop:
         if self.cron_service:
             self.tools.register(CronTool(self.cron_service))
         self.tools.register(StickerTool())
+        if self.image_gen_model and self._image_gen_api_key and self._image_gen_api_base:
+            self.tools.register(ImageGenTool(
+                api_key=self._image_gen_api_key,
+                api_base=self._image_gen_api_base,
+                model=self.image_gen_model,
+                token_stats=self._token_stats,
+            ))
 
     async def _connect_mcp(self) -> None:
         """Connect to configured MCP servers (one-time, lazy)."""
