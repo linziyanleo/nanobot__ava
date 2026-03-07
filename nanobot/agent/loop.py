@@ -561,26 +561,48 @@ class AgentLoop:
         current_message = self._augment_history_lookup_hint(
             history, msg.content, channel=msg.channel, chat_id=msg.chat_id
         )
+
+        # Pre-process media: transcribe audio with voice_model, swap to vision_model for images
+        _model_swap = None
+        _effective_media = list(msg.media) if msg.media else None
+        if msg.media:
+            _audio_exts = {"ogg", "mp3", "m4a", "wav", "aac", "flac", "opus"}
+            _has_audio = any(p.rsplit(".", 1)[-1].lower() in _audio_exts for p in msg.media if "." in p)
+
+            # Step 1: Transcribe audio → inject text, strip raw audio from media
+            if _has_audio and self.voice_model and self.voice_model != self.model:
+                _audio_paths = [
+                    p for p in msg.media
+                    if "." in p and p.rsplit(".", 1)[-1].lower() in _audio_exts
+                ]
+                _transcription = await self._transcribe_audio(_audio_paths, session)
+                _effective_media = [
+                    p for p in (_effective_media or [])
+                    if "." not in p or p.rsplit(".", 1)[-1].lower() not in _audio_exts
+                ]
+                if not _effective_media:
+                    _effective_media = None
+                current_message = (
+                    f"{current_message}\n\n[语音转录: {_transcription}]"
+                    if current_message.strip() else f"[语音转录: {_transcription}]"
+                )
+
+            # Step 2: Swap to vision_model for remaining image media
+            import mimetypes as _mt
+            _has_image = any(
+                _mt.guess_type(p)[0] and _mt.guess_type(p)[0].startswith("image/")
+                for p in (_effective_media or [])
+            )
+            if _has_image and self.vision_model != self.model:
+                _model_swap = self.model
+                self.model = self.vision_model
+
         initial_messages = self.context.build_messages(
             history=history,
             current_message=current_message,
-            media=msg.media if msg.media else None,
+            media=_effective_media,
             channel=msg.channel, chat_id=msg.chat_id,
         )
-
-        # Use vision/voice model when user message contains images/audio
-        _model_swap = None
-        if msg.media and msg.media:
-            import mimetypes as _mt
-            _has_image = any(_mt.guess_type(p)[0] and _mt.guess_type(p)[0].startswith("image/") for p in msg.media)
-            _audio_exts = {"ogg", "mp3", "m4a", "wav", "aac", "flac", "opus"}
-            _has_audio = any(p.rsplit(".", 1)[-1].lower() in _audio_exts for p in msg.media if "." in p)
-            if _has_audio and self.voice_model and self.voice_model != self.model:
-                _model_swap = self.model
-                self.model = self.voice_model
-            elif _has_image and self.vision_model != self.model:
-                _model_swap = self.model
-                self.model = self.vision_model
 
         async def _bus_progress(content: str, *, tool_hint: bool = False) -> None:
             meta = dict(msg.metadata or {})
@@ -640,6 +662,77 @@ class AgentLoop:
         )
 
     _HISTORY_LOOKUP_RE = re.compile(r"(之前|上次|历史|记得|曾经|以前|聊过|记录|还记得)")
+
+    async def _transcribe_audio(
+        self, audio_paths: list[str], session: Session | None = None,
+    ) -> str:
+        """Use voice_model to transcribe audio files.
+
+        Returns transcription text on success, or an error description on failure.
+        Raw audio is never forwarded to the default model.
+        """
+        import base64 as _b64
+
+        content: list[dict] = []
+        for path in audio_paths:
+            p = Path(path)
+            if not p.is_file():
+                continue
+            ext = p.suffix.lstrip(".").lower()
+            fmt = ContextBuilder._AUDIO_FORMAT_MAP.get(ext, "wav")
+            b64 = _b64.b64encode(p.read_bytes()).decode()
+            content.append({"type": "input_audio", "input_audio": {"data": b64, "format": fmt}})
+
+        if not content:
+            return "[语音转录失败: 未找到有效的音频文件]"
+
+        content.append({
+            "type": "text",
+            "text": "请转录这段语音的内容，只输出转录文本，不要添加任何额外说明。",
+        })
+
+        messages = [{"role": "user", "content": content}]
+        try:
+            response = await self.provider.chat(
+                messages=messages,
+                model=self.voice_model,
+                max_tokens=2048,
+                temperature=0.1,
+            )
+
+            if response.usage:
+                if self._token_stats:
+                    _effective_provider = (
+                        self.voice_model.split("/", 1)[0]
+                        if "/" in self.voice_model
+                        else self.provider.provider_name
+                    )
+                    self._token_stats.record(
+                        model=self.voice_model,
+                        provider=_effective_provider,
+                        usage=response.usage,
+                        session_key=session.key if session else "",
+                        user_message="[audio transcription]",
+                        output_content=response.content or "",
+                        system_prompt="",
+                        conversation_history="",
+                        full_request_payload="",
+                        finish_reason=response.finish_reason or "",
+                    )
+                logger.debug(
+                    "🎙️ Voice transcription tokens: {} (prompt: {} + completion: {})",
+                    response.usage.get("total_tokens", 0),
+                    response.usage.get("prompt_tokens", 0),
+                    response.usage.get("completion_tokens", 0),
+                )
+
+            result = response.content
+            if not result or not result.strip():
+                return "[语音转录失败: 模型返回空内容]"
+            return result.strip()
+        except Exception as e:
+            logger.error("Voice transcription failed: {}", e)
+            return f"[语音转录失败: {e}]"
 
     def _save_turn(self, session: Session, messages: list[dict], skip: int) -> None:
         """Save new-turn messages into session, truncating large tool results."""
