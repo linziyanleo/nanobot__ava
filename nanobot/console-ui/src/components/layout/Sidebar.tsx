@@ -1,7 +1,7 @@
 import { NavLink } from 'react-router-dom'
 import {
   LayoutDashboard, Settings, FileText, MessageSquare,
-  Server, BarChart3, Users, ClipboardList, LogOut, Bot,
+  Server, BarChart3, ImageIcon, Users, ClipboardList, LogOut, Bot,
 } from 'lucide-react'
 import { useAuth } from '../../stores/auth'
 import { cn } from '../../lib/utils'
@@ -13,6 +13,7 @@ const navItems = [
   { to: '/chat', icon: MessageSquare, label: '聊天' },
   { to: '/gateway', icon: Server, label: '网关' },
   { to: '/tokens', icon: BarChart3, label: 'Token 统计' },
+  { to: '/media', icon: ImageIcon, label: '媒体' },
   { to: '/users', icon: Users, label: '用户', admin: true },
   { to: '/audit', icon: ClipboardList, label: '审计', admin: true },
 ];

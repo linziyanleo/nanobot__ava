@@ -1,5 +1,5 @@
 import { useEffect, useState, useRef, useCallback } from 'react'
-import { Save, RefreshCw, Eye } from 'lucide-react'
+import { Save, RefreshCw } from 'lucide-react';
 import { api } from '../../api/client'
 import { useAuth } from '../../stores/auth'
 import type { ConfigItem, ConfigData, NanobotConfig, ChannelBase, CronStore } from './types'
@@ -26,109 +26,97 @@ function isCronConfig(name: string): boolean {
 }
 
 export default function ConfigPage() {
-  const [configs, setConfigs] = useState<ConfigItem[]>([])
-  const [selected, setSelected] = useState<string>('')
-  const [data, setData] = useState<ConfigData | null>(null)
-  const [parsed, setParsed] = useState<NanobotConfig | null>(null)
-  const [cronStore, setCronStore] = useState<CronStore | null>(null)
-  const [saving, setSaving] = useState(false)
-  const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
-  const [dirty, setDirty] = useState(false)
-  const { canEdit, isAdmin } = useAuth()
+  const [configs, setConfigs] = useState<ConfigItem[]>([]);
+  const [selected, setSelected] = useState<string>('');
+  const [data, setData] = useState<ConfigData | null>(null);
+  const [parsed, setParsed] = useState<NanobotConfig | null>(null);
+  const [cronStore, setCronStore] = useState<CronStore | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const [dirty, setDirty] = useState(false);
+  const { canEdit } = useAuth();
 
-  const originalRef = useRef<string>('')
-
-  useEffect(() => {
-    api<ConfigItem[]>('/config/list').then((list) => {
-      setConfigs(list)
-      if (list.length > 0) setSelected(list[0].name)
-    })
-  }, [])
+  const originalRef = useRef<string>('');
 
   useEffect(() => {
-    if (selected) loadConfig(selected)
-  }, [selected])
+    api<ConfigItem[]>('/config/list').then(list => {
+      setConfigs(list);
+      if (list.length > 0) setSelected(list[0].name);
+    });
+  }, []);
+
+  useEffect(() => {
+    if (selected) loadConfig(selected);
+  }, [selected]);
 
   const loadConfig = async (name: string) => {
     try {
-      const d = await api<ConfigData>(`/config/${name}`)
-      setData(d)
-      originalRef.current = d.content
+      const d = await api<ConfigData>(`/config/${name}`);
+      setData(d);
+      originalRef.current = d.content;
       try {
-        const obj = JSON.parse(d.content)
+        const obj = JSON.parse(d.content);
         if (isCronConfig(name)) {
-          setCronStore(obj)
-          setParsed(null)
+          setCronStore(obj);
+          setParsed(null);
         } else {
-          setParsed(obj)
-          setCronStore(null)
+          setParsed(obj);
+          setCronStore(null);
         }
       } catch {
-        setParsed(null)
-        setCronStore(null)
+        setParsed(null);
+        setCronStore(null);
       }
-      setDirty(false)
+      setDirty(false);
     } catch (err: unknown) {
-      setMessage({ type: 'error', text: err instanceof Error ? err.message : '加载失败' })
+      setMessage({ type: 'error', text: err instanceof Error ? err.message : '加载失败' });
     }
-  }
+  };
 
   const updateParsed = useCallback((updater: (prev: NanobotConfig) => NanobotConfig) => {
-    setParsed((prev) => {
-      if (!prev) return prev
-      const next = updater(prev)
-      setDirty(true)
-      return next
-    })
-  }, [])
+    setParsed(prev => {
+      if (!prev) return prev;
+      const next = updater(prev);
+      setDirty(true);
+      return next;
+    });
+  }, []);
 
   const updateCronStore = useCallback((store: CronStore) => {
-    setCronStore(store)
-    setDirty(true)
-  }, [])
+    setCronStore(store);
+    setDirty(true);
+  }, []);
 
   const saveConfig = async () => {
-    if (!data || !selected) return
-    const payload = isCronConfig(selected) ? cronStore : parsed
-    if (!payload) return
-    setSaving(true)
-    setMessage(null)
-    const content = JSON.stringify(payload, null, 2)
+    if (!data || !selected) return;
+    const payload = isCronConfig(selected) ? cronStore : parsed;
+    if (!payload) return;
+    setSaving(true);
+    setMessage(null);
+    const content = JSON.stringify(payload, null, 2);
     try {
       const result = await api<{ mtime: number }>(`/config/${selected}`, {
         method: 'PUT',
         body: JSON.stringify({ content, mtime: data.mtime }),
-      })
-      setData({ ...data, content, mtime: result.mtime })
-      originalRef.current = content
-      setDirty(false)
-      setMessage({ type: 'success', text: '保存成功' })
+      });
+      setData({ ...data, content, mtime: result.mtime });
+      originalRef.current = content;
+      setDirty(false);
+      setMessage({ type: 'success', text: '保存成功' });
     } catch (err: unknown) {
-      setMessage({ type: 'error', text: err instanceof Error ? err.message : '保存失败' })
+      setMessage({ type: 'error', text: err instanceof Error ? err.message : '保存失败' });
     } finally {
-      setSaving(false)
+      setSaving(false);
     }
-  }
+  };
 
-  const revealSecret = async (fieldPath: string) => {
-    try {
-      const result = await api<{ value: string }>(`/config/${selected}/reveal`, {
-        method: 'POST',
-        body: JSON.stringify({ field_path: fieldPath }),
-      })
-      alert(`${fieldPath}: ${result.value}`)
-    } catch (err: unknown) {
-      setMessage({ type: 'error', text: err instanceof Error ? err.message : '解密失败' })
-    }
-  }
-
-  const readOnly = !canEdit()
-  const showCron = isCronConfig(selected)
-  const hasContent = showCron ? !!cronStore : !!parsed
+  const readOnly = !canEdit();
+  const showCron = isCronConfig(selected);
+  const hasContent = showCron ? !!cronStore : !!parsed;
 
   const tabBar = (
     <div className="flex gap-1 mb-3">
-      {configs.map((c) => (
+      {configs.map(c => (
         <button
           key={c.name}
           onClick={() => setSelected(c.name)}
@@ -142,7 +130,7 @@ export default function ConfigPage() {
         </button>
       ))}
     </div>
-  )
+  );
 
   if (!hasContent) {
     return (
@@ -153,7 +141,7 @@ export default function ConfigPage() {
         {tabBar}
         <div className="text-center py-20 text-[var(--text-secondary)]">加载中...</div>
       </div>
-    )
+    );
   }
 
   return (

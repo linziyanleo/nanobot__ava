@@ -10,6 +10,13 @@ This file documents non-obvious constraints and usage patterns.
 - Output is truncated at 10,000 characters
 - `restrictToWorkspace` config can limit file access to the workspace
 
+## image_gen — Image Generation & Editing
+
+- Generate images from text prompts using Gemini's native image generation
+- Edit existing images by providing a reference image + edit instruction
+- Generated images are saved to `~/.nanobot/media/generated/`
+- Use the `message` tool with `media` parameter to send generated images to the user
+
 ## cron — Scheduled Reminders
 
 - Please refer to cron skill for usage.
