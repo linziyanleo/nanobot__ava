@@ -562,8 +562,7 @@ class AgentLoop:
             history, msg.content, channel=msg.channel, chat_id=msg.chat_id
         )
 
-        # Pre-process media: transcribe audio with voice_model, swap to vision_model for images
-        _model_swap = None
+        # Pre-process media: transcribe audio with voice_model, describe images with vision_model
         _effective_media = list(msg.media) if msg.media else None
         if msg.media:
             _audio_exts = {"ogg", "mp3", "m4a", "wav", "aac", "flac", "opus"}
@@ -587,15 +586,24 @@ class AgentLoop:
                     if current_message.strip() else f"[语音转录: {_transcription}]"
                 )
 
-            # Step 2: Swap to vision_model for remaining image media
+            # Step 2: Describe images with vision_model → inject text, strip raw images
             import mimetypes as _mt
-            _has_image = any(
-                _mt.guess_type(p)[0] and _mt.guess_type(p)[0].startswith("image/")
-                for p in (_effective_media or [])
-            )
-            if _has_image and self.vision_model != self.model:
-                _model_swap = self.model
-                self.model = self.vision_model
+            _image_paths = [
+                p for p in (_effective_media or [])
+                if _mt.guess_type(p)[0] and _mt.guess_type(p)[0].startswith("image/")
+            ]
+            if _image_paths and self.vision_model != self.model:
+                _description = await self._describe_images(_image_paths, session)
+                _effective_media = [
+                    p for p in (_effective_media or [])
+                    if not (_mt.guess_type(p)[0] and _mt.guess_type(p)[0].startswith("image/"))
+                ]
+                if not _effective_media:
+                    _effective_media = None
+                current_message = (
+                    f"{current_message}\n\n[图片识别: {_description}]"
+                    if current_message.strip() else f"[图片识别: {_description}]"
+                )
 
         initial_messages = self.context.build_messages(
             history=history,
@@ -612,13 +620,9 @@ class AgentLoop:
                 channel=msg.channel, chat_id=msg.chat_id, content=content, metadata=meta,
             ))
 
-        try:
-            final_content, _, all_msgs = await self._run_agent_loop(
-                initial_messages, session, on_progress=on_progress or _bus_progress,
-            )
-        finally:
-            if _model_swap is not None:
-                self.model = _model_swap
+        final_content, _, all_msgs = await self._run_agent_loop(
+            initial_messages, session, on_progress=on_progress or _bus_progress,
+        )
 
         # Check if any "delivery" tool already sent content to the user
         _sticker_sent = False
@@ -733,6 +737,79 @@ class AgentLoop:
         except Exception as e:
             logger.error("Voice transcription failed: {}", e)
             return f"[语音转录失败: {e}]"
+
+    async def _describe_images(
+        self, image_paths: list[str], session: Session | None = None,
+    ) -> str:
+        """Use vision_model to describe images as text.
+
+        Returns image description on success, or an error description on failure.
+        Raw image data is never forwarded to the default model.
+        """
+        import base64 as _b64
+        import mimetypes as _mt
+
+        content: list[dict] = []
+        for path in image_paths:
+            p = Path(path)
+            if not p.is_file():
+                continue
+            mime, _ = _mt.guess_type(path)
+            if not mime or not mime.startswith("image/"):
+                continue
+            b64 = _b64.b64encode(p.read_bytes()).decode()
+            content.append({"type": "image_url", "image_url": {"url": f"data:{mime};base64,{b64}"}})
+
+        if not content:
+            return "[图片识别失败: 未找到有效的图片文件]"
+
+        content.append({
+            "type": "text",
+            "text": "请详细描述这些图片的内容。如果图片中包含文字，请完整提取。",
+        })
+
+        messages = [{"role": "user", "content": content}]
+        try:
+            response = await self.provider.chat(
+                messages=messages,
+                model=self.vision_model,
+                max_tokens=4096,
+                temperature=0.3,
+            )
+
+            if response.usage:
+                if self._token_stats:
+                    _effective_provider = (
+                        self.vision_model.split("/", 1)[0]
+                        if "/" in self.vision_model
+                        else self.provider.provider_name
+                    )
+                    self._token_stats.record(
+                        model=self.vision_model,
+                        provider=_effective_provider,
+                        usage=response.usage,
+                        session_key=session.key if session else "",
+                        user_message="[image description]",
+                        output_content=response.content or "",
+                        system_prompt="",
+                        conversation_history="",
+                        full_request_payload="",
+                        finish_reason=response.finish_reason or "",
+                    )
+                logger.debug(
+                    "👁️ Vision description tokens: {} (prompt: {} + completion: {})",
+                    response.usage.get("total_tokens", 0),
+                    response.usage.get("prompt_tokens", 0),
+                    response.usage.get("completion_tokens", 0),
+                )
+
+            result = response.content
+            if not result or not result.strip():
+                return "[图片识别失败: 模型返回空内容]"
+            return result.strip()
+        except Exception as e:
+            logger.error("Image description failed: {}", e)
+            return f"[图片识别失败: {e}]"
 
     def _save_turn(self, session: Session, messages: list[dict], skip: int) -> None:
         """Save new-turn messages into session, truncating large tool results."""
