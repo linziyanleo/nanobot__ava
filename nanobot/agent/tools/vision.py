@@ -5,6 +5,8 @@ import mimetypes
 from pathlib import Path
 from typing import Any
 
+from loguru import logger
+
 from nanobot.agent.tools.base import Tool
 from nanobot.providers.base import LLMProvider
 
@@ -12,9 +14,15 @@ from nanobot.providers.base import LLMProvider
 class VisionTool(Tool):
     """Analyze images via the conversation LLM (vision-capable models)."""
 
-    def __init__(self, provider: LLMProvider, model: str | None = None) -> None:
+    def __init__(
+        self,
+        provider: LLMProvider,
+        model: str | None = None,
+        token_stats: Any | None = None,
+    ) -> None:
         self._provider = provider
         self._model = model
+        self._token_stats = token_stats
 
     @property
     def name(self) -> str:
@@ -87,6 +95,36 @@ class VisionTool(Tool):
                 max_tokens=4096,
                 temperature=0.3,
             )
+
+            if response.usage and self._token_stats:
+                model_name = self._model or self._provider.get_default_model()
+                _effective_provider = (
+                    model_name.split("/", 1)[0]
+                    if "/" in model_name
+                    else self._provider.provider_name
+                )
+                try:
+                    self._token_stats.record(
+                        model=model_name,
+                        provider=_effective_provider,
+                        usage=response.usage,
+                        session_key="vision_tool",
+                        user_message=prompt[:200],
+                        output_content=response.content or "",
+                        system_prompt="",
+                        conversation_history="",
+                        full_request_payload="",
+                        finish_reason=response.finish_reason or "",
+                    )
+                except Exception as e:
+                    logger.debug("Failed to record vision tool token stats: {}", e)
+                logger.debug(
+                    "👁️ VisionTool tokens: {} (prompt: {} + completion: {})",
+                    response.usage.get("total_tokens", 0),
+                    response.usage.get("prompt_tokens", 0),
+                    response.usage.get("completion_tokens", 0),
+                )
+
             return response.content or "No analysis result returned."
         except Exception as e:
             return f"Error analyzing image: {e}"

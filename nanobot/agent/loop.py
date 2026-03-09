@@ -164,7 +164,7 @@ class AgentLoop:
         self.tools.register(MessageTool(send_callback=self.bus.publish_outbound))
         self.tools.register(SpawnTool(manager=self.subagents))
         self.tools.register(MemoryTool(store=self.categorized_memory))
-        self.tools.register(VisionTool(provider=self.provider, model=self.vision_model))
+        self.tools.register(VisionTool(provider=self.provider, model=self.vision_model, token_stats=self._token_stats))
         if self.cron_service:
             self.tools.register(CronTool(self.cron_service))
         self.tools.register(StickerTool())
