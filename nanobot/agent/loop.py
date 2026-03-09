@@ -477,6 +477,9 @@ class AgentLoop:
             key = f"{channel}:{chat_id}"
             session = self.sessions.get_or_create(key)
             self._set_tool_context(channel, chat_id, msg.metadata.get("message_id"))
+            if message_tool := self.tools.get("message"):
+                if isinstance(message_tool, MessageTool):
+                    message_tool.start_turn()
             history = session.get_history(max_messages=self.memory_window)
             if self._compression_enabled:
                 history = self.history_compressor.compress(history, msg.content)
@@ -484,9 +487,40 @@ class AgentLoop:
                 history=history,
                 current_message=msg.content, channel=channel, chat_id=chat_id,
             )
-            final_content, _, all_msgs = await self._run_agent_loop(messages, session)
+
+            async def _sys_progress(content: str, *, tool_hint: bool = False) -> None:
+                meta = {"_progress": True, "_tool_hint": tool_hint}
+                await self.bus.publish_outbound(OutboundMessage(
+                    channel=channel, chat_id=chat_id, content=content, metadata=meta,
+                ))
+
+            final_content, _, all_msgs = await self._run_agent_loop(
+                messages, session, on_progress=_sys_progress,
+            )
+
+            # Check if delivery tools already sent content
+            _sticker_sent = False
+            if (st := self.tools.get("send_sticker")):
+                from nanobot.agent.tools.sticker import StickerTool
+                if isinstance(st, StickerTool) and st._sent_in_turn:
+                    _sticker_sent = True
+                    st._sent_in_turn = False
+
+            _message_sent = False
+            if (mt := self.tools.get("message")) and isinstance(mt, MessageTool) and mt._sent_in_turn:
+                _message_sent = True
+
             self._save_turn(session, all_msgs, 1 + len(history))
             self.sessions.save(session)
+
+            _content_is_empty = (
+                final_content is None
+                or not final_content.strip()
+                or final_content.strip().lower() in ("(empty)", "empty", "…", "...")
+            )
+            if _message_sent or (_sticker_sent and _content_is_empty):
+                return None
+
             return OutboundMessage(channel=channel, chat_id=chat_id,
                                   content=final_content or "Background task completed.")
 
