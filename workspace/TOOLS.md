@@ -129,6 +129,41 @@ send_sticker(sticker_id=14, chat_id="12345678")     # 发送到指定聊天
 - When a sticker is sent, the agent suppresses the text reply for that turn (via `_sent_in_turn`)
 - Choose stickers naturally based on conversation emotion; works best as a standalone reaction at the end of a reply
 
+## Image Generation
+
+### image_gen
+
+Generate or edit images using Gemini's native image generation capabilities.
+
+```
+image_gen(prompt: str, reference_image: str = None) -> str
+```
+
+**Parameters:**
+
+- `prompt` (str, required): Text prompt describing the image to generate, or edit instruction when reference_image is provided
+- `reference_image` (str, optional): File path to a reference image for editing. When provided, the prompt is treated as an edit instruction.
+
+**Examples:**
+
+```
+image_gen(prompt="画一只在太空中飘浮的猫咪，赛博朋克风格")
+image_gen(prompt="把背景改成蓝色海洋", reference_image="/Users/me/.nanobot/media/generated/abc123_0.png")
+```
+
+**Notes:**
+
+- Generated images are saved to `~/.nanobot/media/generated/` and returned as file paths
+- Use the `message` tool with `media` parameter to send generated images to the user:
+
+  ```
+  message(content="这是为你生成的图片", media=["/Users/me/.nanobot/media/generated/abc123_0.png"])
+  ```
+
+- Supports both pure generation (text → image) and editing (image + text → image)
+- All generation records (prompt, output paths, status) are logged for the Console media gallery
+- Uses the model configured as `imageGenModel` in config.json
+
 ## Communication
 
 ### message
