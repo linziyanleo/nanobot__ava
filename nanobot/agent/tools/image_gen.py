@@ -148,16 +148,29 @@ class ImageGenTool(Tool):
 
             contents: list[Any] = []
             if reference_image:
-                from PIL import Image as PILImage
-
                 ref_path = Path(reference_image)
                 if not ref_path.is_file():
                     record["status"] = "error"
                     record["error"] = f"Reference image not found: {reference_image}"
                     self._write_record(record)
                     return f"Error: Reference image not found: {reference_image}"
-                img = PILImage.open(str(ref_path))
-                contents.append(img)
+
+                # Determine MIME type from extension
+                suffix = ref_path.suffix.lower()
+                mime_map = {
+                    ".png": "image/png",
+                    ".jpg": "image/jpeg",
+                    ".jpeg": "image/jpeg",
+                    ".webp": "image/webp",
+                    ".avif": "image/avif",
+                    ".gif": "image/gif",
+                }
+                mime_type = mime_map.get(suffix, "image/png")
+                image_bytes = ref_path.read_bytes()
+                image_part = types.Part.from_bytes(
+                    data=image_bytes, mime_type=mime_type
+                )
+                contents.append(image_part)
 
             contents.append(prompt)
 
