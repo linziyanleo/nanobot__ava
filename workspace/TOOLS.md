@@ -133,7 +133,7 @@ send_sticker(sticker_id=14, chat_id="12345678")     # 发送到指定聊天
 
 ### image_gen
 
-Generate or edit images using Gemini's native image generation capabilities.
+Generate or edit images using AI image generation capabilities.
 
 ```
 image_gen(prompt: str, reference_image: str = None) -> str
@@ -162,7 +162,6 @@ image_gen(prompt="把背景改成蓝色海洋", reference_image="/Users/me/.nano
 
 - Supports both pure generation (text → image) and editing (image + text → image)
 - All generation records (prompt, output paths, status) are logged for the Console media gallery
-- Uses the model configured as `imageGenModel` in config.json
 
 ## Communication
 

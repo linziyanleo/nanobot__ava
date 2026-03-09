@@ -12,7 +12,7 @@ This file documents non-obvious constraints and usage patterns.
 
 ## image_gen — Image Generation & Editing
 
-- Generate images from text prompts using Gemini's native image generation
+- Generate images from text prompts using AI image generation
 - Edit existing images by providing a reference image + edit instruction
 - Generated images are saved to `~/.nanobot/media/generated/`
 - Use the `message` tool with `media` parameter to send generated images to the user
