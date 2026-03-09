@@ -14,16 +14,29 @@ GENERATED_DIR = Path.home() / ".nanobot" / "media" / "generated"
 RECORDS_FILE = GENERATED_DIR / "records.jsonl"
 
 
+def _load_image_gen_config() -> tuple[str, str, str]:
+    """Load image generation model, api_key, api_base from config.json."""
+    from nanobot.config.loader import load_config
+
+    config = load_config()
+    model = config.agents.defaults.image_gen_model
+    if not model:
+        raise ValueError("imageGenModel is not configured in config.json")
+    p = config.get_provider(model)
+    if not p or not p.api_key:
+        raise ValueError(f"No provider/api_key found for imageGenModel '{model}'")
+    api_base = config.get_api_base(model) or p.api_base or ""
+    return model, p.api_key, api_base
+
+
 class ImageGenTool(Tool):
     """Generate or edit images using Gemini's native image generation capabilities."""
 
     def __init__(
         self,
-        api_key: str,
-        api_base: str,
-        model: str,
         token_stats: Any | None = None,
     ) -> None:
+        model, api_key, api_base = _load_image_gen_config()
         self._api_key = api_key
         self._api_base = api_base
         self._model = model
