@@ -78,8 +78,9 @@ async def chat_ws(websocket: WebSocket, session_id: str):
                 target=session_id, detail={"preview": content[:100]},
             )
 
-            async def on_progress(chunk: str, *, tool_hint: bool = False):
-                await websocket.send_json({"type": "progress", "content": chunk, "tool_hint": tool_hint})
+            async def on_progress(chunk: str, *, tool_hint: bool = False, is_thinking: bool = False):
+                msg_type = "thinking" if is_thinking else "progress"
+                await websocket.send_json({"type": msg_type, "content": chunk, "tool_hint": tool_hint})
 
             response = await svc_chat.send_message(
                 session_id=session_id,

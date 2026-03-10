@@ -306,9 +306,11 @@ class AgentLoop:
 
             if response.has_tool_calls:
                 if on_progress:
+                    if response.reasoning_content:
+                        await on_progress(response.reasoning_content, is_thinking=True)
+
                     thoughts = [
                         self._strip_think(response.content),
-                        response.reasoning_content,
                         *(
                             f"Thinking [{b.get('signature', '...')}]:\n{b.get('thought', '...')}"
                             for b in (response.thinking_blocks or [])
@@ -479,7 +481,9 @@ class AgentLoop:
                 current_message=msg.content, channel=channel, chat_id=chat_id,
             )
 
-            async def _sys_progress(content: str, *, tool_hint: bool = False) -> None:
+            async def _sys_progress(content: str, *, tool_hint: bool = False, is_thinking: bool = False) -> None:
+                if is_thinking:
+                    return
                 meta = {"_progress": True, "_tool_hint": tool_hint}
                 await self.bus.publish_outbound(OutboundMessage(
                     channel=channel, chat_id=chat_id, content=content, metadata=meta,
@@ -637,7 +641,9 @@ class AgentLoop:
             channel=msg.channel, chat_id=msg.chat_id,
         )
 
-        async def _bus_progress(content: str, *, tool_hint: bool = False) -> None:
+        async def _bus_progress(content: str, *, tool_hint: bool = False, is_thinking: bool = False) -> None:
+            if is_thinking:
+                return
             meta = dict(msg.metadata or {})
             meta["_progress"] = True
             meta["_tool_hint"] = tool_hint

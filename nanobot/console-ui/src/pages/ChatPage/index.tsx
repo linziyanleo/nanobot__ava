@@ -17,6 +17,7 @@ export default function ChatPage() {
   const [turns, setTurns] = useState<TurnGroup[]>([])
   const [loadingMessages, setLoadingMessages] = useState(false)
   const [streaming, setStreaming] = useState('')
+  const [thinkingStreaming, setThinkingStreaming] = useState('')
   const [sending, setSending] = useState(false)
   const wsRef = useRef<WebSocket | null>(null)
   const initializedRef = useRef(false)
@@ -106,6 +107,7 @@ export default function ChatPage() {
   const handleSessionSelect = (filename: string) => {
     setActiveSession(filename)
     setStreaming('')
+    setThinkingStreaming('')
     wsRef.current?.close()
 
     const meta = sessions.find((s) => s.filename === filename)
@@ -121,6 +123,7 @@ export default function ChatPage() {
     setActiveScene(scene)
     wsRef.current?.close()
     setStreaming('')
+    setThinkingStreaming('')
 
     const sceneSessions = sessions.filter((s) => s.scene === scene)
     if (sceneSessions.length > 0) {
@@ -232,10 +235,13 @@ export default function ChatPage() {
     const ws = new WebSocket(wsUrl(`/chat/ws/${sid}`))
     ws.onmessage = (e) => {
       const data = JSON.parse(e.data)
-      if (data.type === 'progress') {
+      if (data.type === 'thinking') {
+        setThinkingStreaming((prev) => prev + data.content)
+      } else if (data.type === 'progress') {
         setStreaming((prev) => prev + data.content)
       } else if (data.type === 'complete') {
         setStreaming('')
+        setThinkingStreaming('')
         setSending(false)
         loadSessionMessages(filename, filepath)
       }
@@ -248,6 +254,7 @@ export default function ChatPage() {
   const handleSend = (message: string) => {
     if (!wsRef.current || sending) return
     setStreaming('')
+    setThinkingStreaming('')
     setSending(true)
 
     const userMsg: RawMessage = {
@@ -303,6 +310,7 @@ export default function ChatPage() {
           loading={loadingMessages}
           isConsole={isConsole && !!activeSession}
           streaming={streaming}
+          thinkingStreaming={thinkingStreaming}
           sending={sending}
           onSend={handleSend}
         />

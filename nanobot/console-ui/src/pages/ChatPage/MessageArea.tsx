@@ -1,5 +1,5 @@
-import { useEffect, useRef } from 'react'
-import { MessageSquare, Loader2 } from 'lucide-react'
+import { useEffect, useRef, useState } from 'react'
+import { MessageSquare, Loader2, Brain, ChevronDown, ChevronRight } from 'lucide-react'
 import type { SessionMeta, TurnGroup } from './types'
 import { SCENE_LABELS } from './types'
 import { TurnGroupComponent } from './TurnGroup'
@@ -12,13 +12,15 @@ interface MessageAreaProps {
   loading: boolean
   isConsole: boolean
   streaming: string
+  thinkingStreaming: string
   sending: boolean
   onSend: (message: string) => void
 }
 
-export function MessageArea({ session, turns, loading, isConsole, streaming, sending, onSend }: MessageAreaProps) {
+export function MessageArea({ session, turns, loading, isConsole, streaming, thinkingStreaming, sending, onSend }: MessageAreaProps) {
   const bottomRef = useRef<HTMLDivElement>(null)
   const isInitialScroll = useRef(true)
+  const [thinkingExpanded, setThinkingExpanded] = useState(false)
 
   useEffect(() => {
     if (!bottomRef.current) return
@@ -28,7 +30,7 @@ export function MessageArea({ session, turns, loading, isConsole, streaming, sen
     } else {
       bottomRef.current.scrollIntoView({ behavior: 'smooth' })
     }
-  }, [turns, streaming])
+  }, [turns, streaming, thinkingStreaming])
 
   useEffect(() => {
     isInitialScroll.current = true
@@ -77,6 +79,30 @@ export function MessageArea({ session, turns, loading, isConsole, streaming, sen
             {turns.map((turn, i) => (
               <TurnGroupComponent key={i} turn={turn} />
             ))}
+            {thinkingStreaming && (
+              <div className="flex justify-start">
+                <div className="max-w-[80%] rounded-2xl rounded-bl-md border border-[var(--border)] text-sm overflow-hidden"
+                  style={{ background: 'var(--bg-tertiary, var(--bg-secondary))' }}>
+                  <button
+                    onClick={() => setThinkingExpanded((v) => !v)}
+                    className="flex items-center gap-1.5 w-full px-3 py-1.5 text-[11px] text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors"
+                  >
+                    <Brain className="w-3.5 h-3.5 text-[var(--accent)] animate-pulse" />
+                    <span className="font-medium">Thinking...</span>
+                    {thinkingExpanded
+                      ? <ChevronDown className="w-3 h-3 ml-auto" />
+                      : <ChevronRight className="w-3 h-3 ml-auto" />}
+                  </button>
+                  {thinkingExpanded && (
+                    <div className="px-3 pb-2 border-t border-[var(--border)]">
+                      <pre className="whitespace-pre-wrap font-[inherit] text-[12px] text-[var(--text-secondary)] italic leading-relaxed max-h-[200px] overflow-y-auto mt-1.5">
+                        {thinkingStreaming}
+                      </pre>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
             {streaming && (
               <div className="flex justify-start">
                 <div className="max-w-[80%] px-4 py-2.5 rounded-2xl rounded-bl-md bg-[var(--bg-secondary)] border border-[var(--border)] text-sm">
