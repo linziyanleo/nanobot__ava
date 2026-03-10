@@ -31,7 +31,7 @@ export const FIELD_INFO: Record<string, string> = {
   'token_stats.enabled': '是否启用 Token 用量统计',
   'token_stats.record_full_request_payload': '记录完整的 LLM 请求负载（含消息上下文），会大幅增加存储用量',
   // channels
-  'channels': '消息渠道配置，每个渠道可独立启用/禁用',
+  channels: '消息渠道配置，每个渠道可独立启用/禁用',
   'channels.whatsapp': 'WhatsApp 消息渠道',
   'channels.telegram': 'Telegram 机器人渠道',
   'channels.discord': 'Discord 机器人渠道',
@@ -43,13 +43,13 @@ export const FIELD_INFO: Record<string, string> = {
   'channels.qq': 'QQ 官方机器人渠道',
   'channels.matrix': 'Matrix (Element) 聊天渠道',
   // providers
-  'providers': 'LLM 服务商配置，每个服务商有 API Key 和 Base URL',
+  providers: 'LLM 服务商配置，每个服务商有 API Key 和 Base URL',
   // gateway
   'gateway.host': '网关监听地址',
   'gateway.port': '网关监听端口',
   // heartbeat (under agents.defaults)
   'agents.defaults.heartbeat.enabled': '是否启用心跳检测',
-  'agents.defaults.heartbeat.intervalS': '心跳间隔(秒)',
+  'agents.defaults.heartbeat.interval_s': '心跳间隔(秒)',
   'agents.defaults.heartbeat.phrase1.model': 'Phase 1 (决策阶段) 使用的模型，留空使用 miniModel',
   'agents.defaults.heartbeat.phrase2.model': 'Phase 2 (执行阶段) 使用的模型，留空使用主模型',
   'gateway.console.enabled': '是否启用 Web 控制台',
@@ -66,7 +66,7 @@ export const FIELD_INFO: Record<string, string> = {
   'tools.restrictToWorkspace': '是否限制工具访问仅限工作目录',
   'tools.restrictConfigFile': '是否禁止代理读写 config.json (含 API Key 等敏感信息)',
   'tools.mcpServers': 'MCP 服务器连接配置',
-}
+};
 
 const SENSITIVE_KEYS = [
   'apiKey', 'token', 'appSecret', 'clientSecret', 'secret',

@@ -221,7 +221,7 @@ function TaskCard({
   );
 }
 
-function CountdownDisplay({ intervalS }: { intervalS: number }) {
+function CountdownDisplay({ interval_s }: { interval_s: number }) {
   const [remaining, setRemaining] = useState<string>('');
   const startRef = useRef(Date.now());
 
@@ -229,7 +229,7 @@ function CountdownDisplay({ intervalS }: { intervalS: number }) {
     startRef.current = Date.now();
     const tick = () => {
       const elapsed = Math.floor((Date.now() - startRef.current) / 1000);
-      const left = Math.max(0, intervalS - (elapsed % intervalS));
+      const left = Math.max(0, interval_s - (elapsed % interval_s));
       const m = Math.floor(left / 60);
       const s = left % 60;
       setRemaining(`${m}:${String(s).padStart(2, '0')}`);
@@ -237,7 +237,7 @@ function CountdownDisplay({ intervalS }: { intervalS: number }) {
     tick();
     const id = setInterval(tick, 1000);
     return () => clearInterval(id);
-  }, [intervalS]);
+  }, [interval_s]);
 
   return (
     <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-[var(--bg-primary)] border border-[var(--border)]">
@@ -285,7 +285,7 @@ export function HeartbeatEditor({
 
   useEffect(() => { loadHeartbeat(); }, [loadHeartbeat]);
 
-  const intervalMin = heartbeatConfig?.intervalS ? Math.round(heartbeatConfig.intervalS / 60) : 60;
+  const intervalMin = heartbeatConfig?.interval_s ? Math.round(heartbeatConfig.interval_s / 60) : 60;
 
   const updateTasks = (newTasks: HeartbeatTask[]) => {
     setTasks(newTasks);
@@ -371,15 +371,15 @@ export function HeartbeatEditor({
         </div>
 
         {message && (
-          <div className={`mb-3 p-2 rounded-lg text-xs ${message.type === 'success' ? 'bg-[var(--success)]/10 text-[var(--success)]' : 'bg-[var(--danger)]/10 text-[var(--danger)]'}`}>
+          <div
+            className={`mb-3 p-2 rounded-lg text-xs ${message.type === 'success' ? 'bg-[var(--success)]/10 text-[var(--success)]' : 'bg-[var(--danger)]/10 text-[var(--danger)]'}`}
+          >
             {message.text}
           </div>
         )}
 
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-          {heartbeatConfig && (
-            <CountdownDisplay intervalS={heartbeatConfig.intervalS} />
-          )}
+          {heartbeatConfig && <CountdownDisplay interval_s={heartbeatConfig.interval_s} />}
           <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-[var(--bg-primary)] border border-[var(--border)]">
             <div>
               <p className="text-[10px] text-[var(--text-secondary)]">心跳间隔</p>
@@ -408,14 +408,26 @@ export function HeartbeatEditor({
             {renderField('enabled', heartbeatConfig.enabled, 'agents.defaults.heartbeat.enabled', readOnly, v =>
               onConfigChange({ ...heartbeatConfig, enabled: v as boolean }),
             )}
-            {renderField('intervalS', heartbeatConfig.intervalS, 'agents.defaults.heartbeat.intervalS', readOnly, v =>
-              onConfigChange({ ...heartbeatConfig, intervalS: v as number }),
+            {renderField(
+              'interval_s',
+              heartbeatConfig.interval_s,
+              'agents.defaults.heartbeat.interval_s',
+              readOnly,
+              v => onConfigChange({ ...heartbeatConfig, interval_s: v as number }),
             )}
-            {renderField('phrase1.model', heartbeatConfig.phrase1?.model ?? '', 'agents.defaults.heartbeat.phrase1.model', readOnly, v =>
-              onConfigChange({ ...heartbeatConfig, phrase1: { model: v as string } }),
+            {renderField(
+              'phrase1.model',
+              heartbeatConfig.phrase1?.model ?? '',
+              'agents.defaults.heartbeat.phrase1.model',
+              readOnly,
+              v => onConfigChange({ ...heartbeatConfig, phrase1: { model: v as string } }),
             )}
-            {renderField('phrase2.model', heartbeatConfig.phrase2?.model ?? '', 'agents.defaults.heartbeat.phrase2.model', readOnly, v =>
-              onConfigChange({ ...heartbeatConfig, phrase2: { model: v as string } }),
+            {renderField(
+              'phrase2.model',
+              heartbeatConfig.phrase2?.model ?? '',
+              'agents.defaults.heartbeat.phrase2.model',
+              readOnly,
+              v => onConfigChange({ ...heartbeatConfig, phrase2: { model: v as string } }),
             )}
           </div>
         </Section>
@@ -435,7 +447,7 @@ export function HeartbeatEditor({
               key={task.id}
               task={task}
               readOnly={readOnly}
-              onChange={t => updateTasks(tasks.map(x => x.id === t.id ? t : x))}
+              onChange={t => updateTasks(tasks.map(x => (x.id === t.id ? t : x)))}
               onDelete={() => deleteTask(task.id)}
               onMoveSection={() => moveSection(task.id)}
             />
@@ -462,7 +474,7 @@ export function HeartbeatEditor({
                 key={task.id}
                 task={task}
                 readOnly={readOnly}
-                onChange={t => updateTasks(tasks.map(x => x.id === t.id ? t : x))}
+                onChange={t => updateTasks(tasks.map(x => (x.id === t.id ? t : x)))}
                 onDelete={() => deleteTask(task.id)}
                 onMoveSection={() => moveSection(task.id)}
               />

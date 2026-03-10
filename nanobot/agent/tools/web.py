@@ -146,29 +146,29 @@ class WebFetchTool(Tool):
             ) as client:
                 r = await client.get(url, headers={"User-Agent": USER_AGENT})
                 r.raise_for_status()
-            
-            ctype = r.headers.get("content-type", "")
-            
-            # JSON
-            if "application/json" in ctype:
-                text, extractor = json.dumps(r.json(), indent=2, ensure_ascii=False), "json"
-            # HTML
-            elif "text/html" in ctype or r.text[:256].lower().startswith(("<!doctype", "<html")):
-                doc = Document(r.text)
-                content = self._to_markdown(doc.summary()) if extractMode == "markdown" else _strip_tags(doc.summary())
-                text = f"# {doc.title()}\n\n{content}" if doc.title() else content
-                extractor = "readability"
-            else:
-                text, extractor = r.text, "raw"
-            
+
+                ctype = r.headers.get("content-type", "")
+
+                # JSON
+                if "application/json" in ctype:
+                    text, extractor = json.dumps(r.json(), indent=2, ensure_ascii=False), "json"
+                # HTML
+                elif "text/html" in ctype or r.text[:256].lower().startswith(("<!doctype", "<html")):
+                    doc = Document(r.text)
+                    content = self._to_markdown(doc.summary()) if extractMode == "markdown" else _strip_tags(doc.summary())
+                    text = f"# {doc.title()}\n\n{content}" if doc.title() else content
+                    extractor = "readability"
+                else:
+                    text, extractor = r.text, "raw"
+
             truncated = len(text) > max_chars
             if truncated:
                 text = text[:max_chars]
-            
+
             return json.dumps({"url": url, "finalUrl": str(r.url), "status": r.status_code,
                               "extractor": extractor, "truncated": truncated, "length": len(text), "text": text}, ensure_ascii=False)
         except Exception as e:
-            return json.dumps({"error": str(e), "url": url}, ensure_ascii=False)
+            return json.dumps({"error": f"{type(e).__name__}: {e}", "url": url}, ensure_ascii=False)
     
     def _to_markdown(self, html: str) -> str:
         """Convert HTML to markdown."""

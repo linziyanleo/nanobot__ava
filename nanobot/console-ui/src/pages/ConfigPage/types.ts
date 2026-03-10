@@ -96,10 +96,10 @@ export interface HeartbeatPhaseConfig {
 }
 
 export interface HeartbeatConfig {
-  enabled: boolean
-  intervalS: number
-  phrase1?: HeartbeatPhaseConfig
-  phrase2?: HeartbeatPhaseConfig
+  enabled: boolean;
+  interval_s: number;
+  phrase1?: HeartbeatPhaseConfig;
+  phrase2?: HeartbeatPhaseConfig;
 }
 
 export interface ConsoleConfigType {
