@@ -247,6 +247,20 @@ class InLoopTruncationConfig(Base):
         """Return the char limit for a given tool name."""
         return getattr(self, tool_name, self.default)
 
+class HeartbeatPhaseConfig(Base):
+    """Per-phase model override for heartbeat."""
+
+    model: str = ""  # Empty = use agent default (mini_model for phase1, model for phase2)
+
+
+class HeartbeatConfig(Base):
+    """Heartbeat service configuration."""
+
+    enabled: bool = True
+    interval_s: int = 30 * 60  # 30 minutes
+    phrase1: HeartbeatPhaseConfig = Field(default_factory=HeartbeatPhaseConfig)  # Phase 1 decision
+    phrase2: HeartbeatPhaseConfig = Field(default_factory=HeartbeatPhaseConfig)  # Phase 2 execution
+
 
 class AgentDefaults(Base):
     """Default agent configuration."""
@@ -266,6 +280,7 @@ class AgentDefaults(Base):
     reasoning_effort: str | None = None  # low / medium / high — enables LLM thinking mode
     context_compression: ContextCompressionConfig = Field(default_factory=ContextCompressionConfig)
     in_loop_truncation: InLoopTruncationConfig = Field(default_factory=InLoopTruncationConfig)
+    heartbeat: HeartbeatConfig = Field(default_factory=HeartbeatConfig)
 
 
 class AgentsConfig(Base):
@@ -306,11 +321,6 @@ class ProvidersConfig(Base):
     github_copilot: ProviderConfig = Field(default_factory=ProviderConfig)  # Github Copilot (OAuth)
 
 
-class HeartbeatConfig(Base):
-    """Heartbeat service configuration."""
-
-    enabled: bool = True
-    interval_s: int = 30 * 60  # 30 minutes
 
 
 class ConsoleConfig(Base):
@@ -327,7 +337,6 @@ class GatewayConfig(Base):
 
     host: str = "0.0.0.0"
     port: int = 18790
-    heartbeat: HeartbeatConfig = Field(default_factory=HeartbeatConfig)
     console: ConsoleConfig = Field(default_factory=ConsoleConfig)
 
 
@@ -350,6 +359,7 @@ class ExecToolConfig(Base):
 
     timeout: int = 60
     path_append: str = ""
+    auto_venv: bool = True  # Auto-detect and activate venv in workspace
 
 
 class MCPServerConfig(Base):

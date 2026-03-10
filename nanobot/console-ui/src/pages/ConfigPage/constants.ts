@@ -47,8 +47,11 @@ export const FIELD_INFO: Record<string, string> = {
   // gateway
   'gateway.host': '网关监听地址',
   'gateway.port': '网关监听端口',
-  'gateway.heartbeat.enabled': '是否启用心跳检测',
-  'gateway.heartbeat.intervalS': '心跳间隔(秒)',
+  // heartbeat (under agents.defaults)
+  'agents.defaults.heartbeat.enabled': '是否启用心跳检测',
+  'agents.defaults.heartbeat.intervalS': '心跳间隔(秒)',
+  'agents.defaults.heartbeat.phrase1.model': 'Phase 1 (决策阶段) 使用的模型，留空使用 miniModel',
+  'agents.defaults.heartbeat.phrase2.model': 'Phase 2 (执行阶段) 使用的模型，留空使用主模型',
   'gateway.console.enabled': '是否启用 Web 控制台',
   'gateway.console.port': 'Web 控制台端口',
   'gateway.console.secretKey': 'JWT 签名密钥',
@@ -59,6 +62,7 @@ export const FIELD_INFO: Record<string, string> = {
   'tools.web.search.maxResults': '搜索结果最大条数',
   'tools.exec.timeout': 'Shell 命令执行超时(秒)',
   'tools.exec.pathAppend': '追加到 PATH 的额外路径',
+  'tools.exec.autoVenv': '自动检测并激活 workspace 下的 Python venv (.venv/venv)',
   'tools.restrictToWorkspace': '是否限制工具访问仅限工作目录',
   'tools.restrictConfigFile': '是否禁止代理读写 config.json (含 API Key 等敏感信息)',
   'tools.mcpServers': 'MCP 服务器连接配置',

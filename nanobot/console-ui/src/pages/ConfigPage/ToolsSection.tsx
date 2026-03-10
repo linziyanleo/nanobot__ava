@@ -56,6 +56,9 @@ export function ToolsSection({
               {renderField('pathAppend', config.exec.pathAppend ?? '', 'tools.exec.pathAppend', readOnly, (v) =>
                 onChange({ ...config, exec: { ...config.exec!, pathAppend: v as string } }),
               )}
+              {renderField('autoVenv', config.exec.autoVenv ?? true, 'tools.exec.autoVenv', readOnly, (v) =>
+                onChange({ ...config, exec: { ...config.exec!, autoVenv: v as boolean } }),
+              )}
             </div>
           </Section>
         </div>

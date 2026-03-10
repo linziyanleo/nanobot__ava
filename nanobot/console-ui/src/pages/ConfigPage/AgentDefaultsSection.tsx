@@ -63,6 +63,27 @@ export function AgentDefaultsSection({
           </Section>
         </div>
       )}
+
+      {config.heartbeat && (
+        <div className="mt-3">
+          <Section title="心跳检测" infoKey="agents.defaults.heartbeat.enabled" defaultOpen={false}>
+            <div className="space-y-3">
+              {renderField('enabled', config.heartbeat.enabled, 'agents.defaults.heartbeat.enabled', readOnly, v =>
+                onChange({ ...config, heartbeat: { ...config.heartbeat!, enabled: v as boolean } }),
+              )}
+              {renderField('intervalS', config.heartbeat.intervalS, 'agents.defaults.heartbeat.intervalS', readOnly, v =>
+                onChange({ ...config, heartbeat: { ...config.heartbeat!, intervalS: v as number } }),
+              )}
+              {renderField('phrase1.model', config.heartbeat.phrase1?.model ?? '', 'agents.defaults.heartbeat.phrase1.model', readOnly, v =>
+                onChange({ ...config, heartbeat: { ...config.heartbeat!, phrase1: { model: v as string } } }),
+              )}
+              {renderField('phrase2.model', config.heartbeat.phrase2?.model ?? '', 'agents.defaults.heartbeat.phrase2.model', readOnly, v =>
+                onChange({ ...config, heartbeat: { ...config.heartbeat!, phrase2: { model: v as string } } }),
+              )}
+            </div>
+          </Section>
+        </div>
+      )}
     </Section>
   );
 }

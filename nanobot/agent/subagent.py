@@ -123,6 +123,7 @@ class SubagentManager:
                 timeout=self.exec_config.timeout,
                 restrict_to_workspace=self.restrict_to_workspace,
                 path_append=self.exec_config.path_append,
+                auto_venv=self.exec_config.auto_venv,
             ))
             tools.register(WebSearchTool(proxy=self.web_proxy))
             tools.register(WebFetchTool(proxy=self.web_proxy))

@@ -16,19 +16,6 @@ export function GatewaySection({
         {renderField('host', config.host, 'gateway.host', readOnly, (v) => onChange({ ...config, host: v as string }))}
         {renderField('port', config.port, 'gateway.port', readOnly, (v) => onChange({ ...config, port: v as number }))}
       </div>
-      {config.heartbeat && (
-        <div className="mt-3">
-          <Section title="心跳检测" infoKey="gateway.heartbeat.enabled" defaultOpen={false}>
-            <div className="space-y-3">
-              {Object.entries(config.heartbeat).map(([key, val]) =>
-                renderField(key, val, `gateway.heartbeat.${key}`, readOnly, (v) =>
-                  onChange({ ...config, heartbeat: { ...config.heartbeat!, [key]: v } }),
-                ),
-              )}
-            </div>
-          </Section>
-        </div>
-      )}
       {config.console && (
         <div className="mt-3">
           <Section title="Web 控制台" infoKey="gateway.console.enabled" defaultOpen={false}>

@@ -66,4 +66,15 @@ def _migrate_config(data: dict) -> dict:
     exec_cfg = tools.get("exec", {})
     if "restrictToWorkspace" in exec_cfg and "restrictToWorkspace" not in tools:
         tools["restrictToWorkspace"] = exec_cfg.pop("restrictToWorkspace")
+
+    # Move gateway.heartbeat → agents.defaults.heartbeat
+    gateway = data.get("gateway", {})
+    if "heartbeat" in gateway:
+        agents = data.setdefault("agents", {})
+        defaults = agents.setdefault("defaults", {})
+        if "heartbeat" not in defaults:
+            defaults["heartbeat"] = gateway.pop("heartbeat")
+        else:
+            gateway.pop("heartbeat")
+
     return data

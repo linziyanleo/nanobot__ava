@@ -595,12 +595,16 @@ def gateway(
         async def _silent(*_args, **_kwargs):
             pass
 
+        _hb_cfg = config.agents.defaults.heartbeat
+        _phase2_override = _hb_cfg.phrase2.model or None
+
         return await agent.process_direct(
             tasks,
             session_key="heartbeat",
             channel=channel,
             chat_id=chat_id,
             on_progress=_silent,
+            model_override=_phase2_override,
         )
 
     async def on_heartbeat_notify(response: str) -> None:
@@ -611,7 +615,7 @@ def gateway(
             return  # No external channel available to deliver to
         await bus.publish_outbound(OutboundMessage(channel=channel, chat_id=chat_id, content=response))
 
-    hb_cfg = config.gateway.heartbeat
+    hb_cfg = config.agents.defaults.heartbeat
     heartbeat = HeartbeatService(
         workspace=config.workspace_path,
         provider=provider,
@@ -621,6 +625,8 @@ def gateway(
         on_notify=on_heartbeat_notify,
         interval_s=hb_cfg.interval_s,
         enabled=hb_cfg.enabled,
+        phase1_model=hb_cfg.phrase1.model or None,
+        phase2_model=hb_cfg.phrase2.model or None,
     )
 
     if channels.enabled_channels:
@@ -638,7 +644,7 @@ def gateway(
     if cron_status["jobs"] > 0:
         console.print(f"[green]✓[/green] Cron: {cron_status['jobs']} scheduled jobs")
 
-    console.print(f"[green]✓[/green] Heartbeat: every {hb_cfg.interval_s}s")
+    console.print(f"[green]✓[/green] Heartbeat: {'enabled' if hb_cfg.enabled else 'disabled'}, every {hb_cfg.interval_s}s")
 
     # Write PID file and setup cleanup
     write_pid_file()

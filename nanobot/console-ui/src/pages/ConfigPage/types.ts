@@ -44,6 +44,7 @@ export interface AgentDefaults {
   reasoningEffort?: string | null
   contextCompression?: ContextCompressionConfig
   inLoopTruncation?: InLoopTruncationConfig
+  heartbeat?: HeartbeatConfig
 }
 
 export interface ChannelBase {
@@ -79,6 +80,7 @@ export interface WebToolsConfig {
 export interface ExecToolConfig {
   timeout: number
   pathAppend?: string
+  autoVenv?: boolean
 }
 
 export interface ToolsConfig {
@@ -89,9 +91,15 @@ export interface ToolsConfig {
   mcpServers?: Record<string, MCPServerConfig>
 }
 
+export interface HeartbeatPhaseConfig {
+  model: string
+}
+
 export interface HeartbeatConfig {
   enabled: boolean
   intervalS: number
+  phrase1?: HeartbeatPhaseConfig
+  phrase2?: HeartbeatPhaseConfig
 }
 
 export interface ConsoleConfigType {
@@ -104,7 +112,6 @@ export interface ConsoleConfigType {
 export interface GatewayConfig {
   host: string
   port: number
-  heartbeat?: HeartbeatConfig
   console?: ConsoleConfigType
 }
 

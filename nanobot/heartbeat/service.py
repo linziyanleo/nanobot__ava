@@ -62,11 +62,15 @@ class HeartbeatService:
         on_notify: Callable[[str], Coroutine[Any, Any, None]] | None = None,
         interval_s: int = 30 * 60,
         enabled: bool = True,
+        phase1_model: str | None = None,
+        phase2_model: str | None = None,
     ):
         self.workspace = workspace
         self.provider = provider
         self.model = model
-        self.mini_model = mini_model or model  # Use mini model for decision phase
+        self.mini_model = mini_model or model
+        self.phase1_model = phase1_model or self.mini_model
+        self.phase2_model = phase2_model or self.model
         self.on_execute = on_execute
         self.on_notify = on_notify
         self.interval_s = interval_s
@@ -148,7 +152,7 @@ class HeartbeatService:
                 )},
             ],
             tools=_HEARTBEAT_TOOL,
-            model=self.mini_model,  # Use lightweight model for decision
+            model=self.phase1_model,
         )
 
         if not response.has_tool_calls:

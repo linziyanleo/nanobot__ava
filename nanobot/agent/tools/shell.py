@@ -20,6 +20,7 @@ class ExecTool(Tool):
         allow_patterns: list[str] | None = None,
         restrict_to_workspace: bool = False,
         path_append: str = "",
+        auto_venv: bool = True,
     ):
         self.timeout = timeout
         self.working_dir = working_dir
@@ -37,6 +38,7 @@ class ExecTool(Tool):
         self.allow_patterns = allow_patterns or []
         self.restrict_to_workspace = restrict_to_workspace
         self.path_append = path_append
+        self._venv_bin: str | None = self._detect_venv(working_dir) if auto_venv else None
 
     @property
     def name(self) -> str:
@@ -70,6 +72,11 @@ class ExecTool(Tool):
             return guard_error
         
         env = os.environ.copy()
+        if self._venv_bin:
+            venv_root = str(Path(self._venv_bin).parent)
+            env["VIRTUAL_ENV"] = venv_root
+            env["PATH"] = self._venv_bin + os.pathsep + env.get("PATH", "")
+            env.pop("PYTHONHOME", None)
         if self.path_append:
             env["PATH"] = env.get("PATH", "") + os.pathsep + self.path_append
 
@@ -121,6 +128,19 @@ class ExecTool(Tool):
             
         except Exception as e:
             return f"Error executing command: {str(e)}"
+
+    @staticmethod
+    def _detect_venv(workspace: str | None) -> str | None:
+        """Detect a Python venv under the workspace and return its bin directory."""
+        if not workspace:
+            return None
+        ws = Path(workspace)
+        for venv_name in (".venv", "venv"):
+            venv_dir = ws / venv_name
+            bin_dir = venv_dir / ("Scripts" if os.name == "nt" else "bin")
+            if (bin_dir / ("python.exe" if os.name == "nt" else "python")).exists():
+                return str(bin_dir)
+        return None
 
     def _guard_command(self, command: str, cwd: str) -> str | None:
         """Best-effort safety guard for potentially destructive commands."""
