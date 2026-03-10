@@ -11,10 +11,12 @@ import { GatewaySection } from './GatewaySection'
 import { ToolsSection } from './ToolsSection'
 import { TokenStatsSection } from './TokenStatsSection'
 import { CronJobsEditor } from './CronJobsEditor'
+import { HeartbeatEditor } from './HeartbeatEditor'
 
 const TAB_LABELS: Record<string, string> = {
   'config.json': '通用配置',
   'cron/jobs.json': '定时任务',
+  '_heartbeat': '心跳任务',
 }
 
 function getTabLabel(name: string): string {
@@ -23,6 +25,10 @@ function getTabLabel(name: string): string {
 
 function isCronConfig(name: string): boolean {
   return name === 'cron/jobs.json'
+}
+
+function isHeartbeatTab(name: string): boolean {
+  return name === '_heartbeat'
 }
 
 export default function ConfigPage() {
@@ -46,7 +52,8 @@ export default function ConfigPage() {
   }, []);
 
   useEffect(() => {
-    if (selected) loadConfig(selected);
+    if (selected && !isHeartbeatTab(selected)) loadConfig(selected);
+    if (isHeartbeatTab(selected) && !parsed) loadConfig('config.json');
   }, [selected]);
 
   const loadConfig = async (name: string) => {
@@ -88,14 +95,16 @@ export default function ConfigPage() {
   }, []);
 
   const saveConfig = async () => {
-    if (!data || !selected) return;
-    const payload = isCronConfig(selected) ? cronStore : parsed;
+    if (!data) return;
+    const configName = isHeartbeatTab(selected) ? 'config.json' : selected;
+    if (!configName) return;
+    const payload = isCronConfig(configName) ? cronStore : parsed;
     if (!payload) return;
     setSaving(true);
     setMessage(null);
     const content = JSON.stringify(payload, null, 2);
     try {
-      const result = await api<{ mtime: number }>(`/config/${selected}`, {
+      const result = await api<{ mtime: number }>(`/config/${configName}`, {
         method: 'PUT',
         body: JSON.stringify({ content, mtime: data.mtime }),
       });
@@ -112,21 +121,24 @@ export default function ConfigPage() {
 
   const readOnly = !canEdit();
   const showCron = isCronConfig(selected);
-  const hasContent = showCron ? !!cronStore : !!parsed;
+  const showHeartbeat = isHeartbeatTab(selected);
+  const hasContent = showHeartbeat ? !!parsed : showCron ? !!cronStore : !!parsed;
+
+  const allTabs = [...configs.map(c => c.name), '_heartbeat'];
 
   const tabBar = (
     <div className="flex gap-1 mb-3">
-      {configs.map(c => (
+      {allTabs.map(name => (
         <button
-          key={c.name}
-          onClick={() => setSelected(c.name)}
+          key={name}
+          onClick={() => setSelected(name)}
           className={`px-3 py-1.5 rounded-lg text-sm transition-colors ${
-            selected === c.name
+            selected === name
               ? 'bg-[var(--accent)] text-white'
               : 'bg-[var(--bg-secondary)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
           }`}
         >
-          {getTabLabel(c.name)}
+          {getTabLabel(name)}
         </button>
       ))}
     </div>
@@ -180,7 +192,16 @@ export default function ConfigPage() {
       {tabBar}
 
       <div className="flex-1 overflow-y-auto space-y-4 pb-8">
-        {showCron && cronStore ? (
+        {showHeartbeat && parsed ? (
+          <HeartbeatEditor
+            heartbeatConfig={parsed.agents?.defaults?.heartbeat}
+            readOnly={readOnly}
+            onConfigChange={heartbeat => updateParsed(p => ({
+              ...p,
+              agents: { ...p.agents, defaults: { ...p.agents.defaults, heartbeat } },
+            }))}
+          />
+        ) : showCron && cronStore ? (
           <CronJobsEditor store={cronStore} readOnly={readOnly} onChange={updateCronStore} />
         ) : parsed ? (
           <>
