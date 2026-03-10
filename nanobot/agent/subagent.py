@@ -35,6 +35,7 @@ class SubagentManager:
         web_proxy: str | None = None,
         exec_config: "ExecToolConfig | None" = None,
         restrict_to_workspace: bool = False,
+        restrict_config_file: bool = True,
         in_loop_truncation: "InLoopTruncationConfig | None" = None,
     ):
         from nanobot.config.schema import ExecToolConfig, InLoopTruncationConfig as _ILT
@@ -50,6 +51,7 @@ class SubagentManager:
         self.web_proxy = web_proxy
         self.exec_config = exec_config or ExecToolConfig()
         self.restrict_to_workspace = restrict_to_workspace
+        self.restrict_config_file = restrict_config_file
         self._truncation = in_loop_truncation or _ILT()
         self._running_tasks: dict[str, asyncio.Task[None]] = {}
         self._session_tasks: dict[str, set[str]] = {}  # session_key -> {task_id, ...}
@@ -108,10 +110,14 @@ class SubagentManager:
             # Build subagent tools (no message tool, no spawn tool)
             tools = ToolRegistry()
             allowed_dir = self.workspace if self.restrict_to_workspace else None
-            tools.register(ReadFileTool(workspace=self.workspace, allowed_dir=allowed_dir))
-            tools.register(WriteFileTool(workspace=self.workspace, allowed_dir=allowed_dir))
-            tools.register(EditFileTool(workspace=self.workspace, allowed_dir=allowed_dir))
-            tools.register(ListDirTool(workspace=self.workspace, allowed_dir=allowed_dir))
+            blocked_paths: list[Path] | None = None
+            if self.restrict_config_file:
+                from nanobot.config.loader import get_config_path
+                blocked_paths = [get_config_path()]
+            tools.register(ReadFileTool(workspace=self.workspace, allowed_dir=allowed_dir, blocked_paths=blocked_paths))
+            tools.register(WriteFileTool(workspace=self.workspace, allowed_dir=allowed_dir, blocked_paths=blocked_paths))
+            tools.register(EditFileTool(workspace=self.workspace, allowed_dir=allowed_dir, blocked_paths=blocked_paths))
+            tools.register(ListDirTool(workspace=self.workspace, allowed_dir=allowed_dir, blocked_paths=blocked_paths))
             tools.register(ExecTool(
                 working_dir=str(self.workspace),
                 timeout=self.exec_config.timeout,

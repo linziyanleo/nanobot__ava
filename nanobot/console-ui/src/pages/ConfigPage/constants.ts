@@ -60,6 +60,7 @@ export const FIELD_INFO: Record<string, string> = {
   'tools.exec.timeout': 'Shell 命令执行超时(秒)',
   'tools.exec.pathAppend': '追加到 PATH 的额外路径',
   'tools.restrictToWorkspace': '是否限制工具访问仅限工作目录',
+  'tools.restrictConfigFile': '是否禁止代理读写 config.json (含 API Key 等敏感信息)',
   'tools.mcpServers': 'MCP 服务器连接配置',
 }
 

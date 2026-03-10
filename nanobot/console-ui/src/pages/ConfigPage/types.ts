@@ -85,6 +85,7 @@ export interface ToolsConfig {
   web?: WebToolsConfig
   exec?: ExecToolConfig
   restrictToWorkspace: boolean
+  restrictConfigFile: boolean
   mcpServers?: Record<string, MCPServerConfig>
 }
 

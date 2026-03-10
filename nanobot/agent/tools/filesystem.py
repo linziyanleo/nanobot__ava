@@ -8,9 +8,12 @@ from nanobot.agent.tools.base import Tool
 
 
 def _resolve_path(
-    path: str, workspace: Path | None = None, allowed_dir: Path | None = None
+    path: str,
+    workspace: Path | None = None,
+    allowed_dir: Path | None = None,
+    blocked_paths: list[Path] | None = None,
 ) -> Path:
-    """Resolve path against workspace (if relative) and enforce directory restriction."""
+    """Resolve path against workspace (if relative) and enforce directory/file restrictions."""
     p = Path(path).expanduser()
     if not p.is_absolute() and workspace:
         p = workspace / p
@@ -20,6 +23,10 @@ def _resolve_path(
             resolved.relative_to(allowed_dir.resolve())
         except ValueError:
             raise PermissionError(f"Path {path} is outside allowed directory {allowed_dir}")
+    if blocked_paths:
+        for bp in blocked_paths:
+            if resolved == bp.resolve():
+                raise PermissionError(f"Access to {path} is restricted")
     return resolved
 
 
@@ -28,9 +35,10 @@ class ReadFileTool(Tool):
 
     _MAX_CHARS = 128_000  # ~128 KB — prevents OOM from reading huge files into LLM context
 
-    def __init__(self, workspace: Path | None = None, allowed_dir: Path | None = None):
+    def __init__(self, workspace: Path | None = None, allowed_dir: Path | None = None, blocked_paths: list[Path] | None = None):
         self._workspace = workspace
         self._allowed_dir = allowed_dir
+        self._blocked_paths = blocked_paths
 
     @property
     def name(self) -> str:
@@ -50,7 +58,7 @@ class ReadFileTool(Tool):
 
     async def execute(self, path: str, **kwargs: Any) -> str:
         try:
-            file_path = _resolve_path(path, self._workspace, self._allowed_dir)
+            file_path = _resolve_path(path, self._workspace, self._allowed_dir, self._blocked_paths)
             if not file_path.exists():
                 return f"Error: File not found: {path}"
             if not file_path.is_file():
@@ -76,9 +84,10 @@ class ReadFileTool(Tool):
 class WriteFileTool(Tool):
     """Tool to write content to a file."""
 
-    def __init__(self, workspace: Path | None = None, allowed_dir: Path | None = None):
+    def __init__(self, workspace: Path | None = None, allowed_dir: Path | None = None, blocked_paths: list[Path] | None = None):
         self._workspace = workspace
         self._allowed_dir = allowed_dir
+        self._blocked_paths = blocked_paths
 
     @property
     def name(self) -> str:
@@ -101,7 +110,7 @@ class WriteFileTool(Tool):
 
     async def execute(self, path: str, content: str, **kwargs: Any) -> str:
         try:
-            file_path = _resolve_path(path, self._workspace, self._allowed_dir)
+            file_path = _resolve_path(path, self._workspace, self._allowed_dir, self._blocked_paths)
             file_path.parent.mkdir(parents=True, exist_ok=True)
             file_path.write_text(content, encoding="utf-8")
             return f"Successfully wrote {len(content)} bytes to {file_path}"
@@ -114,9 +123,10 @@ class WriteFileTool(Tool):
 class EditFileTool(Tool):
     """Tool to edit a file by replacing text."""
 
-    def __init__(self, workspace: Path | None = None, allowed_dir: Path | None = None):
+    def __init__(self, workspace: Path | None = None, allowed_dir: Path | None = None, blocked_paths: list[Path] | None = None):
         self._workspace = workspace
         self._allowed_dir = allowed_dir
+        self._blocked_paths = blocked_paths
 
     @property
     def name(self) -> str:
@@ -140,7 +150,7 @@ class EditFileTool(Tool):
 
     async def execute(self, path: str, old_text: str, new_text: str, **kwargs: Any) -> str:
         try:
-            file_path = _resolve_path(path, self._workspace, self._allowed_dir)
+            file_path = _resolve_path(path, self._workspace, self._allowed_dir, self._blocked_paths)
             if not file_path.exists():
                 return f"Error: File not found: {path}"
 
@@ -195,9 +205,10 @@ class EditFileTool(Tool):
 class ListDirTool(Tool):
     """Tool to list directory contents."""
 
-    def __init__(self, workspace: Path | None = None, allowed_dir: Path | None = None):
+    def __init__(self, workspace: Path | None = None, allowed_dir: Path | None = None, blocked_paths: list[Path] | None = None):
         self._workspace = workspace
         self._allowed_dir = allowed_dir
+        self._blocked_paths = blocked_paths
 
     @property
     def name(self) -> str:

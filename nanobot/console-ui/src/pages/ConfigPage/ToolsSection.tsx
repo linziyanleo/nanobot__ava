@@ -16,6 +16,9 @@ export function ToolsSection({
         {renderField('restrictToWorkspace', config.restrictToWorkspace, 'tools.restrictToWorkspace', readOnly, (v) =>
           onChange({ ...config, restrictToWorkspace: v as boolean }),
         )}
+        {renderField('restrictConfigFile', config.restrictConfigFile, 'tools.restrictConfigFile', readOnly, (v) =>
+          onChange({ ...config, restrictConfigFile: v as boolean }),
+        )}
       </div>
 
       {config.web && (

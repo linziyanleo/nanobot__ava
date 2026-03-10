@@ -70,6 +70,7 @@ class AgentLoop:
         exec_config: ExecToolConfig | None = None,
         cron_service: CronService | None = None,
         restrict_to_workspace: bool = False,
+        restrict_config_file: bool = True,
         session_manager: SessionManager | None = None,
         mcp_servers: dict | None = None,
         channels_config: ChannelsConfig | None = None,
@@ -98,6 +99,7 @@ class AgentLoop:
         self.exec_config = exec_config or ExecToolConfig()
         self.cron_service = cron_service
         self.restrict_to_workspace = restrict_to_workspace
+        self.restrict_config_file = restrict_config_file
         compression_cfg = context_compression or ContextCompressionConfig()
         self._compression_enabled = compression_cfg.enabled
         self._history_lookup_hint_enabled = compression_cfg.enable_history_lookup_hint
@@ -133,6 +135,7 @@ class AgentLoop:
             brave_api_key=brave_api_key,
             exec_config=self.exec_config,
             restrict_to_workspace=restrict_to_workspace,
+            restrict_config_file=restrict_config_file,
             in_loop_truncation=self._in_loop_truncation,
         )
 
@@ -151,8 +154,12 @@ class AgentLoop:
     def _register_default_tools(self) -> None:
         """Register the default set of tools."""
         allowed_dir = self.workspace if self.restrict_to_workspace else None
+        blocked_paths: list[Path] | None = None
+        if self.restrict_config_file:
+            from nanobot.config.loader import get_config_path
+            blocked_paths = [get_config_path()]
         for cls in (ReadFileTool, WriteFileTool, EditFileTool, ListDirTool):
-            self.tools.register(cls(workspace=self.workspace, allowed_dir=allowed_dir))
+            self.tools.register(cls(workspace=self.workspace, allowed_dir=allowed_dir, blocked_paths=blocked_paths))
         self.tools.register(ExecTool(
             working_dir=str(self.workspace),
             timeout=self.exec_config.timeout,
