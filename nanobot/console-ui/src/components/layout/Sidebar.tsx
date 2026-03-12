@@ -11,11 +11,11 @@ const navItems = [
   { to: '/config', icon: Settings, label: '配置' },
   { to: '/files', icon: FileText, label: '文件' },
   { to: '/chat', icon: MessageSquare, label: '聊天' },
-  { to: '/gateway', icon: Server, label: '网关' },
+  { to: '/gateway', icon: Server, label: 'Gateway' },
   { to: '/tokens', icon: BarChart3, label: 'Token 统计' },
-  { to: '/media', icon: ImageIcon, label: '媒体' },
+  { to: '/media', icon: ImageIcon, label: '生图' },
   { to: '/users', icon: Users, label: '用户', admin: true },
-  { to: '/audit', icon: ClipboardList, label: '审计', admin: true },
+  { to: '/audit', icon: ClipboardList, label: '行为日志', admin: true },
 ];
 
 export default function Sidebar() {
