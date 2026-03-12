@@ -560,6 +560,7 @@ def gateway(
         mcp_servers=config.tools.mcp_servers,
         channels_config=config.channels,
         context_compression=config.agents.defaults.context_compression,
+        history_summarizer=config.agents.defaults.history_summarizer,
         memory_tier=config.agents.defaults.memory_tier,
         in_loop_truncation=config.agents.defaults.in_loop_truncation,
         token_stats=token_stats_collector,
@@ -1056,6 +1057,7 @@ def agent(
         mcp_servers=config.tools.mcp_servers,
         channels_config=config.channels,
         context_compression=config.agents.defaults.context_compression,
+        history_summarizer=config.agents.defaults.history_summarizer,
         memory_tier=config.agents.defaults.memory_tier,
         in_loop_truncation=config.agents.defaults.in_loop_truncation,
     )
@@ -1565,6 +1567,7 @@ def cron_run(
         mcp_servers=config.tools.mcp_servers,
         channels_config=config.channels,
         context_compression=config.agents.defaults.context_compression,
+        history_summarizer=config.agents.defaults.history_summarizer,
         memory_tier=config.agents.defaults.memory_tier,
         in_loop_truncation=config.agents.defaults.in_loop_truncation,
     )

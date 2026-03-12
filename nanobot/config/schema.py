@@ -247,6 +247,14 @@ class InLoopTruncationConfig(Base):
         """Return the char limit for a given tool name."""
         return getattr(self, tool_name, self.default)
 
+class HistorySummarizerConfig(Base):
+    """Turn-level history summarization to reduce token usage."""
+
+    enabled: bool = True
+    protect_recent: int = 20  # Keep last N messages in original format
+    tool_result_max_chars: int = 200  # Max chars for tool result summaries
+
+
 class HeartbeatPhaseConfig(Base):
     """Per-phase model override for heartbeat."""
 
@@ -280,6 +288,7 @@ class AgentDefaults(Base):
     reasoning_effort: str | None = None  # low / medium / high — enables LLM thinking mode
     context_compression: ContextCompressionConfig = Field(default_factory=ContextCompressionConfig)
     in_loop_truncation: InLoopTruncationConfig = Field(default_factory=InLoopTruncationConfig)
+    history_summarizer: HistorySummarizerConfig = Field(default_factory=HistorySummarizerConfig)
     heartbeat: HeartbeatConfig = Field(default_factory=HeartbeatConfig)
 
 

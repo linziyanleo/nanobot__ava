@@ -16,6 +16,7 @@ from nanobot.agent.categorized_memory import CategorizedMemoryStore
 from nanobot.agent.commands import CommandRegistry, register_builtin_commands
 from nanobot.agent.context import ContextBuilder
 from nanobot.agent.history_compressor import HistoryCompressor
+from nanobot.agent.history_summarizer import HistorySummarizer
 from nanobot.agent.memory import MemoryStore
 from nanobot.agent.subagent import SubagentManager
 from nanobot.agent.tools.cron import CronTool
@@ -77,6 +78,7 @@ class AgentLoop:
         mcp_servers: dict | None = None,
         channels_config: ChannelsConfig | None = None,
         context_compression: ContextCompressionConfig | None = None,
+        history_summarizer: Any | None = None,
         memory_tier: str | None = "default",
         in_loop_truncation: InLoopTruncationConfig | None = None,
         token_stats: Any | None = None,
@@ -123,6 +125,13 @@ class AgentLoop:
             min_recent_turns=compression_cfg.min_recent_turns,
             max_old_turns=compression_cfg.max_old_turns,
             protected_recent_messages=compression_cfg.protected_recent_messages,
+        )
+        from nanobot.config.schema import HistorySummarizerConfig as _HSC
+        _hs_cfg = history_summarizer if isinstance(history_summarizer, _HSC) else _HSC()
+        self._summarizer = HistorySummarizer(
+            enabled=_hs_cfg.enabled,
+            protect_recent=_hs_cfg.protect_recent,
+            tool_result_max_chars=_hs_cfg.tool_result_max_chars,
         )
         self.sessions = session_manager or SessionManager(workspace)
         self.tools = ToolRegistry()
@@ -476,6 +485,7 @@ class AgentLoop:
                 if isinstance(message_tool, MessageTool):
                     message_tool.start_turn()
             history = session.get_history(max_messages=self.memory_window)
+            history = self._summarizer.summarize(history)
             if self._compression_enabled:
                 history = self.history_compressor.compress(history, msg.content)
             messages = self.context.build_messages(
@@ -556,6 +566,7 @@ class AgentLoop:
                 message_tool.start_turn()
 
         history = session.get_history(max_messages=self.memory_window)
+        history = self._summarizer.summarize(history)
         if self._compression_enabled:
             history = self.history_compressor.compress(history, msg.content)
         current_message = self._augment_history_lookup_hint(
