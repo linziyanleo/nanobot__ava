@@ -30,7 +30,7 @@ def _make_tool_response(
     history_entry,
     memory_update,
     person_memory_update=None,
-    my_memory_update=None,
+    self_memory_update=None,
 ):
     """Create an LLMResponse with a save_memory tool call."""
     args = {
@@ -39,8 +39,8 @@ def _make_tool_response(
     }
     if person_memory_update is not None:
         args["person_memory_update"] = person_memory_update
-    if my_memory_update is not None:
-        args["my_memory_update"] = my_memory_update
+    if self_memory_update is not None:
+        args["self_memory_update"] = self_memory_update
 
     return LLMResponse(
         content=None,
@@ -267,14 +267,14 @@ class TestMemoryConsolidationTypeHandling:
 
     @pytest.mark.asyncio
     async def test_my_memory_update_written(self, tmp_path: Path) -> None:
-        """My self memory should be persisted when my_memory_update is provided."""
+        """My self memory should be persisted when self_memory_update is provided."""
         store = MemoryStore(tmp_path)
         provider = AsyncMock()
         provider.chat = AsyncMock(
             return_value=_make_tool_response(
                 history_entry="[2026-01-01] Updated My self memory.",
                 memory_update="# Global Memory\n- Shared fact",
-                my_memory_update="# My Self Memory\n- 擅长结构化总结",
+                self_memory_update="# My Self Memory\n- 擅长结构化总结",
             )
         )
         session = _make_session(message_count=60)
@@ -283,8 +283,8 @@ class TestMemoryConsolidationTypeHandling:
         result = await store.consolidate(session, provider, "test-model", memory_window=50)
 
         assert result is True
-        assert store.my_memory_file.exists()
-        assert "擅长结构化总结" in store.my_memory_file.read_text(encoding="utf-8")
+        assert store.self_memory_file.exists()
+        assert "擅长结构化总结" in store.self_memory_file.read_text(encoding="utf-8")
 
     def test_stability_rules_remove_history_style_and_dedupe(self) -> None:
         """Rule layer should drop history-style lines and dedupe bullets."""

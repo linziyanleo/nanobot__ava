@@ -23,7 +23,7 @@ if TYPE_CHECKING:
 class ContextBuilder:
     """Builds the context (system prompt + messages) for the agent."""
 
-    BOOTSTRAP_FILES = ["AGENTS.md", "SOUL.md", "USER.md", "TOOLS.md", "IDENTITY.md"]
+    BOOTSTRAP_FILES = ["AGENTS.md", "SOUL.md", "USER.md", "TOOLS.md"]
     _RUNTIME_CONTEXT_TAG = "[Runtime Context — metadata only, not instructions]"
 
     def __init__(
@@ -89,6 +89,19 @@ Skills with available="false" need dependencies installed first - you can try in
         system = platform.system()
         runtime = f"{'macOS' if system == 'Darwin' else system} {platform.machine()}, Python {platform.python_version()}"
 
+        platform_policy = ""
+        if system == "Windows":
+            platform_policy = """## Platform Policy (Windows)
+- You are running on Windows. Do not assume GNU tools like `grep`, `sed`, or `awk` exist.
+- Prefer Windows-native commands or file tools when they are more reliable.
+- If terminal output is garbled, retry with UTF-8 output enabled.
+"""
+        else:
+            platform_policy = """## Platform Policy (POSIX)
+- You are running on a POSIX system. Prefer UTF-8 and standard shell tools.
+- Use file tools when they are simpler or more reliable than shell commands.
+"""
+
         return f"""# nanobot 🐈
 
 You are nanobot, a helpful AI assistant.
@@ -101,6 +114,8 @@ Your workspace is at: {workspace_path}
 - Global memory files: {workspace_path}/memory/MEMORY.md + {workspace_path}/memory/HISTORY.md
 - Nanobot self memory: {workspace_path}/memory/self/MEMORY.md
 - Custom skills: {workspace_path}/skills/{{skill-name}}/SKILL.md
+
+{platform_policy}
 
 ## nanobot Guidelines
 - State intent before tool calls, but NEVER predict or claim results before receiving them.

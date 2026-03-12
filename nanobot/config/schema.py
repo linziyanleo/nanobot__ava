@@ -303,6 +303,7 @@ class ProvidersConfig(Base):
     custom: ProviderConfig = Field(default_factory=ProviderConfig)  # Any OpenAI-compatible endpoint
     zenmux: ProviderConfig = Field(default_factory=ProviderConfig)  # Zenmux (Anthropic proxy)
     yunwu: ProviderConfig = Field(default_factory=ProviderConfig)  # Yunwu (Anthropic proxy)
+    azure_openai: ProviderConfig = Field(default_factory=ProviderConfig)  # Azure OpenAI (model = deployment name)
     anthropic: ProviderConfig = Field(default_factory=ProviderConfig)
     openai: ProviderConfig = Field(default_factory=ProviderConfig)
     openrouter: ProviderConfig = Field(default_factory=ProviderConfig)

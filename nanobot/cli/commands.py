@@ -9,6 +9,16 @@ from pathlib import Path
 import select
 import sys
 
+# Force UTF-8 encoding for Windows console
+if sys.platform == "win32":
+    if sys.stdout.encoding != "utf-8":
+        os.environ["PYTHONIOENCODING"] = "utf-8"
+        try:
+            sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+            sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+        except Exception:
+            pass
+
 import typer
 from rich.console import Console
 from rich.markdown import Markdown
@@ -21,6 +31,7 @@ from prompt_toolkit.history import FileHistory
 from prompt_toolkit.patch_stdout import patch_stdout
 
 from nanobot import __version__, __logo__
+from nanobot.config.paths import get_workspace_path
 from nanobot.config.schema import Config
 from nanobot.utils.helpers import sync_workspace_templates
 
@@ -257,7 +268,9 @@ def _init_prompt_session() -> None:
     except Exception:
         pass
 
-    history_file = Path.home() / ".nanobot" / "history" / "cli_history"
+    from nanobot.config.paths import get_cli_history_path
+
+    history_file = get_cli_history_path()
     history_file.parent.mkdir(parents=True, exist_ok=True)
 
     _PROMPT_SESSION = PromptSession(
@@ -328,7 +341,6 @@ def onboard():
     """Initialize nanobot configuration and workspace."""
     from nanobot.config.loader import get_config_path, load_config, save_config
     from nanobot.config.schema import Config
-    from nanobot.utils.helpers import get_workspace_path
 
     config_path = get_config_path()
 
@@ -373,6 +385,7 @@ def _make_provider(config: Config):
     from nanobot.providers.litellm_provider import LiteLLMProvider
     from nanobot.providers.openai_codex_provider import OpenAICodexProvider
     from nanobot.providers.custom_provider import CustomProvider
+    from nanobot.providers.azure_openai_provider import AzureOpenAIProvider
 
     model = config.agents.defaults.model
     provider_name = config.get_provider_name(model)
@@ -389,6 +402,20 @@ def _make_provider(config: Config):
             api_base=config.get_api_base(model) or "http://localhost:8000/v1",
             default_model=model,
             provider_name="custom",
+        )
+
+    # Azure OpenAI: direct Azure OpenAI endpoint with deployment name
+    if provider_name == "azure_openai":
+        if not p or not p.api_key or not p.api_base:
+            console.print("[red]Error: Azure OpenAI requires api_key and api_base.[/red]")
+            console.print("Set them in ~/.nanobot/config.json under providers.azure_openai section")
+            console.print("Use the model field to specify the deployment name.")
+            raise typer.Exit(1)
+
+        return AzureOpenAIProvider(
+            api_key=p.api_key,
+            api_base=p.api_base,
+            default_model=model,
         )
 
     from nanobot.providers.registry import find_by_name
@@ -427,6 +454,23 @@ def _make_provider(config: Config):
     )
 
 
+def _load_runtime_config(config: str | None = None, workspace: str | None = None) -> Config:
+    """Load config and optionally override the active workspace."""
+    from nanobot.config.loader import load_config, set_config_path
+
+    config_path = None
+    if config:
+        config_path = Path(config).expanduser().resolve()
+        if not config_path.exists():
+            console.print(f"[red]Error: Config file not found: {config_path}[/red]")
+            raise typer.Exit(1)
+        set_config_path(config_path)
+        console.print(f"[dim]Using config: {config_path}[/dim]")
+
+    loaded = load_config(config_path)
+    if workspace:
+        loaded.agents.defaults.workspace = workspace
+    return loaded
 
 # ============================================================================
 # Gateway / Server
@@ -437,12 +481,13 @@ def _make_provider(config: Config):
 def gateway(
     port: int = typer.Option(GATEWAY_DEFAULT_PORT, "--port", "-p", help="Gateway port"),
     workspace: str | None = typer.Option(None, "--workspace", "-w", help="Workspace directory"),
-    config: str | None = typer.Option(None, "--config", "-c", help="Config file path"),
     verbose: bool = typer.Option(False, "--verbose", "-v", help="Verbose output"),
     dev: bool = typer.Option(False, "--dev", help="Enable Vite dev server with HMR for console-ui"),
+    config: str | None = typer.Option(None, "--config", "-c", help="Path to config file"),
 ):
     """Start the nanobot gateway."""
-    from nanobot.config.loader import load_config, get_data_dir
+    from nanobot.config.loader import load_config
+    from nanobot.config.paths import get_data_dir, get_cron_dir
     from nanobot.bus.queue import MessageBus
     from nanobot.agent.loop import AgentLoop
     from nanobot.channels.manager import ChannelManager
@@ -470,10 +515,7 @@ def gateway(
         import logging
         logging.basicConfig(level=logging.DEBUG)
 
-    config_path = Path(config) if config else None
-    config = load_config(config_path)
-    if workspace:
-        config.agents.defaults.workspace = workspace
+    config = _load_runtime_config(config, workspace)
 
     console.print(f"{__logo__} Starting nanobot gateway on port {port}...")
     sync_workspace_templates(config.workspace_path)
@@ -491,7 +533,7 @@ def gateway(
     token_stats_collector = TokenStatsCollector(data_dir=get_data_dir() / "console")
 
     # Create cron service first (callback set after agent creation)
-    cron_store_path = get_data_dir() / "cron" / "jobs.json"
+    cron_store_path = get_cron_dir() / "jobs.json"
     cron = CronService(cron_store_path)
 
     # Create agent with cron service
@@ -861,7 +903,8 @@ def _stop_console_process(quiet: bool = False) -> bool:
 def _start_console_process(dev: bool = False) -> int | None:
     """Start the console process. Returns the new PID, or None on failure."""
     import multiprocessing
-    from nanobot.config.loader import load_config, get_data_dir
+    from nanobot.config.loader import load_config
+    from nanobot.config.paths import get_data_dir
 
     config = load_config()
     console_cfg = config.gateway.console
@@ -952,24 +995,27 @@ def console_restart_cmd(
 def agent(
     message: str = typer.Option(None, "--message", "-m", help="Message to send to the agent"),
     session_id: str = typer.Option("cli:direct", "--session", "-s", help="Session ID"),
+    workspace: str | None = typer.Option(None, "--workspace", "-w", help="Workspace directory"),
+    config: str | None = typer.Option(None, "--config", "-c", help="Config file path"),
     markdown: bool = typer.Option(True, "--markdown/--no-markdown", help="Render assistant output as Markdown"),
     logs: bool = typer.Option(False, "--logs/--no-logs", help="Show nanobot runtime logs during chat"),
 ):
     """Interact with the agent directly."""
-    from nanobot.config.loader import load_config, get_data_dir
+    from nanobot.config.loader import load_config
+    from nanobot.config.paths import get_data_dir, get_cron_dir
     from nanobot.bus.queue import MessageBus
     from nanobot.agent.loop import AgentLoop
     from nanobot.cron.service import CronService
     from loguru import logger
 
-    config = load_config()
+    config = _load_runtime_config(config, workspace)
     sync_workspace_templates(config.workspace_path)
 
     bus = MessageBus()
     provider = _make_provider(config)
 
     # Create cron service for tool usage (no callback needed for CLI unless running)
-    cron_store_path = get_data_dir() / "cron" / "jobs.json"
+    cron_store_path = get_cron_dir() / "jobs.json"
     cron = CronService(cron_store_path)
 
     if logs:
@@ -1236,7 +1282,9 @@ def _get_bridge_dir() -> Path:
     import subprocess
 
     # User's bridge location
-    user_bridge = Path.home() / ".nanobot" / "bridge"
+    from nanobot.config.paths import get_bridge_install_dir
+
+    user_bridge = get_bridge_install_dir()
 
     # Check if already built
     if (user_bridge / "dist" / "index.js").exists():
@@ -1293,6 +1341,7 @@ def channels_login():
     """Link device via QR code."""
     import subprocess
     from nanobot.config.loader import load_config
+    from nanobot.config.paths import get_runtime_subdir
 
     config = load_config()
     bridge_dir = _get_bridge_dir()
@@ -1303,6 +1352,7 @@ def channels_login():
     env = {**os.environ}
     if config.channels.whatsapp.bridge_token:
         env["BRIDGE_TOKEN"] = config.channels.whatsapp.bridge_token
+    env["AUTH_DIR"] = str(get_runtime_subdir("whatsapp-auth"))
 
     try:
         subprocess.run(["npm", "start"], cwd=bridge_dir, check=True, env=env)
@@ -1325,7 +1375,7 @@ def cron_list(
     all: bool = typer.Option(False, "--all", "-a", help="Include disabled jobs"),
 ):
     """List scheduled jobs."""
-    from nanobot.config.loader import get_data_dir
+    from nanobot.config.paths import get_data_dir
     from nanobot.cron.service import CronService
 
     store_path = get_data_dir() / "cron" / "jobs.json"
@@ -1388,7 +1438,7 @@ def cron_add(
     channel: str = typer.Option(None, "--channel", help="Channel for delivery (e.g. 'telegram', 'whatsapp')"),
 ):
     """Add a scheduled job."""
-    from nanobot.config.loader import get_data_dir
+    from nanobot.config.paths import get_data_dir
     from nanobot.cron.service import CronService
     from nanobot.cron.types import CronSchedule
 
@@ -1433,7 +1483,7 @@ def cron_remove(
     job_id: str = typer.Argument(..., help="Job ID to remove"),
 ):
     """Remove a scheduled job."""
-    from nanobot.config.loader import get_data_dir
+    from nanobot.config.paths import get_data_dir
     from nanobot.cron.service import CronService
 
     store_path = get_data_dir() / "cron" / "jobs.json"
@@ -1451,7 +1501,7 @@ def cron_enable(
     disable: bool = typer.Option(False, "--disable", help="Disable instead of enable"),
 ):
     """Enable or disable a job."""
-    from nanobot.config.loader import get_data_dir
+    from nanobot.config.paths import get_data_dir
     from nanobot.cron.service import CronService
 
     store_path = get_data_dir() / "cron" / "jobs.json"
@@ -1472,7 +1522,8 @@ def cron_run(
 ):
     """Manually run a job."""
     from loguru import logger
-    from nanobot.config.loader import load_config, get_data_dir
+    from nanobot.config.loader import load_config
+    from nanobot.config.paths import get_data_dir
     from nanobot.cron.service import CronService
     from nanobot.cron.types import CronJob
     from nanobot.bus.queue import MessageBus
