@@ -13,6 +13,7 @@ from typing import TYPE_CHECKING, Any, Awaitable, Callable
 from loguru import logger
 
 from nanobot.agent.categorized_memory import CategorizedMemoryStore
+from nanobot.agent.commands import CommandRegistry, register_builtin_commands
 from nanobot.agent.context import ContextBuilder
 from nanobot.agent.history_compressor import HistoryCompressor
 from nanobot.agent.memory import MemoryStore
@@ -152,6 +153,8 @@ class AgentLoop:
         self._consolidation_locks: weakref.WeakValueDictionary[str, asyncio.Lock] = weakref.WeakValueDictionary()
         self._active_tasks: dict[str, list[asyncio.Task]] = {}  # session_key -> tasks
         self._processing_lock = asyncio.Lock()
+        self._commands = CommandRegistry()
+        register_builtin_commands(self._commands, self)
         self._register_default_tools()
 
     def _register_default_tools(self) -> None:
@@ -407,28 +410,16 @@ class AgentLoop:
             except asyncio.TimeoutError:
                 continue
 
-            if msg.content.strip().lower() == "/stop":
-                await self._handle_stop(msg)
+            cmd = self._commands.match(msg.content)
+            if cmd and cmd.pre_dispatch:
+                result = await cmd.handler(msg, self)
+                await self.bus.publish_outbound(OutboundMessage(
+                    channel=msg.channel, chat_id=msg.chat_id, content=result,
+                ))
             else:
                 task = asyncio.create_task(self._dispatch(msg))
                 self._active_tasks.setdefault(msg.session_key, []).append(task)
                 task.add_done_callback(lambda t, k=msg.session_key: self._active_tasks.get(k, []) and self._active_tasks[k].remove(t) if t in self._active_tasks.get(k, []) else None)
-
-    async def _handle_stop(self, msg: InboundMessage) -> None:
-        """Cancel all active tasks and subagents for the session."""
-        tasks = self._active_tasks.pop(msg.session_key, [])
-        cancelled = sum(1 for t in tasks if not t.done() and t.cancel())
-        for t in tasks:
-            try:
-                await t
-            except (asyncio.CancelledError, Exception):
-                pass
-        sub_cancelled = await self.subagents.cancel_by_session(msg.session_key)
-        total = cancelled + sub_cancelled
-        content = f"⏹ Stopped {total} task(s)." if total else "No active task to stop."
-        await self.bus.publish_outbound(OutboundMessage(
-            channel=msg.channel, chat_id=msg.chat_id, content=content,
-        ))
 
     async def _dispatch(self, msg: InboundMessage) -> None:
         """Process a message under the global lock."""
@@ -536,41 +527,10 @@ class AgentLoop:
         key = session_key or msg.session_key
         session = self.sessions.get_or_create(key)
 
-        # Slash commands
-        cmd = msg.content.strip().lower()
-        if cmd == "/new":
-            lock = self._consolidation_locks.setdefault(session.key, asyncio.Lock())
-            self._consolidating.add(session.key)
-            try:
-                async with lock:
-                    snapshot = session.messages[session.last_consolidated:]
-                    if snapshot:
-                        temp = Session(key=session.key)
-                        temp.messages = list(snapshot)
-                        if not await self._consolidate_memory(temp, archive_all=True):
-                            return OutboundMessage(
-                                channel=msg.channel, chat_id=msg.chat_id,
-                                content="Memory archival failed, session not cleared. Please try again.",
-                            )
-            except Exception:
-                logger.exception("/new archival failed for {}", session.key)
-                return OutboundMessage(
-                    channel=msg.channel, chat_id=msg.chat_id,
-                    content="Memory archival failed, session not cleared. Please try again.",
-                )
-            finally:
-                self._consolidating.discard(session.key)
-
-            session.clear()
-            self.sessions.save(session)
-            self.sessions.invalidate(session.key)
-            # Clean up lock entry for fully invalidated session
-            self._consolidation_locks.pop(session.key, None)
-            return OutboundMessage(channel=msg.channel, chat_id=msg.chat_id,
-                                  content="New session started.")
-        if cmd == "/help":
-            return OutboundMessage(channel=msg.channel, chat_id=msg.chat_id,
-                                  content="🐈 Nanobot commands:\n/new — Start a new conversation\n/stop — Stop the current task\n/help — Show available commands")
+        slash_cmd = self._commands.match(msg.content)
+        if slash_cmd and not slash_cmd.pre_dispatch:
+            result = await slash_cmd.handler(msg, self)
+            return OutboundMessage(channel=msg.channel, chat_id=msg.chat_id, content=result)
 
         unconsolidated = len(session.messages) - session.last_consolidated
         if (unconsolidated >= self.memory_window and session.key not in self._consolidating):

@@ -161,6 +161,7 @@ class TelegramChannel(BaseChannel):
         BotCommand("start", "Start the bot"),
         BotCommand("new", "Start a new conversation"),
         BotCommand("stop", "Stop the current task"),
+        BotCommand("status", "Show bot status"),
         BotCommand("help", "Show available commands"),
     ]
 
@@ -226,11 +227,9 @@ class TelegramChannel(BaseChannel):
         self._app = builder.build()
         self._app.add_error_handler(self._on_error)
 
-        # Add command handlers
-        self._app.add_handler(CommandHandler("start", self._on_start))
-        self._app.add_handler(CommandHandler("new", self._forward_command))
-        self._app.add_handler(CommandHandler("stop", self._forward_command))
-        self._app.add_handler(CommandHandler("help", self._on_help))
+        # All slash commands are forwarded to the bus for unified handling in AgentLoop
+        for cmd_name in ("start", "new", "stop", "status", "help"):
+            self._app.add_handler(CommandHandler(cmd_name, self._forward_command))
 
         # Add message handler for text, photos, voice, documents
         self._app.add_handler(
