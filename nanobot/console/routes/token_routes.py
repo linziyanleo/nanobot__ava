@@ -31,13 +31,14 @@ async def get_token_stats(
 async def get_token_records(
     limit: int = Query(100, ge=1, le=1000),
     offset: int = Query(0, ge=0),
+    session_key: str | None = Query(None, description="Filter by session key"),
     user: UserInfo = Depends(auth.require_role("admin", "editor", "viewer")),
 ):
-    """Individual LLM call records (newest first)."""
+    """Individual LLM call records (newest first), optionally filtered by session."""
     collector = _get_collector()
     return {
-        "records": collector.get_records(limit=limit, offset=offset),
-        "total": collector.get_total_count(),
+        "records": collector.get_records(limit=limit, offset=offset, session_key=session_key),
+        "total": collector.get_total_count(session_key=session_key),
     }
 
 

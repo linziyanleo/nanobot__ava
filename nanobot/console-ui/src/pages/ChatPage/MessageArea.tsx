@@ -1,5 +1,5 @@
-import { useEffect, useRef, useState } from 'react'
-import { MessageSquare, Loader2, Brain, ChevronDown, ChevronRight } from 'lucide-react'
+import { useEffect, useRef, useState, useCallback } from 'react'
+import { MessageSquare, Loader2, Brain, ChevronDown, ChevronRight, RefreshCw, Copy, Check, ArrowDown } from 'lucide-react'
 import type { SessionMeta, TurnGroup, TurnTokenStats } from './types';
 import { SCENE_LABELS } from './types'
 import { TurnGroupComponent } from './TurnGroup'
@@ -16,13 +16,18 @@ interface MessageAreaProps {
   thinkingStreaming: string
   sending: boolean
   onSend: (message: string) => void
+  onRefresh: () => void
 }
 
-export function MessageArea({ session, turns, loading, isConsole, streaming, thinkingStreaming, sending, onSend }: MessageAreaProps) {
+export function MessageArea({ session, turns, loading, isConsole, streaming, thinkingStreaming, sending, onSend, onRefresh }: MessageAreaProps) {
   const bottomRef = useRef<HTMLDivElement>(null)
+  const scrollContainerRef = useRef<HTMLDivElement>(null)
   const isInitialScroll = useRef(true)
   const [thinkingExpanded, setThinkingExpanded] = useState(false)
   const [turnTokenStats, setTurnTokenStats] = useState<Map<number, TurnTokenStats>>(new Map());
+  const [refreshing, setRefreshing] = useState(false)
+  const [keyCopied, setKeyCopied] = useState(false)
+  const [showScrollDown, setShowScrollDown] = useState(false)
 
   useEffect(() => {
     if (!session?.key) {
@@ -40,19 +45,35 @@ export function MessageArea({ session, turns, loading, isConsole, streaming, thi
       .catch(() => setTurnTokenStats(new Map()));
   }, [session?.key, turns.length]);
 
+  const checkScrollPosition = useCallback(() => {
+    const el = scrollContainerRef.current
+    if (!el) return
+    const threshold = 100
+    const isAtBottom = el.scrollHeight - el.scrollTop - el.clientHeight < threshold
+    setShowScrollDown(!isAtBottom)
+  }, [])
+
   useEffect(() => {
-    if (!bottomRef.current) return
-    if (isInitialScroll.current) {
+    const el = scrollContainerRef.current
+    if (!el) return
+    el.addEventListener('scroll', checkScrollPosition)
+    return () => el.removeEventListener('scroll', checkScrollPosition)
+  }, [checkScrollPosition])
+
+  useEffect(() => {
+    if (isInitialScroll.current && bottomRef.current) {
       bottomRef.current.scrollIntoView({ behavior: 'instant' })
       isInitialScroll.current = false
-    } else {
-      bottomRef.current.scrollIntoView({ behavior: 'smooth' })
     }
-  }, [turns, streaming, thinkingStreaming])
+  }, [turns])
 
   useEffect(() => {
     isInitialScroll.current = true
-  }, [session?.filename])
+  }, [session?.key])
+
+  const scrollToBottom = useCallback(() => {
+    bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
+  }, [])
 
   if (!session) {
     return (
@@ -66,7 +87,7 @@ export function MessageArea({ session, turns, loading, isConsole, streaming, thi
   }
 
   return (
-    <div className="flex-1 min-w-0 flex flex-col bg-[var(--bg-primary)]">
+    <div className="flex-1 min-w-0 flex flex-col bg-[var(--bg-primary)] relative">
       {/* Session header */}
       <div className="px-4 py-2.5 border-b border-[var(--border)] flex items-center justify-between">
         <div>
@@ -79,15 +100,39 @@ export function MessageArea({ session, turns, loading, isConsole, streaming, thi
             {session.token_stats.llm_calls} LLM calls
           </p>
         </div>
-        {!isConsole && (
-          <span className="text-[10px] px-2 py-0.5 rounded-full bg-[var(--bg-tertiary)] text-[var(--text-secondary)]">
-            Read-only
-          </span>
-        )}
+        <div className="flex items-center gap-1.5">
+          {!isConsole && (
+            <span className="text-[10px] px-2 py-0.5 rounded-full bg-[var(--bg-tertiary)] text-[var(--text-secondary)]">
+              Read-only
+            </span>
+          )}
+          <button
+            onClick={() => {
+              navigator.clipboard.writeText(session.key)
+              setKeyCopied(true)
+              setTimeout(() => setKeyCopied(false), 1500)
+            }}
+            className="p-1.5 rounded-md text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)] transition-colors"
+            title="Copy session key"
+          >
+            {keyCopied ? <Check className="w-3.5 h-3.5 text-[var(--success)]" /> : <Copy className="w-3.5 h-3.5" />}
+          </button>
+          <button
+            onClick={() => {
+              setRefreshing(true)
+              onRefresh()
+              setTimeout(() => setRefreshing(false), 1000)
+            }}
+            className="p-1.5 rounded-md text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)] transition-colors"
+            title="Refresh"
+          >
+            <RefreshCw className={`w-3.5 h-3.5 ${refreshing ? 'animate-spin' : ''}`} />
+          </button>
+        </div>
       </div>
 
       {/* Messages */}
-      <div className="flex-1 overflow-y-auto overflow-x-hidden p-4 space-y-4">
+      <div className="flex-1 overflow-y-auto overflow-x-hidden p-4 space-y-4 relative" ref={scrollContainerRef}>
         {loading ? (
           <div className="flex items-center justify-center py-12">
             <Loader2 className="w-6 h-6 animate-spin text-[var(--accent)]" />
@@ -137,6 +182,19 @@ export function MessageArea({ session, turns, loading, isConsole, streaming, thi
         )}
         <div ref={bottomRef} />
       </div>
+
+      {/* Scroll to bottom floating button */}
+      {showScrollDown && (
+        <div className="absolute bottom-20 right-8 z-10">
+          <button
+            onClick={scrollToBottom}
+            className="p-2 rounded-full bg-[var(--bg-secondary)] border border-[var(--border)] shadow-lg text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)] transition-colors"
+            title="Scroll to bottom"
+          >
+            <ArrowDown className="w-4 h-4" />
+          </button>
+        </div>
+      )}
 
       {/* Input (console only) */}
       {isConsole && <ChatInput onSend={onSend} disabled={sending} />}

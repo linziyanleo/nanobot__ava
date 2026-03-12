@@ -3,11 +3,13 @@ import { api, wsUrl } from '../../api/client'
 import { useAuth } from '../../stores/auth'
 import type { SceneType, SessionMeta, RawMessage, TurnGroup } from './types'
 import { SCENE_ORDER } from './types'
-import type { FileTreeNode } from './utils'
-import { parseScene, parseJsonl, groupTurns, extractSessionFiles } from './utils'
+import { groupTurns } from './utils'
 import { SceneTabs } from './SceneTabs'
 import { SessionSidebar } from './SessionSidebar'
 import { MessageArea } from './MessageArea'
+
+const SESSION_LIST_POLL_MS = 30_000
+const MESSAGE_POLL_MS = 10_000
 
 export default function ChatPage() {
   const [sessions, setSessions] = useState<SessionMeta[]>([])
@@ -25,47 +27,18 @@ export default function ChatPage() {
 
   const loadSessionList = useCallback(async () => {
     try {
-      const tree = await api<FileTreeNode>('/files/tree?root=workspace')
-      const sessionFiles = extractSessionFiles(tree)
+      const data = await api<SessionMeta[]>('/chat/sessions')
+      const metas: SessionMeta[] = data.map((s) => ({
+        ...s,
+        token_stats: s.token_stats || {
+          total_prompt_tokens: 0,
+          total_completion_tokens: 0,
+          total_tokens: 0,
+          llm_calls: 0,
+        },
+        message_count: s.message_count || 0,
+      }))
 
-      const metas: SessionMeta[] = []
-      for (const { name, path: fpath } of sessionFiles) {
-        try {
-          const data = await api<{ content: string; path: string }>(`/files/read?path=${encodeURIComponent(fpath)}`)
-          const firstLine = data.content.split('\n')[0]
-          if (firstLine) {
-            const parsed = JSON.parse(firstLine)
-            if (parsed._type === 'metadata') {
-              metas.push({
-                filename: name,
-                filepath: fpath,
-                scene: parseScene(name),
-                key: parsed.key || name,
-                created_at: parsed.created_at || '',
-                updated_at: parsed.updated_at || '',
-                token_stats: parsed.token_stats || {
-                  total_prompt_tokens: 0,
-                  total_completion_tokens: 0,
-                  total_tokens: 0,
-                  llm_calls: 0,
-                },
-              })
-            }
-          }
-        } catch {
-          metas.push({
-            filename: name,
-            filepath: fpath,
-            scene: parseScene(name),
-            key: name,
-            created_at: '',
-            updated_at: '',
-            token_stats: { total_prompt_tokens: 0, total_completion_tokens: 0, total_tokens: 0, llm_calls: 0 },
-          })
-        }
-      }
-
-      metas.sort((a, b) => (b.updated_at || '').localeCompare(a.updated_at || ''))
       setSessions(metas)
 
       if (!initializedRef.current && metas.length > 0) {
@@ -74,8 +47,12 @@ export default function ChatPage() {
         setActiveScene(firstScene)
         const firstSessionInScene = metas.find((m) => m.scene === firstScene)
         if (firstSessionInScene) {
-          setActiveSession(firstSessionInScene.filename)
-          loadSessionMessages(firstSessionInScene.filename, firstSessionInScene.filepath)
+          setActiveSession(firstSessionInScene.key)
+          loadSessionMessages(firstSessionInScene.key)
+          if (firstScene === 'console') {
+            const sid = firstSessionInScene.key.replace(/^console:/, '')
+            connectWs(sid)
+          }
         }
       }
     } catch (err) {
@@ -83,13 +60,11 @@ export default function ChatPage() {
     }
   }, [])
 
-  const loadSessionMessages = useCallback(async (filename: string, filepath?: string) => {
+  const loadSessionMessages = useCallback(async (sessionKey: string) => {
     setLoadingMessages(true)
-    const readPath = filepath || sessions.find((s) => s.filename === filename)?.filepath || `workspace/sessions/${filename}`
     try {
-      const data = await api<{ content: string }>(`/files/read?path=${encodeURIComponent(readPath)}`)
-      const { meta, messages } = parseJsonl(data.content, filename)
-      if (meta) meta.filepath = readPath
+      const messages = await api<RawMessage[]>(`/chat/messages?session_key=${encodeURIComponent(sessionKey)}`)
+      const meta = sessions.find((s) => s.key === sessionKey) || null
       setCurrentMeta(meta)
       setTurns(groupTurns(messages))
     } catch (err) {
@@ -104,17 +79,32 @@ export default function ChatPage() {
     loadSessionList()
   }, [loadSessionList])
 
-  const handleSessionSelect = (filename: string) => {
-    setActiveSession(filename)
+  // Session list polling (30s)
+  useEffect(() => {
+    const timer = setInterval(loadSessionList, SESSION_LIST_POLL_MS)
+    return () => clearInterval(timer)
+  }, [loadSessionList])
+
+  // Current session message polling (10s, non-console only)
+  useEffect(() => {
+    if (!activeSession || activeScene === 'console' || sending) return
+    const timer = setInterval(() => {
+      loadSessionMessages(activeSession)
+    }, MESSAGE_POLL_MS)
+    return () => clearInterval(timer)
+  }, [activeSession, activeScene, sending, loadSessionMessages])
+
+  const handleSessionSelect = (key: string) => {
+    setActiveSession(key)
     setStreaming('')
     setThinkingStreaming('')
     wsRef.current?.close()
 
-    const meta = sessions.find((s) => s.filename === filename)
-    loadSessionMessages(filename, meta?.filepath)
+    loadSessionMessages(key)
 
+    const meta = sessions.find((s) => s.key === key)
     if (meta?.scene === 'console') {
-      const sid = filename.replace(/^console_/, '').replace(/\.jsonl$/, '')
+      const sid = key.replace(/^console:/, '')
       connectWs(sid)
     }
   }
@@ -128,10 +118,10 @@ export default function ChatPage() {
     const sceneSessions = sessions.filter((s) => s.scene === scene)
     if (sceneSessions.length > 0) {
       const first = sceneSessions[0]
-      setActiveSession(first.filename)
-      loadSessionMessages(first.filename, first.filepath)
+      setActiveSession(first.key)
+      loadSessionMessages(first.key)
       if (scene === 'console') {
-        const sid = first.filename.replace(/^console_/, '').replace(/\.jsonl$/, '')
+        const sid = first.key.replace(/^console:/, '')
         connectWs(sid)
       }
     } else {
@@ -153,19 +143,17 @@ export default function ChatPage() {
       })
 
       const sid = res.session_id
-      const newFilename = `console_${sid}.jsonl`
-      const newFilepath = `workspace/sessions/${newFilename}`
+      const newKey = `console:${sid}`
 
       setActiveScene('console')
-      setActiveSession(newFilename)
+      setActiveSession(newKey)
       setCurrentMeta({
-        filename: newFilename,
-        filepath: newFilepath,
+        key: newKey,
         scene: 'console',
-        key: `console:${sid}`,
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
         token_stats: { total_prompt_tokens: 0, total_completion_tokens: 0, total_tokens: 0, llm_calls: 0 },
+        message_count: 0,
       })
       setTurns([])
       connectWs(sid)
@@ -178,19 +166,23 @@ export default function ChatPage() {
     }
   }
 
-  const handleDeleteSession = async (filename: string) => {
-    const meta = sessions.find((s) => s.filename === filename)
+  const handleDeleteSession = async (key: string) => {
+    const meta = sessions.find((s) => s.key === key)
     try {
       if (meta?.scene === 'console') {
-        const sid = filename.replace(/^console_/, '').replace(/\.jsonl$/, '')
+        const sid = key.replace(/^console:/, '')
         await api(`/chat/sessions/${sid}`, { method: 'DELETE' })
-      } else if (meta?.filepath) {
+      } else {
+        // For non-console sessions, delete via DB (using key as session_id path)
+        // The backend delete_session expects the session_id part after "console:"
+        // For non-console, we need a different approach — use session key
+        const safe = key.replace(/:/g, '_')
         await api('/files/delete', {
           method: 'DELETE',
-          body: JSON.stringify({ path: meta.filepath }),
+          body: JSON.stringify({ path: `workspace/sessions/${safe}.jsonl` }),
         })
       }
-      if (activeSession === filename) {
+      if (activeSession === key) {
         setActiveSession('')
         setCurrentMeta(null)
         setTurns([])
@@ -202,36 +194,26 @@ export default function ChatPage() {
     }
   }
 
-  const handleRenameSession = async (filename: string, newName: string) => {
-    const meta = sessions.find((s) => s.filename === filename)
-    if (!meta?.filepath) return
-    try {
-      const data = await api<{ content: string }>(`/files/read?path=${encodeURIComponent(meta.filepath)}`)
-      const lines = data.content.split('\n')
-      if (lines[0]) {
-        const parsed = JSON.parse(lines[0])
-        if (parsed._type === 'metadata') {
-          parsed.key = newName
-          lines[0] = JSON.stringify(parsed)
-          await api('/files/write', {
-            method: 'PUT',
-            body: JSON.stringify({ path: meta.filepath, content: lines.join('\n'), expected_mtime: 0 }),
-          })
-          loadSessionList()
-        }
-      }
-    } catch (err) {
-      console.error('Failed to rename session:', err)
-    }
+  const handleRenameSession = async (key: string, newName: string) => {
+    // Rename is only meaningful for console sessions with DB
+    // For now, keep as no-op for non-console sessions
+    console.log('Rename not yet supported for key-based sessions:', key, newName)
+    // TODO: Add rename API endpoint
   }
+
+  const handleRefresh = useCallback(() => {
+    loadSessionList()
+    if (activeSession) {
+      loadSessionMessages(activeSession)
+    }
+  }, [activeSession, loadSessionList, loadSessionMessages])
 
   const activeSessionRef = useRef(activeSession)
   activeSessionRef.current = activeSession
 
   const connectWs = useCallback((sid: string) => {
     wsRef.current?.close()
-    const filename = `console_${sid}.jsonl`
-    const filepath = `workspace/sessions/${filename}`
+    const sessionKey = `console:${sid}`
     const ws = new WebSocket(wsUrl(`/chat/ws/${sid}`))
     ws.onmessage = (e) => {
       const data = JSON.parse(e.data)
@@ -243,7 +225,7 @@ export default function ChatPage() {
         setStreaming('')
         setThinkingStreaming('')
         setSending(false)
-        loadSessionMessages(filename, filepath)
+        loadSessionMessages(sessionKey)
       }
     }
     ws.onerror = () => setSending(false)
@@ -313,6 +295,7 @@ export default function ChatPage() {
           thinkingStreaming={thinkingStreaming}
           sending={sending}
           onSend={handleSend}
+          onRefresh={handleRefresh}
         />
       </div>
     </div>

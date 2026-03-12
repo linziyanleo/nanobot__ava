@@ -129,27 +129,44 @@ class TokenStatsCollector:
                 self._records = self._records[-self._max_records:]
         self.flush()
 
-    def get_records(self, limit: int = 100, offset: int = 0) -> list[dict[str, Any]]:
+    def get_records(self, limit: int = 100, offset: int = 0, session_key: str | None = None) -> list[dict[str, Any]]:
         if self._use_db:
-            rows = self._db.fetchall(
-                "SELECT * FROM token_usage ORDER BY timestamp DESC LIMIT ? OFFSET ?",
-                (limit, offset),
-            )
+            if session_key:
+                rows = self._db.fetchall(
+                    "SELECT * FROM token_usage WHERE session_key = ? ORDER BY timestamp DESC LIMIT ? OFFSET ?",
+                    (session_key, limit, offset),
+                )
+            else:
+                rows = self._db.fetchall(
+                    "SELECT * FROM token_usage ORDER BY timestamp DESC LIMIT ? OFFSET ?",
+                    (limit, offset),
+                )
             return [dict(r) for r in rows]
 
         self._reload_if_changed()
         with self._lock:
-            reversed_records = list(reversed(self._records))
+            filtered = self._records
+            if session_key:
+                filtered = [r for r in filtered if getattr(r, "session_key", None) == session_key]
+            reversed_records = list(reversed(filtered))
             sliced = reversed_records[offset: offset + limit]
             return [asdict(r) for r in sliced]
 
-    def get_total_count(self) -> int:
+    def get_total_count(self, session_key: str | None = None) -> int:
         if self._use_db:
-            row = self._db.fetchone("SELECT COUNT(*) as cnt FROM token_usage")
+            if session_key:
+                row = self._db.fetchone(
+                    "SELECT COUNT(*) as cnt FROM token_usage WHERE session_key = ?",
+                    (session_key,),
+                )
+            else:
+                row = self._db.fetchone("SELECT COUNT(*) as cnt FROM token_usage")
             return row["cnt"] if row else 0
 
         self._reload_if_changed()
         with self._lock:
+            if session_key:
+                return sum(1 for r in self._records if getattr(r, "session_key", None) == session_key)
             return len(self._records)
 
     def get_summary(self) -> dict[str, Any]:

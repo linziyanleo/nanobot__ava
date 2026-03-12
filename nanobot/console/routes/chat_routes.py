@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 
-from fastapi import APIRouter, Depends, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, Depends, HTTPException, Query, WebSocket, WebSocketDisconnect
 
 from nanobot.console import auth
 from nanobot.console.models import ChatSessionCreateRequest, UserInfo
@@ -50,6 +50,15 @@ async def get_history(
     user: UserInfo = Depends(auth.require_role("admin", "editor", "viewer")),
 ):
     return _get_chat_service().get_history(session_id)
+
+
+@router.get("/messages")
+async def get_messages(
+    session_key: str = Query(..., description="Session key (e.g. telegram:12345)"),
+    user: UserInfo = Depends(auth.require_role("admin", "editor", "viewer")),
+):
+    """Full message history for any session, including tool_calls and reasoning."""
+    return _get_chat_service().get_messages(session_key)
 
 
 @router.websocket("/ws/{session_id}")

@@ -20,59 +20,156 @@ class ChatService:
     def _use_db(self) -> bool:
         return self._db is not None
 
+    @staticmethod
+    def _derive_scene(key: str) -> str:
+        if key.startswith("telegram:"):
+            return "telegram"
+        if key.startswith("console:"):
+            return "console"
+        if key.startswith("cli:"):
+            return "cli"
+        if key.startswith("cron:"):
+            return "cron"
+        if key == "heartbeat":
+            return "heartbeat"
+        if key.startswith("feishu:"):
+            return "feishu"
+        if key.startswith("discord:"):
+            return "discord"
+        return "other"
+
     def list_sessions(self, user_id: str | None = None) -> list[dict]:
         if self._use_db:
             rows = self._db.fetchall(
-                """SELECT s.key, s.created_at, s.metadata,
+                """SELECT s.key, s.created_at, s.updated_at, s.token_stats,
                           (SELECT COUNT(*) FROM session_messages WHERE session_id = s.id) as msg_count
                    FROM sessions s
-                   WHERE s.key LIKE 'console:%'
                    ORDER BY s.updated_at DESC"""
             )
             sessions = []
             for r in rows:
                 key = r["key"]
-                sid = key.removeprefix("console:")
-                meta = {}
-                if r["metadata"]:
+                ts: dict = {}
+                if r["token_stats"]:
                     try:
-                        meta = json.loads(r["metadata"])
+                        ts = json.loads(r["token_stats"])
                     except json.JSONDecodeError:
                         pass
                 sessions.append({
-                    "session_id": sid,
-                    "title": meta.get("title", sid),
+                    "key": key,
+                    "scene": self._derive_scene(key),
                     "created_at": r["created_at"] or "",
+                    "updated_at": r["updated_at"] or "",
+                    "token_stats": {
+                        "total_prompt_tokens": ts.get("total_prompt_tokens", 0),
+                        "total_completion_tokens": ts.get("total_completion_tokens", 0),
+                        "total_tokens": ts.get("total_tokens", 0),
+                        "llm_calls": ts.get("llm_calls", 0),
+                    },
                     "message_count": r["msg_count"],
                 })
             return sessions
 
         sessions = []
-        for f in self._sessions_dir.glob("console_*.jsonl"):
-            sid = f.stem.removeprefix("console_")
+        for f in self._sessions_dir.glob("*.jsonl"):
+            if f.name.startswith("_"):
+                continue
             first_line = ""
             lines = f.read_text("utf-8").splitlines()
             if lines:
                 first_line = lines[0]
-            title = sid
+            key = f.stem.replace("_", ":", 1)
             created_at = ""
+            updated_at = ""
+            token_stats = {
+                "total_prompt_tokens": 0, "total_completion_tokens": 0,
+                "total_tokens": 0, "llm_calls": 0,
+            }
             msg_count = max(0, len(lines) - 1)
             if first_line:
                 try:
                     parsed = json.loads(first_line)
                     if parsed.get("_type") == "metadata":
-                        title = parsed.get("title", parsed.get("key", sid))
+                        key = parsed.get("key", key)
                         created_at = parsed.get("created_at", "")
+                        updated_at = parsed.get("updated_at", "")
+                        token_stats = parsed.get("token_stats", token_stats)
                 except json.JSONDecodeError:
                     pass
             sessions.append({
-                "session_id": sid,
-                "title": title,
+                "key": key,
+                "scene": self._derive_scene(key),
                 "created_at": created_at,
+                "updated_at": updated_at,
+                "token_stats": token_stats,
                 "message_count": msg_count,
             })
-        sessions.sort(key=lambda s: s["created_at"], reverse=True)
+        sessions.sort(key=lambda s: s.get("updated_at", ""), reverse=True)
         return sessions
+
+    def get_messages(self, session_key: str) -> list[dict]:
+        """Return full message details for a session from DB or JSONL."""
+        if self._use_db:
+            row = self._db.fetchone("SELECT id FROM sessions WHERE key = ?", (session_key,))
+            if not row:
+                return []
+            msg_rows = self._db.fetchall(
+                """SELECT role, content, tool_calls, tool_call_id, name,
+                          reasoning_content, timestamp
+                   FROM session_messages
+                   WHERE session_id = ?
+                   ORDER BY seq""",
+                (row["id"],),
+            )
+            messages: list[dict] = []
+            for mr in msg_rows:
+                msg: dict[str, Any] = {"role": mr["role"]}
+                content = mr["content"]
+                if content is not None:
+                    try:
+                        parsed = json.loads(content)
+                        if isinstance(parsed, list):
+                            msg["content"] = parsed
+                        else:
+                            msg["content"] = content
+                    except (json.JSONDecodeError, TypeError):
+                        msg["content"] = content
+                else:
+                    msg["content"] = None
+                if mr["tool_calls"]:
+                    try:
+                        msg["tool_calls"] = json.loads(mr["tool_calls"])
+                    except json.JSONDecodeError:
+                        pass
+                if mr["tool_call_id"]:
+                    msg["tool_call_id"] = mr["tool_call_id"]
+                if mr["name"]:
+                    msg["name"] = mr["name"]
+                if mr["reasoning_content"]:
+                    msg["reasoning_content"] = mr["reasoning_content"]
+                if mr["timestamp"]:
+                    msg["timestamp"] = mr["timestamp"]
+                messages.append(msg)
+            return messages
+
+        safe_key = session_key.replace(":", "_")
+        session_file = self._sessions_dir / f"{safe_key}.jsonl"
+        if not session_file.exists():
+            return []
+        messages = []
+        for line in session_file.read_text("utf-8").splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                entry = json.loads(line)
+                if entry.get("_type") == "metadata":
+                    continue
+                if entry.get("role"):
+                    messages.append(entry)
+            except json.JSONDecodeError:
+                continue
+        return messages
 
     def create_session(self, user_id: str, title: str = "") -> str:
         sid = uuid.uuid4().hex[:8]

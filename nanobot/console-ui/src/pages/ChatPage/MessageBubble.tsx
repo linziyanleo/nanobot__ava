@@ -1,8 +1,60 @@
-import { Copy, Check, Brain, ChevronDown, ChevronRight, Info } from 'lucide-react';
+import { Copy, Check, Brain, ChevronDown, ChevronRight, Info, Eye, Mic } from 'lucide-react';
 import { useState, useRef, useEffect } from 'react';
 import { cn } from '../../lib/utils';
 import type { RawMessage, TurnTokenStats } from './types';
 import { getContentText, formatTimestamp, formatTokenCount } from './utils';
+
+interface MediaBlock {
+  type: 'vision' | 'voice'
+  content: string
+}
+
+function parseMediaBlocks(text: string): { mainText: string; blocks: MediaBlock[] } {
+  const blocks: MediaBlock[] = []
+  let mainText = text
+
+  const patterns: { regex: RegExp; type: 'vision' | 'voice' }[] = [
+    { regex: /\[图片识别:\s*([\s\S]*?)\]/g, type: 'vision' },
+    { regex: /\[语音转录:\s*([\s\S]*?)\]/g, type: 'voice' },
+    { regex: /\[transcription:\s*([\s\S]*?)\]/g, type: 'voice' },
+  ]
+
+  for (const { regex, type } of patterns) {
+    let match
+    while ((match = regex.exec(text)) !== null) {
+      blocks.push({ type, content: match[1].trim() })
+    }
+    mainText = mainText.replace(regex, '').trim()
+  }
+
+  return { mainText, blocks }
+}
+
+function MediaBlockIndicator({ block }: { block: MediaBlock }) {
+  const [expanded, setExpanded] = useState(false)
+  const Icon = block.type === 'vision' ? Eye : Mic
+  const label = block.type === 'vision' ? 'Image Recognition' : 'Voice Transcription'
+
+  return (
+    <div className="mt-1.5 rounded-lg border border-white/20 overflow-hidden">
+      <button
+        onClick={() => setExpanded(v => !v)}
+        className="flex items-center gap-1.5 w-full px-2.5 py-1 text-[11px] text-white/80 hover:text-white transition-colors"
+      >
+        <Icon className="w-3 h-3" />
+        <span className="font-medium">{label}</span>
+        {expanded ? <ChevronDown className="w-3 h-3 ml-auto" /> : <ChevronRight className="w-3 h-3 ml-auto" />}
+      </button>
+      {expanded && (
+        <div className="px-2.5 pb-1.5 border-t border-white/10">
+          <pre className="whitespace-pre-wrap font-[inherit] text-[11px] text-white/70 leading-relaxed mt-1 break-words max-h-[200px] overflow-y-auto">
+            {block.content}
+          </pre>
+        </div>
+      )}
+    </div>
+  )
+}
 
 interface MessageBubbleProps {
   message: RawMessage;
@@ -61,6 +113,9 @@ export function MessageBubble({ message, isUser, tokenStats }: MessageBubbleProp
 
   if (!text && !reasoning) return null;
 
+  const { mainText, blocks: mediaBlocks } = isUser ? parseMediaBlocks(text) : { mainText: text, blocks: [] }
+  const displayText = isUser ? mainText : text
+
   const handleCopy = () => {
     navigator.clipboard.writeText(text);
     setCopied(true);
@@ -98,7 +153,7 @@ export function MessageBubble({ message, isUser, tokenStats }: MessageBubbleProp
           </div>
         )}
 
-        {text && (
+        {(displayText || mediaBlocks.length > 0) && (
           <>
             <div
               className={cn(
@@ -108,7 +163,10 @@ export function MessageBubble({ message, isUser, tokenStats }: MessageBubbleProp
                   : 'bg-[var(--bg-secondary)] text-[var(--text-primary)] rounded-bl-md border border-[var(--border)]',
               )}
             >
-              <pre className="whitespace-pre-wrap font-[inherit] break-words">{text}</pre>
+              {displayText && <pre className="whitespace-pre-wrap font-[inherit] break-words">{displayText}</pre>}
+              {mediaBlocks.map((block, i) => (
+                <MediaBlockIndicator key={i} block={block} />
+              ))}
             </div>
             <div
               className={cn(

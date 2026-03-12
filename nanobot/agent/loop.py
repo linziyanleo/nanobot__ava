@@ -582,6 +582,8 @@ class AgentLoop:
             history, msg.content, channel=msg.channel, chat_id=msg.chat_id
         )
 
+        _turn_seq = sum(1 for m in session.messages if m.get("role") == "user")
+
         # Pre-process media: transcribe audio with voice_model, describe images with vision_model
         _effective_media = list(msg.media) if msg.media else None
         if msg.media:
@@ -594,7 +596,7 @@ class AgentLoop:
                     p for p in msg.media
                     if "." in p and p.rsplit(".", 1)[-1].lower() in _audio_exts
                 ]
-                _transcription = await self._transcribe_audio(_audio_paths, session)
+                _transcription = await self._transcribe_audio(_audio_paths, session, turn_seq=_turn_seq)
                 _effective_media = [
                     p for p in (_effective_media or [])
                     if "." not in p or p.rsplit(".", 1)[-1].lower() not in _audio_exts
@@ -613,7 +615,7 @@ class AgentLoop:
                 if _mt.guess_type(p)[0] and _mt.guess_type(p)[0].startswith("image/")
             ]
             if _image_paths and self.vision_model != self.model:
-                _description = await self._describe_images(_image_paths, session)
+                _description = await self._describe_images(_image_paths, session, turn_seq=_turn_seq)
                 _effective_media = [
                     p for p in (_effective_media or [])
                     if not (_mt.guess_type(p)[0] and _mt.guess_type(p)[0].startswith("image/"))
@@ -641,8 +643,6 @@ class AgentLoop:
             await self.bus.publish_outbound(OutboundMessage(
                 channel=msg.channel, chat_id=msg.chat_id, content=content, metadata=meta,
             ))
-
-        _turn_seq = sum(1 for m in session.messages if m.get("role") == "user")
 
         final_content, _, all_msgs = await self._run_agent_loop(
             initial_messages, session, on_progress=on_progress or _bus_progress,
@@ -694,6 +694,7 @@ class AgentLoop:
 
     async def _transcribe_audio(
         self, audio_paths: list[str], session: Session | None = None,
+        turn_seq: int | None = None,
     ) -> str:
         """Use voice_model to transcribe audio files.
 
@@ -741,6 +742,7 @@ class AgentLoop:
                         provider=_effective_provider,
                         usage=response.usage,
                         session_key=session.key if session else "",
+                        turn_seq=turn_seq,
                         user_message="[audio transcription]",
                         output_content=response.content or "",
                         system_prompt="",
@@ -765,6 +767,7 @@ class AgentLoop:
 
     async def _describe_images(
         self, image_paths: list[str], session: Session | None = None,
+        turn_seq: int | None = None,
     ) -> str:
         """Use vision_model to describe images as text.
 
@@ -814,6 +817,7 @@ class AgentLoop:
                         provider=_effective_provider,
                         usage=response.usage,
                         session_key=session.key if session else "",
+                        turn_seq=turn_seq,
                         user_message="[image description]",
                         output_content=response.content or "",
                         system_prompt="",

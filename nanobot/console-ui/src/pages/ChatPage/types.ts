@@ -1,10 +1,8 @@
 export type SceneType = 'telegram' | 'cron' | 'heartbeat' | 'console' | 'cli' | 'feishu' | 'QQ' | 'wx' | 'discord' | 'other'
 
 export interface SessionMeta {
-  filename: string
-  filepath: string
-  scene: SceneType
   key: string
+  scene: SceneType
   created_at: string
   updated_at: string
   token_stats: {
@@ -13,6 +11,9 @@ export interface SessionMeta {
     total_tokens: number
     llm_calls: number
   }
+  message_count: number
+  filename?: string
+  filepath?: string
 }
 
 export interface ToolCall {
