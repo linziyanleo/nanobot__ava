@@ -36,6 +36,15 @@ export interface ToolCallWithResult {
   result?: RawMessage
 }
 
+export interface TurnTokenStats {
+  turn_seq: number | null
+  prompt_tokens: number
+  completion_tokens: number
+  total_tokens: number
+  llm_calls: number
+  models: string
+}
+
 export interface TurnGroup {
   userMessage: RawMessage
   assistantSteps: RawMessage[]

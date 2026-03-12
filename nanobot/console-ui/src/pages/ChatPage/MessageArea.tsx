@@ -1,10 +1,11 @@
 import { useEffect, useRef, useState } from 'react'
 import { MessageSquare, Loader2, Brain, ChevronDown, ChevronRight } from 'lucide-react'
-import type { SessionMeta, TurnGroup } from './types'
+import type { SessionMeta, TurnGroup, TurnTokenStats } from './types';
 import { SCENE_LABELS } from './types'
 import { TurnGroupComponent } from './TurnGroup'
 import { ChatInput } from './ChatInput'
 import { formatTokenCount } from './utils'
+import { api } from '../../api/client';
 
 interface MessageAreaProps {
   session: SessionMeta | null
@@ -21,6 +22,23 @@ export function MessageArea({ session, turns, loading, isConsole, streaming, thi
   const bottomRef = useRef<HTMLDivElement>(null)
   const isInitialScroll = useRef(true)
   const [thinkingExpanded, setThinkingExpanded] = useState(false)
+  const [turnTokenStats, setTurnTokenStats] = useState<Map<number, TurnTokenStats>>(new Map());
+
+  useEffect(() => {
+    if (!session?.key) {
+      setTurnTokenStats(new Map());
+      return;
+    }
+    api<TurnTokenStats[]>(`/stats/tokens/by-session?session_key=${encodeURIComponent(session.key)}`)
+      .then(data => {
+        const map = new Map<number, TurnTokenStats>();
+        for (const item of data) {
+          if (item.turn_seq != null) map.set(item.turn_seq, item);
+        }
+        setTurnTokenStats(map);
+      })
+      .catch(() => setTurnTokenStats(new Map()));
+  }, [session?.key, turns.length]);
 
   useEffect(() => {
     if (!bottomRef.current) return
@@ -77,21 +95,25 @@ export function MessageArea({ session, turns, loading, isConsole, streaming, thi
         ) : (
           <>
             {turns.map((turn, i) => (
-              <TurnGroupComponent key={i} turn={turn} />
+              <TurnGroupComponent key={i} turn={turn} tokenStats={turnTokenStats.get(i)} />
             ))}
             {thinkingStreaming && (
               <div className="flex justify-start">
-                <div className="max-w-[80%] rounded-2xl rounded-bl-md border border-[var(--border)] text-sm overflow-hidden"
-                  style={{ background: 'var(--bg-tertiary, var(--bg-secondary))' }}>
+                <div
+                  className="max-w-[80%] rounded-2xl rounded-bl-md border border-[var(--border)] text-sm overflow-hidden"
+                  style={{ background: 'var(--bg-tertiary, var(--bg-secondary))' }}
+                >
                   <button
-                    onClick={() => setThinkingExpanded((v) => !v)}
+                    onClick={() => setThinkingExpanded(v => !v)}
                     className="flex items-center gap-1.5 w-full px-3 py-1.5 text-[11px] text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors"
                   >
                     <Brain className="w-3.5 h-3.5 text-[var(--accent)] animate-pulse" />
                     <span className="font-medium">Thinking...</span>
-                    {thinkingExpanded
-                      ? <ChevronDown className="w-3 h-3 ml-auto" />
-                      : <ChevronRight className="w-3 h-3 ml-auto" />}
+                    {thinkingExpanded ? (
+                      <ChevronDown className="w-3 h-3 ml-auto" />
+                    ) : (
+                      <ChevronRight className="w-3 h-3 ml-auto" />
+                    )}
                   </button>
                   {thinkingExpanded && (
                     <div className="px-3 pb-2 border-t border-[var(--border)]">
@@ -119,5 +141,5 @@ export function MessageArea({ session, turns, loading, isConsole, streaming, thi
       {/* Input (console only) */}
       {isConsole && <ChatInput onSend={onSend} disabled={sending} />}
     </div>
-  )
+  );
 }

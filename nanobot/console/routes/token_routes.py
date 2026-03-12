@@ -57,6 +57,15 @@ async def get_tokens_by_provider(
     return _get_collector().get_by_provider()
 
 
+@router.get("/tokens/by-session")
+async def get_tokens_by_session(
+    session_key: str = Query(..., description="Session key (e.g. telegram:12345)"),
+    user: UserInfo = Depends(auth.require_role("admin", "editor", "viewer")),
+):
+    """Per-turn token aggregation for a specific session."""
+    return _get_collector().get_by_session(session_key)
+
+
 @router.get("/tokens/timeline")
 async def get_token_timeline(
     interval: str = Query("hour", pattern="^(hour|day)$"),
