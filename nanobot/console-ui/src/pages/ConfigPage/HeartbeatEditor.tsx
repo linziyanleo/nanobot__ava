@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { Plus, Trash2, Heart, Clock, CheckCircle2, Edit3, Save, X, RefreshCw } from 'lucide-react';
-import { ToggleSwitch, InfoButton } from './FormWidgets';
+import { InfoButton } from './FormWidgets';
 import { renderField, Section } from './FormWidgets';
 import type { HeartbeatConfig } from './types';
 import { api } from '../../api/client';

@@ -11,7 +11,6 @@ interface MessageBubbleProps {
 }
 
 function TokenInfoPopover({ stats }: { stats: TurnTokenStats }) {
-  console.log('TokenInfoPopover', stats);
   return (
     <div className="absolute left-0 bottom-full mb-1 z-50 w-52 rounded-lg border border-[var(--border)] bg-[var(--bg-secondary)] shadow-lg p-2.5 text-[10px]">
       <div className="space-y-1">
@@ -49,7 +48,6 @@ export function MessageBubble({ message, isUser, tokenStats }: MessageBubbleProp
   const popoverRef = useRef<HTMLDivElement>(null);
   const text = getContentText(message.content);
   const reasoning = message.reasoning_content;
-  console.log('MessageBubble', message, tokenStats);
   useEffect(() => {
     if (!showTokenInfo) return;
     const handler = (e: MouseEvent) => {
