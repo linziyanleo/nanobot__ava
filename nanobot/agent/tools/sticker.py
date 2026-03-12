@@ -35,29 +35,13 @@ class StickerTool(Tool):
     def description(self) -> str:
         sticker_data = self._get_sticker_data()
         if not sticker_data:
-            return (
-                "Send a Telegram sticker from the sticker pack. "
-                "Use this to express emotions visually. "
-                "Sticker config not found at ~/.nanobot/sticker.json"
-            )
-
-        parts = []
-        for sid in sorted(sticker_data.keys()):
-            info = sticker_data[sid]
-            emoji = info.get("emoji", "")
-            meaning = info.get("meaning", "")
-            label = f"{sid}={emoji}"
-            if meaning:
-                label += f"({meaning})"
-            parts.append(label)
+            return "Send a Telegram sticker. Config not found."
 
         min_id = min(sticker_data.keys())
         max_id = max(sticker_data.keys())
-        listing = ", ".join(parts)
         return (
-            f"Send a Telegram sticker from the sticker pack. "
-            f"Use this to express emotions visually. "
-            f"Sticker IDs: {min_id}-{max_id}. {listing}"
+            f"Send a Telegram sticker (ID {min_id}-{max_id}). "
+            f"Use to express emotions visually."
         )
 
     @property
@@ -69,33 +53,24 @@ class StickerTool(Tool):
         else:
             min_id, max_id = 1, 24
 
+        # Compact: just "1=👍, 2=😉, ..."
         parts = []
         for sid in sorted((sticker_data or {}).keys()):
             info = sticker_data[sid]
             emoji = info.get("emoji", "")
-            meaning = info.get("meaning", "")
-            aliases = info.get("aliases", [])
-            label = f"{sid}={emoji}"
-            if meaning:
-                label += f"({meaning})"
-            if aliases:
-                label += f"[{'/'.join(aliases)}]"
-            parts.append(label)
-        sticker_desc = ". ".join(parts) if parts else f"Sticker ID ({min_id}-{max_id})"
+            parts.append(f"{sid}={emoji}")
+        sticker_desc = ", ".join(parts) if parts else f"ID {min_id}-{max_id}"
 
         return {
             "type": "object",
             "properties": {
                 "sticker_id": {
                     "type": "integer",
-                    "description": f"Sticker ID ({min_id}-{max_id}). {sticker_desc}",
+                    "description": f"Sticker ID ({min_id}-{max_id}): {sticker_desc}",
                 },
                 "chat_id": {
                     "type": "string",
-                    "description": (
-                        "Optional: Telegram chat ID. "
-                        "If not provided, uses the current chat context."
-                    ),
+                    "description": "Optional: Telegram chat ID.",
                 },
             },
             "required": ["sticker_id"],
