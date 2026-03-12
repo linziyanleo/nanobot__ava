@@ -49,6 +49,7 @@ def create_console_app(
     agent_loop,
     config,
     token_stats_collector: TokenStatsCollector | None = None,
+    db=None,
 ) -> FastAPI:
     global _services
 
@@ -68,7 +69,7 @@ def create_console_app(
 
     _services = Services(
         users=users,
-        audit=AuditService(console_dir),
+        audit=AuditService(console_dir, db=db),
         config=ConfigService(nanobot_dir),
         files=FileService(workspace, nanobot_dir),
         gateway=GatewayService(
@@ -76,8 +77,8 @@ def create_console_app(
             gateway_port=config.gateway.port,
             console_port=console_cfg.port,
         ),
-        media=MediaService(),
-        chat=ChatService(agent_loop, workspace),
+        media=MediaService(db=db),
+        chat=ChatService(agent_loop, workspace, db=db),
         token_stats=token_stats_collector,
     )
 
@@ -141,7 +142,7 @@ def create_console_app_standalone(
     """Create a console app that runs independently from the gateway process.
 
     This variant does not require a live AgentLoop — ChatService is set to None,
-    and TokenStatsCollector reads from the shared JSON file on disk.
+    and TokenStatsCollector reads from the shared SQLite DB (or JSON file fallback).
     """
     global _services
 
@@ -155,13 +156,19 @@ def create_console_app_standalone(
     users = UserService(console_dir)
     users.ensure_default_admin()
 
+    db_path = nanobot_dir / "nanobot.db"
+    db = None
+    if db_path.exists():
+        from nanobot.storage.database import Database
+        db = Database(db_path)
+
     token_stats = None
     if token_stats_dir:
-        token_stats = TokenStatsCollector(data_dir=Path(token_stats_dir))
+        token_stats = TokenStatsCollector(data_dir=Path(token_stats_dir), db=db)
 
     _services = Services(
         users=users,
-        audit=AuditService(console_dir),
+        audit=AuditService(console_dir, db=db),
         config=ConfigService(nanobot_dir),
         files=FileService(workspace, nanobot_dir),
         gateway=GatewayService(
@@ -169,7 +176,7 @@ def create_console_app_standalone(
             gateway_port=gateway_port,
             console_port=console_port,
         ),
-        media=MediaService(),
+        media=MediaService(db=db),
         chat=None,  # type: ignore[arg-type]
         token_stats=token_stats,
     )

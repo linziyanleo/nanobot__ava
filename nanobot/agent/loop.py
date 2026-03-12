@@ -83,6 +83,7 @@ class AgentLoop:
         in_loop_truncation: InLoopTruncationConfig | None = None,
         token_stats: Any | None = None,
         record_full_request_payload: bool = False,
+        db: Any | None = None,
     ):
         from nanobot.config.schema import ContextCompressionConfig, ExecToolConfig, InLoopTruncationConfig as _ILT
         self.bus = bus
@@ -111,6 +112,7 @@ class AgentLoop:
         self._in_loop_truncation = in_loop_truncation or _ILT()
         self._token_stats = token_stats
         self._record_full_request_payload = record_full_request_payload
+        self._db = db
 
         self.categorized_memory = CategorizedMemoryStore(workspace)
         self.context = ContextBuilder(
@@ -186,13 +188,15 @@ class AgentLoop:
         self.tools.register(WebFetchTool(proxy=self.web_proxy))
         self.tools.register(MessageTool(send_callback=self.bus.publish_outbound))
         self.tools.register(SpawnTool(manager=self.subagents))
-        self.tools.register(MemoryTool(store=self.categorized_memory))
+        self.tools.register(MemoryTool(store=self.categorized_memory, db=self._db))
         self.tools.register(VisionTool(provider=self.provider, model=self.vision_model, token_stats=self._token_stats))
         if self.cron_service:
             self.tools.register(CronTool(self.cron_service))
         self.tools.register(StickerTool())
         try:
-            self.tools.register(ImageGenTool(token_stats=self._token_stats))
+            from nanobot.console.services.media_service import MediaService as _MS
+            _media_svc = _MS(db=self._db) if self._db else None
+            self.tools.register(ImageGenTool(token_stats=self._token_stats, media_service=_media_svc))
         except ValueError as e:
             logger.debug("ImageGenTool not registered: {}", e)
 
@@ -252,6 +256,7 @@ class AgentLoop:
         initial_messages: list[dict],
         session: Session | None = None,
         on_progress: Callable[..., Awaitable[None]] | None = None,
+        turn_seq: int | None = None,
     ) -> tuple[str | None, list[str], list[dict]]:
         """Run the agent iteration loop. Returns (final_content, tools_used, messages)."""
         messages = initial_messages
@@ -319,6 +324,8 @@ class AgentLoop:
                         provider=_effective_provider,
                         usage=response.usage,
                         session_key=session.key if session else "",
+                        turn_seq=turn_seq,
+                        iteration=iteration,
                         user_message=last_user_msg,
                         output_content=response.content or "",
                         system_prompt=sys_prompt,
@@ -501,8 +508,10 @@ class AgentLoop:
                     channel=channel, chat_id=chat_id, content=content, metadata=meta,
                 ))
 
+            _turn_seq = sum(1 for m in session.messages if m.get("role") == "user")
+
             final_content, _, all_msgs = await self._run_agent_loop(
-                messages, session, on_progress=_sys_progress,
+                messages, session, on_progress=_sys_progress, turn_seq=_turn_seq,
             )
 
             # Check if delivery tools already sent content
@@ -633,8 +642,11 @@ class AgentLoop:
                 channel=msg.channel, chat_id=msg.chat_id, content=content, metadata=meta,
             ))
 
+        _turn_seq = sum(1 for m in session.messages if m.get("role") == "user")
+
         final_content, _, all_msgs = await self._run_agent_loop(
             initial_messages, session, on_progress=on_progress or _bus_progress,
+            turn_seq=_turn_seq,
         )
 
         # Check if any "delivery" tool already sent content to the user

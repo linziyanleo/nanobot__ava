@@ -521,7 +521,18 @@ def gateway(
     sync_workspace_templates(config.workspace_path)
     bus = MessageBus()
     provider = _make_provider(config)
-    session_manager = SessionManager(config.workspace_path)
+
+    from nanobot.storage.database import Database
+    db = Database(get_data_dir() / "nanobot.db")
+    db.migrate_from_files(
+        sessions_dir=config.workspace_path / "sessions",
+        token_stats_file=get_data_dir() / "console" / "token_stats.json",
+        audit_file=get_data_dir() / "console" / "audit.jsonl",
+        media_records_file=Path.home() / ".nanobot" / "media" / "generated" / "records.jsonl",
+    )
+    db.backfill_turn_seq()
+
+    session_manager = SessionManager(config.workspace_path, db=db)
 
     if config.gateway.console.enabled:
         _console_port = config.gateway.console.port
@@ -530,7 +541,7 @@ def gateway(
             raise typer.Exit(1)
 
     from nanobot.console.services.token_stats_service import TokenStatsCollector
-    token_stats_collector = TokenStatsCollector(data_dir=get_data_dir() / "console")
+    token_stats_collector = TokenStatsCollector(data_dir=get_data_dir() / "console", db=db)
 
     # Create cron service first (callback set after agent creation)
     cron_store_path = get_cron_dir() / "jobs.json"
@@ -565,6 +576,7 @@ def gateway(
         in_loop_truncation=config.agents.defaults.in_loop_truncation,
         token_stats=token_stats_collector,
         record_full_request_payload=config.token_stats.record_full_request_payload,
+        db=db,
     )
 
     # Set cron callback (needs agent)
@@ -727,6 +739,7 @@ def gateway(
         agent_loop=agent,
         config=config,
         token_stats_collector=token_stats_collector,
+        db=db,
     )
     gateway_uvicorn = uvicorn.Server(uvicorn.Config(
         gateway_app, host=config.gateway.host, port=port, log_level="warning",
