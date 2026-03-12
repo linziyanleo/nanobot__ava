@@ -19,13 +19,14 @@ class HistorySummarizer:
         r"\[Scheduled Task\].*?Scheduled instruction:\s*(.+)",
         re.DOTALL,
     )
-    _STICKER_RE = re.compile(r"Sticker\s+(\d+)\s*\(([^)]+)\)")
+    _STICKER_EMOJI_RE = re.compile(r"Sticker\s+\d+\s*\((\S+)")
+    _CRON_CREATED_RE = re.compile(r"Created job\s+'.+?'\s*\(id:\s*([a-f0-9]+)\)")
 
     def __init__(
         self,
         *,
         enabled: bool = True,
-        protect_recent: int = 20,
+        protect_recent: int = 0,
         tool_result_max_chars: int = 200,
     ) -> None:
         self.enabled = enabled
@@ -37,11 +38,12 @@ class HistorySummarizer:
         if not self.enabled or not history:
             return history
 
-        if len(history) <= self.protect_recent:
-            return history
-
-        to_summarize = history[:-self.protect_recent]
-        protected = history[-self.protect_recent:]
+        if self.protect_recent > 0 and len(history) > self.protect_recent:
+            to_summarize = history[:-self.protect_recent]
+            protected = self._filter_empty_messages(history[-self.protect_recent:])
+        else:
+            to_summarize = history
+            protected = []
 
         turns = self._split_turns(to_summarize)
         summarized: list[dict[str, Any]] = []
@@ -49,6 +51,18 @@ class HistorySummarizer:
             summarized.extend(self._summarize_turn(turn))
 
         return summarized + protected
+
+    @staticmethod
+    def _filter_empty_messages(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        """Remove assistant messages that have empty content and no tool_calls."""
+        return [
+            m for m in messages
+            if not (
+                m.get("role") == "assistant"
+                and not m.get("tool_calls")
+                and not (m.get("content") or "").strip()
+            )
+        ]
 
     @staticmethod
     def _split_turns(messages: list[dict[str, Any]]) -> list[list[dict[str, Any]]]:
@@ -64,7 +78,6 @@ class HistorySummarizer:
             else:
                 if current:
                     current.append(msg)
-                # orphan non-user messages at the start are dropped
 
         if current:
             turns.append(current)
@@ -92,7 +105,10 @@ class HistorySummarizer:
                 content = msg.get("content", "")
                 if isinstance(content, str):
                     summary = self._summarize_tool_result(name, content)
-                    tool_lines.append(f"Tool: {name} → {summary}")
+                    if name == "send_sticker":
+                        tool_lines.append(summary)
+                    else:
+                        tool_lines.append(f"Tool: {name} → {summary}")
 
             elif role == "assistant":
                 if not msg.get("tool_calls"):
@@ -115,19 +131,38 @@ class HistorySummarizer:
         return result
 
     def _summarize_tool_result(self, name: str, content: str) -> str:
-        """Produce a compact summary for a tool result."""
+        """Produce a compact summary for a single tool result."""
         if name == "send_sticker":
-            m = self._STICKER_RE.search(content)
+            if content.startswith("send_sticker, "):
+                return content
+            m = self._STICKER_EMOJI_RE.search(content)
             if m:
-                return f"Sticker {m.group(1)} {m.group(2)}"
-            return "[sent]"
+                return f"send_sticker, {m.group(1)}"
+            return "send_sticker, [sent]"
 
         if name in ("message", "send_message"):
             return "[sent]"
 
+        if name == "cron":
+            m = self._CRON_CREATED_RE.search(content)
+            if m:
+                return f"cron job created ({m.group(1)})"
+
         if len(content) <= self.tool_result_max_chars:
             return content
-        return content[:self.tool_result_max_chars] + "..."
+        return self._truncate_at_word_boundary(content, self.tool_result_max_chars)
+
+    @staticmethod
+    def _truncate_at_word_boundary(text: str, max_chars: int) -> str:
+        """Truncate text at the last word/CJK-char boundary within max_chars."""
+        if len(text) <= max_chars:
+            return text
+        truncated = text[:max_chars]
+        for i in range(len(truncated) - 1, max(0, max_chars - 30) - 1, -1):
+            ch = truncated[i]
+            if ch in (" ", "\n", "，", "。", "、", "；", ",", ".", ";"):
+                return truncated[:i].rstrip() + "..."
+        return truncated.rstrip() + "..."
 
     @classmethod
     def _simplify_scheduled_task(cls, content: str) -> str:

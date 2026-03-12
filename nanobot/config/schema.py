@@ -251,8 +251,8 @@ class HistorySummarizerConfig(Base):
     """Turn-level history summarization to reduce token usage."""
 
     enabled: bool = True
-    protect_recent: int = 20  # Keep last N messages in original format
-    tool_result_max_chars: int = 200  # Max chars for tool result summaries
+    protect_recent: int = 0  # Keep last N messages in original format (0 = summarize all)
+    tool_result_max_chars: int = 200  # Max chars per individual tool result summary
 
 
 class HeartbeatPhaseConfig(Base):

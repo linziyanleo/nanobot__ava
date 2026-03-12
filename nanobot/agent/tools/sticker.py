@@ -232,7 +232,5 @@ class StickerTool(Tool):
         success, msg = self._send_sticker(token, target_chat_id, file_id, proxy)
         if success:
             self._sent_in_turn = True
-            meaning = sticker_info.get("meaning", "")
-            label = f"{emoji} - {meaning}" if meaning else emoji
-            return f"✓ Sticker {sticker_id} ({label}) sent to {target_chat_id}"
+            return f"send_sticker, {emoji}"
         return f"Error: {msg}"
