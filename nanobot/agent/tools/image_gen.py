@@ -35,12 +35,14 @@ class ImageGenTool(Tool):
     def __init__(
         self,
         token_stats: Any | None = None,
+        media_service: Any | None = None,
     ) -> None:
         model, api_key, api_base = _load_image_gen_config()
         self._api_key = api_key
         self._api_base = api_base
         self._model = model
         self._token_stats = token_stats
+        self._media_service = media_service
         self._client = None
         GENERATED_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -113,7 +115,13 @@ class ImageGenTool(Tool):
         return path
 
     def _write_record(self, record: dict) -> None:
-        """Append a generation record to the JSONL file."""
+        """Write a generation record via MediaService (DB) or legacy JSONL fallback."""
+        if self._media_service:
+            try:
+                self._media_service.write_record(record)
+            except Exception as e:
+                logger.warning("Failed to write image gen record via DB: {}", e)
+            return
         try:
             with open(RECORDS_FILE, "a", encoding="utf-8") as f:
                 f.write(json.dumps(record, ensure_ascii=False) + "\n")

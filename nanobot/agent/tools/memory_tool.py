@@ -16,10 +16,11 @@ if TYPE_CHECKING:
 class MemoryTool(Tool):
     """Tool for the agent to recall, remember, and manage categorized memory."""
 
-    def __init__(self, store: CategorizedMemoryStore) -> None:
+    def __init__(self, store: CategorizedMemoryStore, db: Any | None = None) -> None:
         self._store = store
         self._channel: str = ""
         self._chat_id: str = ""
+        self._db = db
 
     def set_context(self, channel: str, chat_id: str) -> None:
         """Set the current conversation context for identity resolution."""
@@ -261,13 +262,13 @@ class MemoryTool(Tool):
         until: str | None = None,
         channel: str | None = None,
     ) -> str:
-        """Search raw session JSONL files with current-session-first priority.
+        """Search session messages with current-session-first priority.
 
-        Priority:
-        1. If person is specified, search their associated sessions
-        2. Otherwise, search current session first (if available)
-        3. If current session has no results, fallback to global search
+        Uses SQLite when available, falls back to JSONL file scanning.
         """
+        if self._db is not None:
+            return self._search_sessions_db(query, person, since, until, channel)
+
         sessions_dir = self._store._workspace / "sessions"
         if not sessions_dir.exists():
             return ""
@@ -276,7 +277,6 @@ class MemoryTool(Tool):
         until_norm = self._normalize_datetime(until) if until else None
         query_lower = query.lower() if query else None
 
-        # Case 1: Person specified — search their sessions only
         if person:
             session_files = self._get_session_files_for_person(person)
             if channel:
@@ -284,28 +284,22 @@ class MemoryTool(Tool):
                 session_files = [p for p in session_files if p.name.startswith(prefix)]
             return self._search_session_files(session_files, query_lower, since_norm, until_norm)
 
-        # Case 2: No person — try current session first (only when no advanced filters),
-        # then fallback to global search
         has_advanced = bool(since or until or channel)
         current_session_file = None
         if self._channel and self._chat_id and not has_advanced:
-            # Only prioritize current session when there are no filters
             current = sessions_dir / f"{self._channel}_{self._chat_id}.jsonl"
             if current.exists():
                 current_session_file = current
 
-        # Phase A: Search current session first (skip if advanced filters are set)
         if current_session_file:
             result = self._search_session_files([current_session_file], query_lower, since_norm, until_norm)
             if result:
-                return result  # Found in current session, no need to search globally
+                return result
 
-        # Phase B: Fallback to global search (excluding current session already searched)
         all_files = sorted(sessions_dir.glob("*.jsonl"))
         if channel:
             prefix = f"{channel}_"
             all_files = [p for p in all_files if p.name.startswith(prefix)]
-        # Exclude current session to avoid duplicate search
         if current_session_file:
             all_files = [p for p in all_files if p != current_session_file]
 
@@ -313,6 +307,101 @@ class MemoryTool(Tool):
             return ""
 
         return self._search_session_files(all_files, query_lower, since_norm, until_norm)
+
+    def _search_sessions_db(
+        self,
+        query: str | None,
+        person: str | None,
+        since: str | None = None,
+        until: str | None = None,
+        channel: str | None = None,
+    ) -> str:
+        """Search session messages via SQLite."""
+        conditions: list[str] = []
+        params: list[Any] = []
+
+        if query:
+            conditions.append("sm.content LIKE ?")
+            params.append(f"%{query}%")
+        if since:
+            conditions.append("sm.timestamp >= ?")
+            params.append(self._normalize_datetime(since))
+        if until:
+            conditions.append("sm.timestamp < ?")
+            params.append(self._normalize_datetime(until))
+        if channel:
+            conditions.append("s.key LIKE ?")
+            params.append(f"{channel}:%")
+
+        if person:
+            session_keys = self._get_session_keys_for_person(person)
+            if not session_keys:
+                return ""
+            placeholders = ",".join("?" for _ in session_keys)
+            conditions.append(f"s.key IN ({placeholders})")
+            params.extend(session_keys)
+        elif self._channel and self._chat_id and not (since or until or channel):
+            current_key = f"{self._channel}:{self._chat_id}"
+            rows = self._db.fetchall(
+                f"""SELECT sm.role, sm.content, sm.timestamp
+                    FROM session_messages sm
+                    JOIN sessions s ON s.id = sm.session_id
+                    WHERE s.key = ? AND sm.content IS NOT NULL
+                    {"AND sm.content LIKE ?" if query else ""}
+                    ORDER BY sm.timestamp DESC LIMIT ?""",
+                tuple([current_key] + ([f"%{query}%"] if query else []) + [self._SESSIONS_MAX_RESULTS]),
+            )
+            if rows:
+                return self._format_db_matches(rows)
+
+        where = f" WHERE {' AND '.join(conditions)}" if conditions else ""
+        params.append(self._SESSIONS_MAX_RESULTS)
+
+        rows = self._db.fetchall(
+            f"""SELECT sm.role, sm.content, sm.timestamp
+                FROM session_messages sm
+                JOIN sessions s ON s.id = sm.session_id
+                {where}
+                AND sm.content IS NOT NULL
+                ORDER BY sm.timestamp DESC LIMIT ?""",
+            tuple(params),
+        )
+        return self._format_db_matches(rows)
+
+    def _format_db_matches(self, rows: list) -> str:
+        if not rows:
+            return ""
+        matches = []
+        for r in rows:
+            content = r["content"] or ""
+            if not isinstance(content, str):
+                continue
+            snippet = content[:self._SESSIONS_MAX_CHARS]
+            if len(content) > self._SESSIONS_MAX_CHARS:
+                snippet += "..."
+            matches.append(f"[{r['timestamp'] or ''}] {r['role']}: {snippet}")
+        if not matches:
+            return ""
+        result = "\n".join(matches)
+        if len(matches) >= self._SESSIONS_MAX_RESULTS:
+            result += f"\n... (showing first {self._SESSIONS_MAX_RESULTS} matches)"
+        return result
+
+    def _get_session_keys_for_person(self, person_name: str) -> list[str]:
+        """Get session keys for a person from identity_map."""
+        persons = self._store.resolver.list_persons()
+        info = persons.get(person_name)
+        if not info:
+            return []
+        keys: list[str] = []
+        for entry in info.get("ids", []):
+            ch = entry.get("channel", "")
+            ids = entry.get("id", [])
+            if isinstance(ids, str):
+                ids = [ids]
+            for cid in ids:
+                keys.append(f"{ch}:{cid}")
+        return keys
 
     def _search_session_files(
         self,
