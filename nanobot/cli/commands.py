@@ -585,12 +585,19 @@ def gateway(
         cron_token = None
         if isinstance(cron_tool, CronTool):
             cron_token = cron_tool.set_cron_context(True)
+        channel = job.payload.channel or "cli"
+        chat_id = job.payload.to or "direct"
+        if job.payload.deliver and job.payload.channel and job.payload.to:
+            session_key = f"{channel}:{chat_id}"
+        else:
+            session_key = f"cron:{job.id}"
+
         try:
             response = await agent.process_direct(
                 reminder_note,
-                session_key=f"cron:{job.id}",
-                channel=job.payload.channel or "cli",
-                chat_id=job.payload.to or "direct",
+                session_key=session_key,
+                channel=channel,
+                chat_id=chat_id,
                 model_override=model_override,
             )
         finally:
@@ -604,8 +611,8 @@ def gateway(
         if job.payload.deliver and job.payload.to and response:
             from nanobot.bus.events import OutboundMessage
             await bus.publish_outbound(OutboundMessage(
-                channel=job.payload.channel or "cli",
-                chat_id=job.payload.to,
+                channel=channel,
+                chat_id=chat_id,
                 content=response or ""
             ))
         return response
@@ -634,6 +641,10 @@ def gateway(
     async def on_heartbeat_execute(tasks: str) -> str:
         """Phase 2: execute heartbeat tasks through the full agent loop."""
         channel, chat_id = _pick_heartbeat_target()
+        if channel != "cli":
+            session_key = f"{channel}:{chat_id}"
+        else:
+            session_key = "heartbeat"
 
         async def _silent(*_args, **_kwargs):
             pass
@@ -643,7 +654,7 @@ def gateway(
 
         return await agent.process_direct(
             tasks,
-            session_key="heartbeat",
+            session_key=session_key,
             channel=channel,
             chat_id=chat_id,
             on_progress=_silent,
