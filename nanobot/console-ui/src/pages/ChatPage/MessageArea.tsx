@@ -142,7 +142,7 @@ export function MessageArea({ session, turns, loading, isConsole, streaming, thi
         ) : (
           <>
             {turns.map((turn, i) => (
-              <TurnGroupComponent key={i} turn={turn} tokenStats={turnTokenStats.get(i)} />
+              <TurnGroupComponent key={i} turn={turn} tokenStats={turnTokenStats.get(i)} sessionKey={session?.key} />
             ))}
             {thinkingStreaming && (
               <div className="flex justify-start">

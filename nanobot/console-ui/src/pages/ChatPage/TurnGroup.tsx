@@ -3,45 +3,16 @@ import { Loader2, Clock, Info } from 'lucide-react'
 import type { TurnGroup as TurnGroupType, TurnTokenStats } from './types'
 import { MessageBubble } from './MessageBubble'
 import { ToolCallBlock } from './ToolCallBlock'
+import { TokenInfoPopover } from './TokenInfoPopover'
 import { formatTimestamp, calcDuration, getContentText, formatTokenCount } from './utils'
 
 interface TurnGroupProps {
   turn: TurnGroupType
   tokenStats?: TurnTokenStats
+  sessionKey?: string
 }
 
-function TokenInfoPopover({ stats }: { stats: TurnTokenStats }) {
-  return (
-    <div className="absolute left-0 bottom-full mb-1 z-50 w-52 rounded-lg border border-[var(--border)] bg-[var(--bg-secondary)] shadow-lg p-2.5 text-[10px]">
-      <div className="space-y-1">
-        <div className="flex justify-between">
-          <span className="text-[var(--text-secondary)]">Prompt</span>
-          <span className="font-mono text-[var(--text-primary)]">{formatTokenCount(stats.prompt_tokens)}</span>
-        </div>
-        <div className="flex justify-between">
-          <span className="text-[var(--text-secondary)]">Completion</span>
-          <span className="font-mono text-[var(--text-primary)]">{formatTokenCount(stats.completion_tokens)}</span>
-        </div>
-        <div className="flex justify-between border-t border-[var(--border)] pt-1">
-          <span className="text-[var(--text-secondary)] font-medium">Total</span>
-          <span className="font-mono font-medium text-[var(--accent)]">{formatTokenCount(stats.total_tokens)}</span>
-        </div>
-        <div className="flex justify-between">
-          <span className="text-[var(--text-secondary)]">LLM Calls</span>
-          <span className="font-mono text-[var(--text-primary)]">{stats.llm_calls}</span>
-        </div>
-        {stats.models && (
-          <div className="border-t border-[var(--border)] pt-1 truncate">
-            <span className="text-[var(--text-secondary)]">Model: </span>
-            <span className="text-[var(--text-primary)]">{stats.models}</span>
-          </div>
-        )}
-      </div>
-    </div>
-  )
-}
-
-export function TurnGroupComponent({ turn, tokenStats }: TurnGroupProps) {
+export function TurnGroupComponent({ turn, tokenStats, sessionKey }: TurnGroupProps) {
   const duration = calcDuration(turn.startTime, turn.endTime)
   const hasToolCalls = turn.toolCalls.length > 0
   const [showTokenInfo, setShowTokenInfo] = useState(false)
@@ -96,7 +67,7 @@ export function TurnGroupComponent({ turn, tokenStats }: TurnGroupProps) {
                   <Info className="w-3 h-3" />
                   <span>{formatTokenCount(tokenStats.total_tokens)}</span>
                 </button>
-                {showTokenInfo && <TokenInfoPopover stats={tokenStats} />}
+                {showTokenInfo && <TokenInfoPopover stats={tokenStats} sessionKey={sessionKey} turnSeq={tokenStats.turn_seq ?? undefined} />}
               </div>
             )}
           </div>
@@ -117,6 +88,7 @@ export function TurnGroupComponent({ turn, tokenStats }: TurnGroupProps) {
           message={msg}
           isUser={false}
           tokenStats={i === finalAssistant.length - 1 ? tokenStats : undefined}
+          sessionKey={sessionKey}
         />
       ))}
 
