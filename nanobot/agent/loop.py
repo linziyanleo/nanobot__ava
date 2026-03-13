@@ -718,7 +718,7 @@ class AgentLoop:
 
         content.append({
             "type": "text",
-            "text": "请转录这段语音的内容，只输出转录文本，不要添加任何额外说明。",
+            "text": "请转录这段语音的内容，输出转录文本，以及对应的语气。格式为：[语音转录: 转录文本 (语气)]",
         })
 
         messages = [{"role": "user", "content": content}]

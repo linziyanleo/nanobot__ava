@@ -15,6 +15,7 @@ from telegram.request import HTTPXRequest
 from nanobot.bus.events import OutboundMessage
 from nanobot.bus.queue import MessageBus
 from nanobot.channels.base import BaseChannel
+from nanobot.channels.batcher import MessageBatcher
 from nanobot.config.paths import get_media_dir
 from nanobot.config.schema import TelegramConfig
 from nanobot.utils.helpers import split_message
@@ -187,6 +188,15 @@ class TelegramChannel(BaseChannel):
         self._media_group_tasks: dict[str, asyncio.Task] = {}
         self._message_threads: dict[tuple[str, int], int] = {}
 
+        typing_timeout = getattr(config, "user_typing_timeout", 0)
+        self._msg_batcher: MessageBatcher | None = None
+        if typing_timeout > 0:
+            self._msg_batcher = MessageBatcher(
+                timeout_s=typing_timeout,
+                flush_callback=self._handle_message,
+                on_first_message=self._start_typing,
+            )
+
     def is_allowed(self, sender_id: str) -> bool:
         """Preserve Telegram's legacy id|username allowlist matching."""
         if super().is_allowed(sender_id):
@@ -279,6 +289,9 @@ class TelegramChannel(BaseChannel):
             task.cancel()
         self._media_group_tasks.clear()
         self._media_group_buffers.clear()
+
+        if self._msg_batcher:
+            await self._msg_batcher.cancel_all()
 
         if self._app:
             logger.info("Stopping Telegram bot...")
@@ -599,18 +612,26 @@ class TelegramChannel(BaseChannel):
                 self._media_group_tasks[key] = asyncio.create_task(self._flush_media_group(key))
             return
 
-        # Start typing indicator before processing
-        self._start_typing(str_chat_id)
-
-        # Forward to the message bus
-        await self._handle_message(
-            sender_id=sender_id,
-            chat_id=str_chat_id,
-            content=content,
-            media=media_paths,
-            metadata=metadata,
-            session_key=session_key,
-        )
+        if self._msg_batcher:
+            await self._msg_batcher.add(
+                key=str_chat_id,
+                content=content,
+                media=media_paths,
+                sender_id=sender_id,
+                chat_id=str_chat_id,
+                metadata=metadata,
+                session_key=session_key,
+            )
+        else:
+            self._start_typing(str_chat_id)
+            await self._handle_message(
+                sender_id=sender_id,
+                chat_id=str_chat_id,
+                content=content,
+                media=media_paths,
+                metadata=metadata,
+                session_key=session_key,
+            )
 
     async def _flush_media_group(self, key: str) -> None:
         """Wait briefly, then forward buffered media-group as one turn."""
@@ -619,12 +640,25 @@ class TelegramChannel(BaseChannel):
             if not (buf := self._media_group_buffers.pop(key, None)):
                 return
             content = "\n".join(buf["contents"]) or "[empty message]"
-            await self._handle_message(
-                sender_id=buf["sender_id"], chat_id=buf["chat_id"],
-                content=content, media=list(dict.fromkeys(buf["media"])),
-                metadata=buf["metadata"],
-                session_key=buf.get("session_key"),
-            )
+            media = list(dict.fromkeys(buf["media"]))
+
+            if self._msg_batcher:
+                await self._msg_batcher.add(
+                    key=buf["chat_id"],
+                    content=content,
+                    media=media,
+                    sender_id=buf["sender_id"],
+                    chat_id=buf["chat_id"],
+                    metadata=buf["metadata"],
+                    session_key=buf.get("session_key"),
+                )
+            else:
+                await self._handle_message(
+                    sender_id=buf["sender_id"], chat_id=buf["chat_id"],
+                    content=content, media=media,
+                    metadata=buf["metadata"],
+                    session_key=buf.get("session_key"),
+                )
         finally:
             self._media_group_tasks.pop(key, None)
 
