@@ -257,8 +257,10 @@ class AgentLoop:
         session: Session | None = None,
         on_progress: Callable[..., Awaitable[None]] | None = None,
         turn_seq: int | None = None,
+        model: str | None = None,
     ) -> tuple[str | None, list[str], list[dict]]:
         """Run the agent iteration loop. Returns (final_content, tools_used, messages)."""
+        _effective_model = model or self.model
         messages = initial_messages
         iteration = 0
         final_content = None
@@ -275,7 +277,7 @@ class AgentLoop:
             response = await self.provider.chat(
                 messages=messages,
                 tools=self.tools.get_definitions(),
-                model=self.model,
+                model=_effective_model,
                 temperature=self.temperature,
                 max_tokens=self.max_tokens,
                 reasoning_effort=self.reasoning_effort,
@@ -315,12 +317,12 @@ class AgentLoop:
                     except (TypeError, ValueError):
                         conv_history_str = ""
                     _effective_provider = (
-                        self.model.split("/", 1)[0]
-                        if "/" in self.model
+                        _effective_model.split("/", 1)[0]
+                        if "/" in _effective_model
                         else self.provider.provider_name
                     )
                     self._token_stats.record(
-                        model=self.model,
+                        model=_effective_model,
                         provider=_effective_provider,
                         usage=response.usage,
                         session_key=session.key if session else "",
@@ -478,6 +480,7 @@ class AgentLoop:
         msg: InboundMessage,
         session_key: str | None = None,
         on_progress: Callable[[str], Awaitable[None]] | None = None,
+        model_override: str | None = None,
     ) -> OutboundMessage | None:
         """Process a single inbound message and return the response."""
         # System messages: parse origin from chat_id ("channel:chat_id")
@@ -493,12 +496,9 @@ class AgentLoop:
                     message_tool.start_turn()
 
             _sys_model_tier = msg.metadata.get("model_tier")
-            _sys_original_model = None
-            if _sys_model_tier:
-                _sys_override = self.get_model_for_tier(_sys_model_tier)
-                if _sys_override != self.model:
-                    _sys_original_model = self.model
-                    self.model = _sys_override
+            _sys_model: str | None = model_override
+            if not _sys_model and _sys_model_tier:
+                _sys_model = self.get_model_for_tier(_sys_model_tier)
 
             history = session.get_history(max_messages=self.memory_window)
             history = self._summarizer.summarize(history)
@@ -519,39 +519,36 @@ class AgentLoop:
 
             _turn_seq = sum(1 for m in session.messages if m.get("role") == "user")
 
-            try:
-                final_content, _, all_msgs = await self._run_agent_loop(
-                    messages, session, on_progress=_sys_progress, turn_seq=_turn_seq,
-                )
+            final_content, _, all_msgs = await self._run_agent_loop(
+                messages, session, on_progress=_sys_progress, turn_seq=_turn_seq,
+                model=_sys_model,
+            )
 
-                # Check if delivery tools already sent content
-                _sticker_sent = False
-                if (st := self.tools.get("send_sticker")):
-                    from nanobot.agent.tools.sticker import StickerTool
-                    if isinstance(st, StickerTool) and st._sent_in_turn:
-                        _sticker_sent = True
-                        st._sent_in_turn = False
+            # Check if delivery tools already sent content
+            _sticker_sent = False
+            if (st := self.tools.get("send_sticker")):
+                from nanobot.agent.tools.sticker import StickerTool
+                if isinstance(st, StickerTool) and st._sent_in_turn:
+                    _sticker_sent = True
+                    st._sent_in_turn = False
 
-                _message_sent = False
-                if (mt := self.tools.get("message")) and isinstance(mt, MessageTool) and mt._sent_in_turn:
-                    _message_sent = True
+            _message_sent = False
+            if (mt := self.tools.get("message")) and isinstance(mt, MessageTool) and mt._sent_in_turn:
+                _message_sent = True
 
-                self._save_turn(session, all_msgs, 1 + len(history))
-                self.sessions.save(session)
+            self._save_turn(session, all_msgs, 1 + len(history))
+            self.sessions.save(session)
 
-                _content_is_empty = (
-                    final_content is None
-                    or not final_content.strip()
-                    or final_content.strip().lower() in ("(empty)", "empty", "…", "...")
-                )
-                if _message_sent or (_sticker_sent and _content_is_empty):
-                    return None
+            _content_is_empty = (
+                final_content is None
+                or not final_content.strip()
+                or final_content.strip().lower() in ("(empty)", "empty", "…", "...")
+            )
+            if _message_sent or (_sticker_sent and _content_is_empty):
+                return None
 
-                return OutboundMessage(channel=channel, chat_id=chat_id,
-                                      content=final_content or "Background task completed.")
-            finally:
-                if _sys_original_model is not None:
-                    self.model = _sys_original_model
+            return OutboundMessage(channel=channel, chat_id=chat_id,
+                                  content=final_content or "Background task completed.")
 
         preview = msg.content[:80] + "..." if len(msg.content) > 80 else msg.content
         logger.info("Processing message from {}:{}: {}", msg.channel, msg.sender_id, preview)
@@ -597,6 +594,8 @@ class AgentLoop:
 
         _turn_seq = sum(1 for m in session.messages if m.get("role") == "user")
 
+        _chat_model = model_override or self.model
+
         # Pre-process media: transcribe audio with voice_model, describe images with vision_model
         _effective_media = list(msg.media) if msg.media else None
         if msg.media:
@@ -604,7 +603,7 @@ class AgentLoop:
             _has_audio = any(p.rsplit(".", 1)[-1].lower() in _audio_exts for p in msg.media if "." in p)
 
             # Step 1: Transcribe audio → inject text, strip raw audio from media
-            if _has_audio and self.voice_model and self.voice_model != self.model:
+            if _has_audio and self.voice_model and self.voice_model != _chat_model:
                 _audio_paths = [
                     p for p in msg.media
                     if "." in p and p.rsplit(".", 1)[-1].lower() in _audio_exts
@@ -627,7 +626,7 @@ class AgentLoop:
                 p for p in (_effective_media or [])
                 if _mt.guess_type(p)[0] and _mt.guess_type(p)[0].startswith("image/")
             ]
-            if _image_paths and self.vision_model != self.model:
+            if _image_paths and self.vision_model != _chat_model:
                 _description = await self._describe_images(_image_paths, session, turn_seq=_turn_seq)
                 _effective_media = [
                     p for p in (_effective_media or [])
@@ -659,7 +658,7 @@ class AgentLoop:
 
         final_content, _, all_msgs = await self._run_agent_loop(
             initial_messages, session, on_progress=on_progress or _bus_progress,
-            turn_seq=_turn_seq,
+            turn_seq=_turn_seq, model=model_override,
         )
 
         # Check if any "delivery" tool already sent content to the user
@@ -972,24 +971,17 @@ class AgentLoop:
         """Process a message directly (for CLI or cron usage).
 
         Args:
-            model_override: If provided, temporarily use this model for the request.
+            model_override: If provided, use this model instead of self.model for the request.
         """
         await self._connect_mcp()
         session = self.sessions.get_or_create(session_key)
         msg = InboundMessage(channel=channel, sender_id="user", chat_id=chat_id, content=content)
 
-        # Temporarily swap model if override provided
-        original_model = None
-        if model_override:
-            original_model = self.model
-            self.model = model_override
-
-        try:
-            response = await self._process_message(msg, session_key=session_key, on_progress=on_progress)
-            return response.content if response else ""
-        finally:
-            if original_model:
-                self.model = original_model
+        response = await self._process_message(
+            msg, session_key=session_key, on_progress=on_progress,
+            model_override=model_override,
+        )
+        return response.content if response else ""
 
     def get_model_for_tier(self, tier: str | None) -> str:
         """Get model name for a given tier.

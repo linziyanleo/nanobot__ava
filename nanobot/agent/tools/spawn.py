@@ -67,14 +67,15 @@ class SpawnTool(Tool):
             "required": ["task"],
         }
 
-    async def execute(self, task: str, label: str | None = None, tier: str = "default", **kwargs: Any) -> str:
+    async def execute(self, task: str, label: str | None = None, tier: str | None = None, **kwargs: Any) -> str:
         """Spawn a subagent to execute the given task."""
+        effective_tier = tier or self._announce_model_tier or "default"
         return await self._manager.spawn(
             task=task,
             label=label,
             origin_channel=self._origin_channel,
             origin_chat_id=self._origin_chat_id,
             session_key=self._session_key,
-            model_tier=tier,
+            model_tier=effective_tier,
             announce_model_tier=self._announce_model_tier,
         )
