@@ -129,45 +129,107 @@ class TokenStatsCollector:
                 self._records = self._records[-self._max_records:]
         self.flush()
 
-    def get_records(self, limit: int = 100, offset: int = 0, session_key: str | None = None) -> list[dict[str, Any]]:
+    def _build_filter(
+        self,
+        session_key: str | None = None,
+        model: str | None = None,
+        provider: str | None = None,
+        start_time: str | None = None,
+        end_time: str | None = None,
+        turn_seq: int | None = None,
+    ) -> tuple[str, list]:
+        """Build SQL WHERE clause and params from optional filters."""
+        clauses: list[str] = []
+        params: list = []
+        if session_key:
+            clauses.append("session_key LIKE ?")
+            params.append(f"%{session_key}%")
+        if model:
+            clauses.append("model LIKE ?")
+            params.append(f"%{model}%")
+        if provider:
+            clauses.append("provider LIKE ?")
+            params.append(f"%{provider}%")
+        if start_time:
+            clauses.append("timestamp >= ?")
+            params.append(start_time)
+        if end_time:
+            clauses.append("timestamp <= ?")
+            params.append(end_time)
+        if turn_seq is not None:
+            clauses.append("turn_seq = ?")
+            params.append(turn_seq)
+        where = (" WHERE " + " AND ".join(clauses)) if clauses else ""
+        return where, params
+
+    def get_records(
+        self,
+        limit: int = 100,
+        offset: int = 0,
+        session_key: str | None = None,
+        model: str | None = None,
+        provider: str | None = None,
+        start_time: str | None = None,
+        end_time: str | None = None,
+        turn_seq: int | None = None,
+    ) -> list[dict[str, Any]]:
         if self._use_db:
-            if session_key:
-                rows = self._db.fetchall(
-                    "SELECT * FROM token_usage WHERE session_key = ? ORDER BY timestamp DESC LIMIT ? OFFSET ?",
-                    (session_key, limit, offset),
-                )
-            else:
-                rows = self._db.fetchall(
-                    "SELECT * FROM token_usage ORDER BY timestamp DESC LIMIT ? OFFSET ?",
-                    (limit, offset),
-                )
+            where, params = self._build_filter(session_key, model, provider, start_time, end_time, turn_seq)
+            rows = self._db.fetchall(
+                f"SELECT * FROM token_usage{where} ORDER BY timestamp DESC LIMIT ? OFFSET ?",
+                (*params, limit, offset),
+            )
             return [dict(r) for r in rows]
 
         self._reload_if_changed()
         with self._lock:
             filtered = self._records
             if session_key:
-                filtered = [r for r in filtered if getattr(r, "session_key", None) == session_key]
+                filtered = [r for r in filtered if session_key.lower() in getattr(r, "session_key", "").lower()]
+            if model:
+                filtered = [r for r in filtered if model.lower() in getattr(r, "model", "").lower()]
+            if provider:
+                filtered = [r for r in filtered if provider.lower() in getattr(r, "provider", "").lower()]
+            if start_time:
+                filtered = [r for r in filtered if getattr(r, "timestamp", "") >= start_time]
+            if end_time:
+                filtered = [r for r in filtered if getattr(r, "timestamp", "") <= end_time]
+            if turn_seq is not None:
+                filtered = [r for r in filtered if getattr(r, "turn_seq", None) == turn_seq]
             reversed_records = list(reversed(filtered))
             sliced = reversed_records[offset: offset + limit]
             return [asdict(r) for r in sliced]
 
-    def get_total_count(self, session_key: str | None = None) -> int:
+    def get_total_count(
+        self,
+        session_key: str | None = None,
+        model: str | None = None,
+        provider: str | None = None,
+        start_time: str | None = None,
+        end_time: str | None = None,
+        turn_seq: int | None = None,
+    ) -> int:
         if self._use_db:
-            if session_key:
-                row = self._db.fetchone(
-                    "SELECT COUNT(*) as cnt FROM token_usage WHERE session_key = ?",
-                    (session_key,),
-                )
-            else:
-                row = self._db.fetchone("SELECT COUNT(*) as cnt FROM token_usage")
+            where, params = self._build_filter(session_key, model, provider, start_time, end_time, turn_seq)
+            row = self._db.fetchone(f"SELECT COUNT(*) as cnt FROM token_usage{where}", tuple(params))
             return row["cnt"] if row else 0
 
         self._reload_if_changed()
         with self._lock:
+            filtered = self._records
             if session_key:
-                return sum(1 for r in self._records if getattr(r, "session_key", None) == session_key)
-            return len(self._records)
+                filtered = [r for r in filtered if session_key.lower() in getattr(r, "session_key", "").lower()]
+            if model:
+                filtered = [r for r in filtered if model.lower() in getattr(r, "model", "").lower()]
+            if provider:
+                filtered = [r for r in filtered if provider.lower() in getattr(r, "provider", "").lower()]
+            if start_time:
+                filtered = [r for r in filtered if getattr(r, "timestamp", "") >= start_time]
+            if end_time:
+                filtered = [r for r in filtered if getattr(r, "timestamp", "") <= end_time]
+            if turn_seq is not None:
+                filtered = [r for r in filtered if getattr(r, "turn_seq", None) == turn_seq]
+            return len(filtered)
 
     def get_summary(self) -> dict[str, Any]:
         return {

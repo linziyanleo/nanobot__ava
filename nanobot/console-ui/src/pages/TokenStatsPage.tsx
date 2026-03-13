@@ -1,5 +1,6 @@
 import { useEffect, useState, useCallback, useRef } from 'react';
-import { RefreshCw, BarChart3, List, ChevronDown, ChevronUp, Trash2, Copy, Check } from 'lucide-react';
+import { useSearchParams } from 'react-router-dom';
+import { RefreshCw, BarChart3, List, ChevronDown, ChevronUp, Trash2, Copy, Check, Search, X } from 'lucide-react';
 import {
   BarChart,
   Bar,
@@ -15,6 +16,7 @@ import {
 } from 'recharts';
 import { api } from '../api/client';
 import { useAuth } from '../stores/auth';
+import { cn } from '../lib/utils';
 
 interface TokenRecord {
   timestamp: string;
@@ -91,7 +93,54 @@ function shortModel(model: string): string {
   return parts[parts.length - 1];
 }
 
+type TimePreset = 'all' | 'today' | '7d' | '30d' | 'custom';
+
+function getPresetRange(preset: TimePreset): { start?: string; end?: string } {
+  if (preset === 'all') return {};
+  const now = new Date();
+  const end = now.toISOString();
+  if (preset === 'today') {
+    const start = new Date(now.getFullYear(), now.getMonth(), now.getDate()).toISOString();
+    return { start, end };
+  }
+  if (preset === '7d') {
+    const start = new Date(now.getTime() - 7 * 86400000).toISOString();
+    return { start, end };
+  }
+  if (preset === '30d') {
+    const start = new Date(now.getTime() - 30 * 86400000).toISOString();
+    return { start, end };
+  }
+  return {};
+}
+
+function buildFilterStr(
+  sk: string,
+  model: string,
+  provider: string,
+  turnSeq: string,
+  preset: TimePreset,
+  cStart: string,
+  cEnd: string,
+): string {
+  const params = new URLSearchParams();
+  if (sk) params.set('session_key', sk);
+  if (model) params.set('model', model);
+  if (provider) params.set('provider', provider);
+  if (turnSeq) params.set('turn_seq', turnSeq);
+  if (preset === 'custom') {
+    if (cStart) params.set('start_time', new Date(cStart).toISOString());
+    if (cEnd) params.set('end_time', new Date(cEnd + 'T23:59:59').toISOString());
+  } else {
+    const { start, end } = getPresetRange(preset);
+    if (start) params.set('start_time', start);
+    if (end) params.set('end_time', end);
+  }
+  return params.toString();
+}
+
 export default function TokenStatsPage() {
+  const [searchParams, setSearchParams] = useSearchParams();
   const [view, setView] = useState<'records' | 'charts'>('records');
   const [summary, setSummary] = useState<TokenSummary | null>(null);
   const [records, setRecords] = useState<TokenRecord[]>([]);
@@ -101,6 +150,27 @@ export default function TokenStatsPage() {
   const [loading, setLoading] = useState(false);
   const { isAdmin } = useAuth();
   const pageSize = 50;
+
+  const [filterSessionKey, setFilterSessionKey] = useState(searchParams.get('session_key') || '');
+  const [filterModel, setFilterModel] = useState(searchParams.get('model') || '');
+  const [filterProvider, setFilterProvider] = useState(searchParams.get('provider') || '');
+  const [filterTurnSeq, setFilterTurnSeq] = useState(searchParams.get('turn_seq') || '');
+  const [timePreset, setTimePreset] = useState<TimePreset>('all');
+  const [customStart, setCustomStart] = useState('');
+  const [customEnd, setCustomEnd] = useState('');
+
+  const filtersRef = useRef({
+    filterSessionKey,
+    filterModel,
+    filterProvider,
+    filterTurnSeq,
+    timePreset,
+    customStart,
+    customEnd,
+  });
+  useEffect(() => {
+    filtersRef.current = { filterSessionKey, filterModel, filterProvider, filterTurnSeq, timePreset, customStart, customEnd };
+  }, [filterSessionKey, filterModel, filterProvider, filterTurnSeq, timePreset, customStart, customEnd]);
 
   const loadSummary = useCallback(async () => {
     try {
@@ -114,7 +184,20 @@ export default function TokenStatsPage() {
   const loadRecords = useCallback(async (p: number = 0) => {
     setLoading(true);
     try {
-      const r = await api<RecordsResponse>(`/stats/tokens/records?limit=${pageSize}&offset=${p * pageSize}`);
+      const f = filtersRef.current;
+      const filterStr = buildFilterStr(
+        f.filterSessionKey,
+        f.filterModel,
+        f.filterProvider,
+        f.filterTurnSeq,
+        f.timePreset,
+        f.customStart,
+        f.customEnd,
+      );
+      const sep = filterStr ? '&' : '';
+      const r = await api<RecordsResponse>(
+        `/stats/tokens/records?limit=${pageSize}&offset=${p * pageSize}${sep}${filterStr}`,
+      );
       setRecords(r.records);
       setTotal(r.total);
       setPage(p);
@@ -124,10 +207,69 @@ export default function TokenStatsPage() {
     setLoading(false);
   }, []);
 
+  // Initial load
   useEffect(() => {
     loadSummary();
     loadRecords(0);
   }, [loadSummary, loadRecords]);
+
+  // When URL params change (navigation from other page), sync state and reload
+  const mountedRef = useRef(false);
+  useEffect(() => {
+    if (!mountedRef.current) {
+      mountedRef.current = true;
+      return;
+    }
+    const sk = searchParams.get('session_key') || '';
+    const m = searchParams.get('model') || '';
+    const p = searchParams.get('provider') || '';
+    const ts = searchParams.get('turn_seq') || '';
+    setFilterSessionKey(sk);
+    setFilterModel(m);
+    setFilterProvider(p);
+    setFilterTurnSeq(ts);
+    filtersRef.current = {
+      ...filtersRef.current,
+      filterSessionKey: sk,
+      filterModel: m,
+      filterProvider: p,
+      filterTurnSeq: ts,
+    };
+    loadRecords(0);
+  }, [searchParams, loadRecords]);
+
+  const handleSearch = () => {
+    const newParams: Record<string, string> = {};
+    if (filterSessionKey) newParams.session_key = filterSessionKey;
+    if (filterModel) newParams.model = filterModel;
+    if (filterProvider) newParams.provider = filterProvider;
+    if (filterTurnSeq) newParams.turn_seq = filterTurnSeq;
+    setSearchParams(newParams, { replace: true });
+    loadRecords(0);
+  };
+
+  const handleClearFilters = () => {
+    setFilterSessionKey('');
+    setFilterModel('');
+    setFilterProvider('');
+    setFilterTurnSeq('');
+    setTimePreset('all');
+    setCustomStart('');
+    setCustomEnd('');
+    setSearchParams({}, { replace: true });
+    filtersRef.current = {
+      filterSessionKey: '',
+      filterModel: '',
+      filterProvider: '',
+      filterTurnSeq: '',
+      timePreset: 'all',
+      customStart: '',
+      customEnd: '',
+    };
+    loadRecords(0);
+  };
+
+  const hasFilters = filterSessionKey || filterModel || filterProvider || filterTurnSeq || timePreset !== 'all';
 
   const handleReset = async () => {
     if (!confirm('确认清空所有 Token 统计数据？')) return;
@@ -223,6 +365,118 @@ export default function TokenStatsPage() {
         </div>
       )}
 
+      {/* Search / Filter Bar */}
+      {view === 'records' && (
+        <div className="bg-[var(--bg-secondary)] border border-[var(--border)] rounded-xl p-4 mb-4">
+          <div className="flex flex-wrap gap-1 items-end">
+            <div className="flex-1 min-w-[120px]">
+              <label className="text-[10px] text-[var(--text-secondary)] mb-1 block">Session ID</label>
+              <input
+                type="text"
+                value={filterSessionKey}
+                onChange={e => setFilterSessionKey(e.target.value)}
+                placeholder="telegram:12345"
+                className="w-full px-2.5 py-1.5 rounded-lg bg-[var(--bg-primary)] border border-[var(--border)] text-xs text-[var(--text-primary)] placeholder:text-[var(--text-secondary)]/50 focus:border-[var(--accent)] outline-none"
+              />
+            </div>
+            <div className="flex-1 min-w-[120px]">
+              <label className="text-[10px] text-[var(--text-secondary)] mb-1 block">模型</label>
+              <input
+                type="text"
+                value={filterModel}
+                onChange={e => setFilterModel(e.target.value)}
+                placeholder="claude-sonnet"
+                className="w-full px-2.5 py-1.5 rounded-lg bg-[var(--bg-primary)] border border-[var(--border)] text-xs text-[var(--text-primary)] placeholder:text-[var(--text-secondary)]/50 focus:border-[var(--accent)] outline-none"
+              />
+            </div>
+            <div className="flex-1 min-w-[80px]">
+              <label className="text-[10px] text-[var(--text-secondary)] mb-1 block">Provider</label>
+              <input
+                type="text"
+                value={filterProvider}
+                onChange={e => setFilterProvider(e.target.value)}
+                placeholder="yunwu"
+                className="w-full px-2.5 py-1.5 rounded-lg bg-[var(--bg-primary)] border border-[var(--border)] text-xs text-[var(--text-primary)] placeholder:text-[var(--text-secondary)]/50 focus:border-[var(--accent)] outline-none"
+              />
+            </div>
+            <div className="w-[70px]">
+              <label className="text-[10px] text-[var(--text-secondary)] mb-1 block">Turn</label>
+              <input
+                type="text"
+                value={filterTurnSeq}
+                onChange={e => setFilterTurnSeq(e.target.value)}
+                placeholder="0"
+                className="w-full px-2.5 py-1.5 rounded-lg bg-[var(--bg-primary)] border border-[var(--border)] text-xs text-[var(--text-primary)] placeholder:text-[var(--text-secondary)]/50 focus:border-[var(--accent)] outline-none"
+              />
+            </div>
+            <div>
+              <label className="text-[10px] text-[var(--text-secondary)] mb-1 block">时间范围</label>
+              <div className="flex bg-[var(--bg-primary)] rounded-lg border border-[var(--border)] p-0.5">
+                {(['all', 'today', '7d', '30d', 'custom'] as TimePreset[]).map(p => (
+                  <button
+                    key={p}
+                    onClick={() => setTimePreset(p)}
+                    className={`px-1 py-1 rounded-md text-[10px] font-medium transition-colors ${
+                      timePreset === p
+                        ? 'bg-[var(--accent)] text-white'
+                        : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
+                    }`}
+                  >
+                    {p === 'all'
+                      ? '全部'
+                      : p === 'today'
+                        ? '今天'
+                        : p === '7d'
+                          ? '7天'
+                          : p === '30d'
+                            ? '30天'
+                            : '自定义'}
+                  </button>
+                ))}
+              </div>
+            </div>
+            {timePreset === 'custom' && (
+              <>
+                <div>
+                  <label className="text-[10px] text-[var(--text-secondary)] mb-1 block">开始日期</label>
+                  <input
+                    type="date"
+                    value={customStart}
+                    onChange={e => setCustomStart(e.target.value)}
+                    className="px-2.5 py-1.5 rounded-lg bg-[var(--bg-primary)] border border-[var(--border)] text-xs text-[var(--text-primary)] focus:border-[var(--accent)] outline-none"
+                  />
+                </div>
+                <div>
+                  <label className="text-[10px] text-[var(--text-secondary)] mb-1 block">结束日期</label>
+                  <input
+                    type="date"
+                    value={customEnd}
+                    onChange={e => setCustomEnd(e.target.value)}
+                    className="px-2.5 py-1.5 rounded-lg bg-[var(--bg-primary)] border border-[var(--border)] text-xs text-[var(--text-primary)] focus:border-[var(--accent)] outline-none"
+                  />
+                </div>
+              </>
+            )}
+            <div className="flex gap-1.5">
+              <button
+                onClick={handleSearch}
+                className="flex items-center gap-1 px-3 py-1.5 rounded-lg bg-[var(--accent)] text-white text-xs font-medium hover:opacity-90"
+              >
+                <Search className="w-3 h-3" />
+              </button>
+              {hasFilters && (
+                <button
+                  onClick={handleClearFilters}
+                  className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-[var(--bg-tertiary)] text-[var(--text-secondary)] text-xs hover:text-[var(--text-primary)]"
+                >
+                  <X className="w-3 h-3" />
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
       {view === 'records' ? (
         /* ============ Records View ============ */
         <div className="bg-[var(--bg-secondary)] border border-[var(--border)] rounded-xl overflow-hidden">
@@ -272,20 +526,21 @@ export default function TokenStatsPage() {
               <span className="text-xs text-[var(--text-secondary)]">
                 共 {total} 条 · 第 {page + 1}/{totalPages} 页
               </span>
-              <div className="flex gap-1">
+              <div className="flex items-center gap-1">
                 <button
                   disabled={page === 0}
                   onClick={() => loadRecords(page - 1)}
-                  className="px-3 py-1 rounded text-xs bg-[var(--bg-tertiary)] text-[var(--text-secondary)] disabled:opacity-30 hover:text-[var(--text-primary)]"
+                  className="px-2.5 py-1 rounded text-xs bg-[var(--bg-tertiary)] text-[var(--text-secondary)] disabled:opacity-30 hover:text-[var(--text-primary)]"
                 >
-                  上一页
+                  &lsaquo;
                 </button>
+                <PageNumbers current={page} total={totalPages} onPage={loadRecords} />
                 <button
                   disabled={page >= totalPages - 1}
                   onClick={() => loadRecords(page + 1)}
-                  className="px-3 py-1 rounded text-xs bg-[var(--bg-tertiary)] text-[var(--text-secondary)] disabled:opacity-30 hover:text-[var(--text-primary)]"
+                  className="px-2.5 py-1 rounded text-xs bg-[var(--bg-tertiary)] text-[var(--text-secondary)] disabled:opacity-30 hover:text-[var(--text-primary)]"
                 >
-                  下一页
+                  &rsaquo;
                 </button>
               </div>
             </div>
@@ -576,6 +831,46 @@ function RecordRow({
             </div>
           </td>
         </tr>
+      )}
+    </>
+  );
+}
+
+function PageNumbers({ current, total, onPage }: { current: number; total: number; onPage: (p: number) => void }) {
+  const pages: (number | '...')[] = [];
+  const maxVisible = 7;
+
+  if (total <= maxVisible) {
+    for (let i = 0; i < total; i++) pages.push(i);
+  } else {
+    pages.push(0);
+    if (current > 3) pages.push('...');
+    const lo = Math.max(1, current - 1);
+    const hi = Math.min(total - 2, current + 1);
+    for (let i = lo; i <= hi; i++) pages.push(i);
+    if (current < total - 4) pages.push('...');
+    pages.push(total - 1);
+  }
+
+  return (
+    <>
+      {pages.map((p, i) =>
+        p === '...' ? (
+          <span key={`e${i}`} className="px-1 text-xs text-[var(--text-secondary)]">…</span>
+        ) : (
+          <button
+            key={p}
+            onClick={() => onPage(p)}
+            className={cn(
+              'min-w-[28px] px-1.5 py-1 rounded text-xs font-medium transition-colors',
+              p === current
+                ? 'bg-[var(--accent)] text-white'
+                : 'bg-[var(--bg-tertiary)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]',
+            )}
+          >
+            {p + 1}
+          </button>
+        ),
       )}
     </>
   );
