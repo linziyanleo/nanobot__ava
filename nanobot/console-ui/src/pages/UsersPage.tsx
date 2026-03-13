@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
-import { Pencil, Trash2, UserPlus } from 'lucide-react'
+import { Pencil, Trash2, UserPlus, LogOut } from 'lucide-react'
 import { api } from '../api/client'
+import { useAuth } from '../stores/auth'
 
 interface User {
   username: string
@@ -9,6 +10,7 @@ interface User {
 }
 
 export default function UsersPage() {
+  const { logout, isAdmin } = useAuth()
   const [users, setUsers] = useState<User[]>([])
   const [showForm, setShowForm] = useState(false)
   const [editingUser, setEditingUser] = useState<string | null>(null)
@@ -72,16 +74,26 @@ export default function UsersPage() {
     <div>
       <div className="flex items-center justify-between mb-6">
         <h1 className="text-2xl font-bold">用户</h1>
-        <button
-          onClick={() => {
-            setShowForm(true);
-            setEditingUser(null);
-            setForm({ username: '', password: '', role: 'viewer' });
-          }}
-          className="flex items-center gap-1.5 px-4 py-2 rounded-lg bg-[var(--accent)] hover:bg-[var(--accent-hover)] text-white text-sm font-medium"
-        >
-          <UserPlus className="w-4 h-4" /> 添加用户
-        </button>
+        <div className="flex gap-2">
+          {isAdmin() && (
+            <button
+              onClick={() => {
+                setShowForm(true);
+                setEditingUser(null);
+                setForm({ username: '', password: '', role: 'viewer' });
+              }}
+              className="flex items-center gap-1.5 px-4 py-2 rounded-lg bg-[var(--accent)] hover:bg-[var(--accent-hover)] text-white text-sm font-medium"
+            >
+              <UserPlus className="w-4 h-4" /> 添加用户
+            </button>
+          )}
+          <button
+            onClick={logout}
+            className="flex items-center gap-1.5 px-4 py-2 rounded-lg bg-[var(--danger)]/10 text-[var(--danger)] hover:bg-[var(--danger)]/20 text-sm font-medium"
+          >
+            <LogOut className="w-4 h-4" /> 退出登录
+          </button>
+        </div>
       </div>
 
       {message && (
