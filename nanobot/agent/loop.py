@@ -258,6 +258,7 @@ class AgentLoop:
         on_progress: Callable[..., Awaitable[None]] | None = None,
         turn_seq: int | None = None,
         model: str | None = None,
+        model_role: str = "default",
     ) -> tuple[str | None, list[str], list[dict]]:
         """Run the agent iteration loop. Returns (final_content, tools_used, messages)."""
         _effective_model = model or self.model
@@ -334,6 +335,7 @@ class AgentLoop:
                         conversation_history=conv_history_str,
                         full_request_payload=full_payload,
                         finish_reason=response.finish_reason or "",
+                        model_role=model_role,
                     )
 
             if response.has_tool_calls:
@@ -519,9 +521,10 @@ class AgentLoop:
 
             _turn_seq = sum(1 for m in session.messages if m.get("role") == "user")
 
+            _sys_model_role = "mini" if _sys_model_tier == "mini" else "default"
             final_content, _, all_msgs = await self._run_agent_loop(
                 messages, session, on_progress=_sys_progress, turn_seq=_turn_seq,
-                model=_sys_model,
+                model=_sys_model, model_role=_sys_model_role,
             )
 
             # Check if delivery tools already sent content
@@ -761,6 +764,7 @@ class AgentLoop:
                         conversation_history="",
                         full_request_payload="",
                         finish_reason=response.finish_reason or "",
+                        model_role="voice",
                     )
                 logger.debug(
                     "🎙️ Voice transcription tokens: {} (prompt: {} + completion: {})",
@@ -836,6 +840,7 @@ class AgentLoop:
                         conversation_history="",
                         full_request_payload="",
                         finish_reason=response.finish_reason or "",
+                        model_role="vision",
                     )
                 logger.debug(
                     "👁️ Vision description tokens: {} (prompt: {} + completion: {})",

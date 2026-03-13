@@ -403,7 +403,10 @@ CREATE TABLE IF NOT EXISTS token_usage (
     system_prompt_preview TEXT DEFAULT '',
     conversation_history TEXT DEFAULT '',
     full_request_payload TEXT DEFAULT '',
-    finish_reason TEXT DEFAULT ''
+    finish_reason TEXT DEFAULT '',
+    model_role TEXT DEFAULT 'default',
+    cached_tokens INTEGER DEFAULT 0,
+    cache_creation_tokens INTEGER DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS idx_tu_timestamp ON token_usage(timestamp);
 CREATE INDEX IF NOT EXISTS idx_tu_model ON token_usage(model);

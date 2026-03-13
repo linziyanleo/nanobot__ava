@@ -68,4 +68,4 @@ export const SCENE_LABELS: Record<SceneType, string> = {
   other: 'Other',
 }
 
-export const SCENE_ORDER: SceneType[] = ['console', 'telegram', 'cron', 'heartbeat', 'cli', 'other']
+export const SCENE_ORDER: SceneType[] = ['telegram', 'cron', 'heartbeat', 'cli', 'console', 'other']

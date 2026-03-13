@@ -32,6 +32,9 @@ interface TokenRecord {
   conversation_history: string;
   full_request_payload: string;
   finish_reason: string;
+  model_role: string;
+  cached_tokens: number;
+  cache_creation_tokens: number;
 }
 
 interface ModelStats {
@@ -91,6 +94,59 @@ function formatTime(iso: string): string {
 function shortModel(model: string): string {
   const parts = model.split('/');
   return parts[parts.length - 1];
+}
+
+// Model role icons with tooltip
+const MODEL_ROLE_CONFIG: Record<string, { icon: string; label: string }> = {
+  default: { icon: '🤖', label: '主模型' },
+  mini: { icon: '⚡', label: '轻量模型' },
+  vision: { icon: '👁️', label: '视觉模型' },
+  voice: { icon: '🎙️', label: '语音模型' },
+  imageGen: { icon: '🎨', label: '图像生成' },
+};
+
+function ModelRoleIcon({ role }: { role: string }) {
+  const config = MODEL_ROLE_CONFIG[role] || MODEL_ROLE_CONFIG.default;
+  return (
+    <span className="relative group/role cursor-help text-base">
+      {config.icon}
+      <span className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1.5 px-2 py-1 rounded bg-[var(--bg-tertiary)] border border-[var(--border)] text-[10px] text-[var(--text-primary)] whitespace-nowrap opacity-0 group-hover/role:opacity-100 transition-opacity pointer-events-none z-10 shadow-lg">
+        {config.label}
+      </span>
+    </span>
+  );
+}
+
+function formatCacheStatus(cachedTokens: number, cacheCreationTokens: number): React.ReactNode {
+  if (!cachedTokens && !cacheCreationTokens) {
+    return <span className="text-[var(--text-secondary)]">-</span>;
+  }
+
+  const parts: React.ReactNode[] = [];
+
+  if (cacheCreationTokens > 0) {
+    parts.push(
+      <span key="write" className="text-amber-400" title={`写入缓存 ${cacheCreationTokens.toLocaleString()} tokens`}>
+        ✍️ {formatTokens(cacheCreationTokens)}
+      </span>
+    );
+  }
+
+  if (cachedTokens > 0) {
+    parts.push(
+      <span key="hit" className="text-emerald-400" title={`命中缓存 ${cachedTokens.toLocaleString()} tokens`}>
+        🎯 {formatTokens(cachedTokens)}
+      </span>
+    );
+  }
+
+  return (
+    <span className="flex items-center gap-1.5 text-xs">
+      {parts.map((part, i) => (
+        <span key={i}>{part}</span>
+      ))}
+    </span>
+  );
 }
 
 type TimePreset = 'all' | 'today' | '7d' | '30d' | 'custom';
@@ -486,9 +542,11 @@ export default function TokenStatsPage() {
                 <tr className="border-b border-[var(--border)] text-[var(--text-secondary)] text-xs">
                   <th className="text-left px-4 py-3 font-medium">时间</th>
                   <th className="text-left px-4 py-3 font-medium">模型</th>
+                  <th className="text-center px-4 py-3 font-medium">功能</th>
                   <th className="text-left px-4 py-3 font-medium">提供者</th>
                   <th className="text-right px-4 py-3 font-medium">Prompt</th>
                   <th className="text-right px-4 py-3 font-medium">Completion</th>
+                  <th className="text-center px-4 py-3 font-medium">缓存</th>
                   <th className="text-center px-4 py-3 font-medium">类型</th>
                   <th className="text-right px-4 py-3 font-medium">Total</th>
                   <th className="text-center px-4 py-3 font-medium w-10"></th>
@@ -497,13 +555,13 @@ export default function TokenStatsPage() {
               <tbody>
                 {loading ? (
                   <tr>
-                    <td colSpan={8} className="text-center py-8 text-[var(--text-secondary)]">
+                    <td colSpan={10} className="text-center py-8 text-[var(--text-secondary)]">
                       加载中...
                     </td>
                   </tr>
                 ) : records.length === 0 ? (
                   <tr>
-                    <td colSpan={8} className="text-center py-8 text-[var(--text-secondary)]">
+                    <td colSpan={10} className="text-center py-8 text-[var(--text-secondary)]">
                       暂无数据
                     </td>
                   </tr>
@@ -743,9 +801,15 @@ function RecordRow({
           {formatTime(r.timestamp)}
         </td>
         <td className="px-4 py-2.5 font-mono text-xs">{shortModel(r.model)}</td>
+        <td className="px-4 py-2.5 text-center">
+          <ModelRoleIcon role={r.model_role || 'default'} />
+        </td>
         <td className="px-4 py-2.5 text-xs">{r.provider}</td>
         <td className="px-4 py-2.5 text-right text-cyan-400 text-xs">{formatTokens(r.prompt_tokens)}</td>
         <td className="px-4 py-2.5 text-right text-emerald-400 text-xs">{formatTokens(r.completion_tokens)}</td>
+        <td className="px-4 py-2.5 text-center">
+          {formatCacheStatus(r.cached_tokens || 0, r.cache_creation_tokens || 0)}
+        </td>
         <td className="px-4 py-2.5 text-center">
           <span
             className={`inline-block px-1.5 py-0.5 rounded text-[10px] font-medium ${
@@ -770,7 +834,7 @@ function RecordRow({
       </tr>
       {expanded && (
         <tr className="bg-[var(--bg-tertiary)]/20">
-          <td colSpan={8} className="px-4 py-3">
+          <td colSpan={10} className="px-4 py-3">
             <div className="space-y-2 text-xs">
               <div>
                 <span className="text-[var(--text-secondary)]">Session:</span>{' '}

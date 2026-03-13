@@ -217,18 +217,29 @@ class ImageGenTool(Tool):
 
             if self._token_stats and hasattr(response, "usage_metadata") and response.usage_metadata:
                 um = response.usage_metadata
+                # Google GenAI 使用不同的缓存字段名
+                cached_tokens = getattr(um, "cached_content_token_count", 0) or 0
                 usage = {
                     "prompt_tokens": getattr(um, "prompt_token_count", 0) or 0,
                     "completion_tokens": getattr(um, "candidates_token_count", 0) or 0,
                     "total_tokens": getattr(um, "total_token_count", 0) or 0,
+                    "prompt_tokens_details": {"cached_tokens": cached_tokens} if cached_tokens else None,
                 }
+                # 构建输出内容，包含生成的图片路径
+                output_content = "\n".join(text_parts) if text_parts else ""
+                if image_paths:
+                    output_content += ("\n" if output_content else "") + f"Generated: {', '.join(image_paths)}"
                 try:
                     self._token_stats.record(
                         model=self._model,
-                        provider="gemini",
+                        provider="google",
                         usage=usage,
                         session_key="image_gen",
-                        user_message=prompt[:200],
+                        turn_seq=0,
+                        user_message=prompt[:500],
+                        output_content=output_content,
+                        finish_reason="stop",
+                        model_role="imageGen",
                     )
                 except Exception as e:
                     logger.debug("Failed to record image gen token stats: {}", e)

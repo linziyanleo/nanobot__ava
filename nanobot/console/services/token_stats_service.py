@@ -32,6 +32,9 @@ class TokenUsageRecord:
     conversation_history: str = ""
     full_request_payload: str = ""
     finish_reason: str = ""
+    model_role: str = "default"
+    cached_tokens: int = 0
+    cache_creation_tokens: int = 0
 
 
 class TokenStatsCollector:
@@ -72,7 +75,7 @@ class TokenStatsCollector:
         self,
         model: str,
         provider: str,
-        usage: dict[str, int],
+        usage: dict[str, Any],
         session_key: str = "",
         turn_seq: int | None = None,
         iteration: int = 0,
@@ -82,6 +85,7 @@ class TokenStatsCollector:
         conversation_history: str = "",
         full_request_payload: str = "",
         finish_reason: str = "",
+        model_role: str = "default",
     ) -> None:
         """Append a single LLM call record."""
         ts = datetime.now().isoformat()
@@ -89,17 +93,29 @@ class TokenStatsCollector:
         completion_tokens = usage.get("completion_tokens", 0)
         total_tokens = usage.get("total_tokens", 0)
 
+        # Extract cache info from LiteLLM usage response
+        # OpenAI/DeepSeek: prompt_tokens_details.cached_tokens
+        # Anthropic: cache_creation_input_tokens
+        cached_tokens = 0
+        cache_creation_tokens = 0
+        prompt_details = usage.get("prompt_tokens_details")
+        if isinstance(prompt_details, dict):
+            cached_tokens = prompt_details.get("cached_tokens", 0) or 0
+        cache_creation_tokens = usage.get("cache_creation_input_tokens", 0) or 0
+
         if self._use_db:
             self._db.execute(
                 """INSERT INTO token_usage
                    (timestamp, model, provider, prompt_tokens, completion_tokens, total_tokens,
                     session_key, turn_seq, iteration, user_message, output_content,
-                    system_prompt_preview, conversation_history, full_request_payload, finish_reason)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    system_prompt_preview, conversation_history, full_request_payload, finish_reason,
+                    model_role, cached_tokens, cache_creation_tokens)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
                     ts, model, provider, prompt_tokens, completion_tokens, total_tokens,
                     session_key, turn_seq, iteration, user_message, output_content,
                     system_prompt, conversation_history, full_request_payload, finish_reason,
+                    model_role, cached_tokens, cache_creation_tokens,
                 ),
             )
             self._db.commit()
@@ -121,6 +137,9 @@ class TokenStatsCollector:
             conversation_history=conversation_history,
             full_request_payload=full_request_payload,
             finish_reason=finish_reason,
+            model_role=model_role,
+            cached_tokens=cached_tokens,
+            cache_creation_tokens=cache_creation_tokens,
         )
         with self._lock:
             self._records.append(rec)
@@ -462,6 +481,9 @@ class TokenStatsCollector:
                     conversation_history=item.get("conversation_history", ""),
                     full_request_payload=item.get("full_request_payload", ""),
                     finish_reason=item.get("finish_reason", ""),
+                    model_role=item.get("model_role", "default"),
+                    cached_tokens=item.get("cached_tokens", 0),
+                    cache_creation_tokens=item.get("cache_creation_tokens", 0),
                 ))
             if len(self._records) > self._max_records:
                 self._records = self._records[-self._max_records:]
