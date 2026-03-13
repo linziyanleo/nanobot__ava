@@ -60,8 +60,8 @@ export default function ChatPage() {
     }
   }, [])
 
-  const loadSessionMessages = useCallback(async (sessionKey: string) => {
-    setLoadingMessages(true)
+  const loadSessionMessages = useCallback(async (sessionKey: string, silent = false) => {
+    if (!silent) setLoadingMessages(true)
     try {
       const messages = await api<RawMessage[]>(`/chat/messages?session_key=${encodeURIComponent(sessionKey)}`)
       const meta = sessions.find((s) => s.key === sessionKey) || null
@@ -69,9 +69,9 @@ export default function ChatPage() {
       setTurns(groupTurns(messages))
     } catch (err) {
       console.error('Failed to load messages:', err)
-      setTurns([])
+      if (!silent) setTurns([])
     } finally {
-      setLoadingMessages(false)
+      if (!silent) setLoadingMessages(false)
     }
   }, [sessions])
 
@@ -89,7 +89,7 @@ export default function ChatPage() {
   useEffect(() => {
     if (!activeSession || activeScene === 'console' || sending) return
     const timer = setInterval(() => {
-      loadSessionMessages(activeSession)
+      loadSessionMessages(activeSession, true)
     }, MESSAGE_POLL_MS)
     return () => clearInterval(timer)
   }, [activeSession, activeScene, sending, loadSessionMessages])

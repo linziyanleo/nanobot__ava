@@ -132,7 +132,7 @@ class MemoryStore:
 
     @staticmethod
     def _parse_session_key(key: str) -> tuple[str | None, str | None]:
-        """Extract (channel, chat_id) from a session key like 'telegram:8281248569'."""
+        """Extract (channel, chat_id) from a session key like 'telegram:xxxxxxxxxx'."""
         if ":" in key:
             channel, chat_id = key.split(":", 1)
             return channel, chat_id

@@ -64,8 +64,10 @@ export function MessageArea({ session, turns, loading, isConsole, streaming, thi
     if (isInitialScroll.current && bottomRef.current) {
       bottomRef.current.scrollIntoView({ behavior: 'instant' })
       isInitialScroll.current = false
+    } else {
+      checkScrollPosition()
     }
-  }, [turns])
+  }, [turns, checkScrollPosition])
 
   useEffect(() => {
     isInitialScroll.current = true

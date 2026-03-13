@@ -39,6 +39,7 @@ export function parseJsonl(content: string, filename: string): { meta: SessionMe
             total_tokens: 0,
             llm_calls: 0,
           },
+          message_count: 0,
         }
       } else if (data.role) {
         messages.push(data as RawMessage)
@@ -57,6 +58,7 @@ export function parseJsonl(content: string, filename: string): { meta: SessionMe
       created_at: '',
       updated_at: '',
       token_stats: { total_prompt_tokens: 0, total_completion_tokens: 0, total_tokens: 0, llm_calls: 0 },
+      message_count: 0,
     }
   }
 
@@ -163,7 +165,7 @@ export function calcDuration(start?: string, end?: string): string {
 }
 
 export function extractSessionTitle(meta: SessionMeta, messages: RawMessage[]): string {
-  const name = meta.filename.replace(/\.jsonl$/, '')
+  const name = (meta.filename ?? meta.key).replace(/\.jsonl$/, '')
 
   if (meta.scene === 'heartbeat') return 'Heartbeat'
 
