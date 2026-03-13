@@ -241,7 +241,7 @@ class ChannelManager:
                         await channel.send(msg)
                     except Exception as e:
                         logger.error("Error sending to {}: {}", msg.channel, e)
-                else:
+                elif msg.channel not in ("cli", "cron", "system"):
                     logger.warning("Unknown channel: {}", msg.channel)
 
             except asyncio.TimeoutError:

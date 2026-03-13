@@ -48,6 +48,7 @@ export default function ChatPage() {
         const firstSessionInScene = metas.find((m) => m.scene === firstScene)
         if (firstSessionInScene) {
           setActiveSession(firstSessionInScene.key)
+          setCurrentMeta(firstSessionInScene)
           loadSessionMessages(firstSessionInScene.key)
           if (firstScene === 'console') {
             const sid = firstSessionInScene.key.replace(/^console:/, '')

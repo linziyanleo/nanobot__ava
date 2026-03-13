@@ -70,6 +70,7 @@ class SubagentManager:
         origin_chat_id: str = "direct",
         session_key: str | None = None,
         model_tier: str = "default",
+        announce_model_tier: str | None = None,
     ) -> str:
         """Spawn a subagent to execute a task in the background."""
         task_id = str(uuid.uuid4())[:8]
@@ -77,7 +78,8 @@ class SubagentManager:
         origin = {"channel": origin_channel, "chat_id": origin_chat_id}
 
         bg_task = asyncio.create_task(
-            self._run_subagent(task_id, task, display_label, origin, model_tier=model_tier)
+            self._run_subagent(task_id, task, display_label, origin,
+                               model_tier=model_tier, announce_model_tier=announce_model_tier)
         )
         self._running_tasks[task_id] = bg_task
         if session_key:
@@ -102,6 +104,7 @@ class SubagentManager:
         label: str,
         origin: dict[str, str],
         model_tier: str = "default",
+        announce_model_tier: str | None = None,
     ) -> None:
         """Execute the subagent task and announce the result."""
         logger.info("Subagent [{}] starting task: {}", task_id, label)
@@ -201,12 +204,14 @@ class SubagentManager:
                 final_result = "Task completed but no final response was generated."
 
             logger.info("Subagent [{}] completed successfully", task_id)
-            await self._announce_result(task_id, label, task, final_result, origin, "ok")
+            await self._announce_result(task_id, label, task, final_result, origin, "ok",
+                                        announce_model_tier=announce_model_tier)
 
         except Exception as e:
             error_msg = f"Error: {str(e)}"
             logger.error("Subagent [{}] failed: {}", task_id, e)
-            await self._announce_result(task_id, label, task, error_msg, origin, "error")
+            await self._announce_result(task_id, label, task, error_msg, origin, "error",
+                                        announce_model_tier=announce_model_tier)
 
     async def _announce_result(
         self,
@@ -216,6 +221,7 @@ class SubagentManager:
         result: str,
         origin: dict[str, str],
         status: str,
+        announce_model_tier: str | None = None,
     ) -> None:
         """Announce the subagent result to the main agent via the message bus."""
         status_text = "completed successfully" if status == "ok" else "failed"
@@ -229,12 +235,16 @@ Result:
 
 Summarize this naturally for the user. Keep it brief (1-2 sentences). Do not mention technical details like "subagent" or task IDs."""
 
-        # Inject as system message to trigger main agent
+        metadata: dict[str, Any] = {}
+        if announce_model_tier:
+            metadata["model_tier"] = announce_model_tier
+
         msg = InboundMessage(
             channel="system",
             sender_id="subagent",
             chat_id=f"{origin['channel']}:{origin['chat_id']}",
             content=announce_content,
+            metadata=metadata,
         )
 
         await self.bus.publish_inbound(msg)

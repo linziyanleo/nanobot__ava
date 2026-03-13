@@ -598,11 +598,20 @@ def gateway(
         cron_token = None
         if isinstance(cron_tool, CronTool):
             cron_token = cron_tool.set_cron_context(True)
-        channel = job.payload.channel or "cli"
-        chat_id = job.payload.to or "direct"
+
+        # Tell SpawnTool to carry the cron job's model tier for subagent announcements
+        from nanobot.agent.tools.spawn import SpawnTool
+        spawn_tool = agent.tools.get("spawn")
+        if isinstance(spawn_tool, SpawnTool):
+            spawn_tool.set_announce_model_tier(job.payload.model_tier)
+
         if job.payload.deliver and job.payload.channel and job.payload.to:
+            channel = job.payload.channel
+            chat_id = job.payload.to
             session_key = f"{channel}:{chat_id}"
         else:
+            channel = "cron"
+            chat_id = job.id
             session_key = f"cron:{job.id}"
 
         try:
@@ -616,6 +625,8 @@ def gateway(
         finally:
             if isinstance(cron_tool, CronTool) and cron_token is not None:
                 cron_tool.reset_cron_context(cron_token)
+            if isinstance(spawn_tool, SpawnTool):
+                spawn_tool.set_announce_model_tier(None)
 
         message_tool = agent.tools.get("message")
         if isinstance(message_tool, MessageTool) and message_tool._sent_in_turn:

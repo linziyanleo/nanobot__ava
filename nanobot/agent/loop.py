@@ -491,6 +491,15 @@ class AgentLoop:
             if message_tool := self.tools.get("message"):
                 if isinstance(message_tool, MessageTool):
                     message_tool.start_turn()
+
+            _sys_model_tier = msg.metadata.get("model_tier")
+            _sys_original_model = None
+            if _sys_model_tier:
+                _sys_override = self.get_model_for_tier(_sys_model_tier)
+                if _sys_override != self.model:
+                    _sys_original_model = self.model
+                    self.model = _sys_override
+
             history = session.get_history(max_messages=self.memory_window)
             history = self._summarizer.summarize(history)
             if self._compression_enabled:
@@ -510,35 +519,39 @@ class AgentLoop:
 
             _turn_seq = sum(1 for m in session.messages if m.get("role") == "user")
 
-            final_content, _, all_msgs = await self._run_agent_loop(
-                messages, session, on_progress=_sys_progress, turn_seq=_turn_seq,
-            )
+            try:
+                final_content, _, all_msgs = await self._run_agent_loop(
+                    messages, session, on_progress=_sys_progress, turn_seq=_turn_seq,
+                )
 
-            # Check if delivery tools already sent content
-            _sticker_sent = False
-            if (st := self.tools.get("send_sticker")):
-                from nanobot.agent.tools.sticker import StickerTool
-                if isinstance(st, StickerTool) and st._sent_in_turn:
-                    _sticker_sent = True
-                    st._sent_in_turn = False
+                # Check if delivery tools already sent content
+                _sticker_sent = False
+                if (st := self.tools.get("send_sticker")):
+                    from nanobot.agent.tools.sticker import StickerTool
+                    if isinstance(st, StickerTool) and st._sent_in_turn:
+                        _sticker_sent = True
+                        st._sent_in_turn = False
 
-            _message_sent = False
-            if (mt := self.tools.get("message")) and isinstance(mt, MessageTool) and mt._sent_in_turn:
-                _message_sent = True
+                _message_sent = False
+                if (mt := self.tools.get("message")) and isinstance(mt, MessageTool) and mt._sent_in_turn:
+                    _message_sent = True
 
-            self._save_turn(session, all_msgs, 1 + len(history))
-            self.sessions.save(session)
+                self._save_turn(session, all_msgs, 1 + len(history))
+                self.sessions.save(session)
 
-            _content_is_empty = (
-                final_content is None
-                or not final_content.strip()
-                or final_content.strip().lower() in ("(empty)", "empty", "…", "...")
-            )
-            if _message_sent or (_sticker_sent and _content_is_empty):
-                return None
+                _content_is_empty = (
+                    final_content is None
+                    or not final_content.strip()
+                    or final_content.strip().lower() in ("(empty)", "empty", "…", "...")
+                )
+                if _message_sent or (_sticker_sent and _content_is_empty):
+                    return None
 
-            return OutboundMessage(channel=channel, chat_id=chat_id,
-                                  content=final_content or "Background task completed.")
+                return OutboundMessage(channel=channel, chat_id=chat_id,
+                                      content=final_content or "Background task completed.")
+            finally:
+                if _sys_original_model is not None:
+                    self.model = _sys_original_model
 
         preview = msg.content[:80] + "..." if len(msg.content) > 80 else msg.content
         logger.info("Processing message from {}:{}: {}", msg.channel, msg.sender_id, preview)
