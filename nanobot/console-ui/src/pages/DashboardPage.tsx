@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback } from 'react'
-import { Server, Settings, FileText, MessageSquare, Activity } from 'lucide-react'
+import { Server, Settings, FileText, MessageSquare, Activity, RefreshCw, Power, AlertTriangle } from 'lucide-react';
 import { api } from '../api/client'
 import { useAuth } from '../stores/auth'
 import { useNavigate } from 'react-router-dom'
@@ -14,7 +14,10 @@ interface GatewayStatusData {
 
 export default function DashboardPage() {
   const [status, setStatus] = useState<GatewayStatusData | null>(null)
-  const { user } = useAuth()
+  const [restarting, setRestarting] = useState(false);
+  const [countdown, setCountdown] = useState(0);
+  const [gwMessage, setGwMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const { user, isAdmin } = useAuth();
   const navigate = useNavigate()
 
   const loadStatus = useCallback(() => {
@@ -27,22 +30,51 @@ export default function DashboardPage() {
     return () => clearInterval(interval)
   }, [loadStatus])
 
+  useEffect(() => {
+    if (countdown <= 0) return;
+    const timer = setTimeout(() => setCountdown(countdown - 1), 1000);
+    return () => clearTimeout(timer);
+  }, [countdown]);
+
+  const handleRestart = async (force: boolean = false) => {
+    if (!confirm(`重启网关${force ? ' (强制)' : ''}? 控制台将短暂断开连接。`)) return;
+    setRestarting(true);
+    setGwMessage(null);
+    try {
+      const delayMs = 5000;
+      await api('/gateway/restart', {
+        method: 'POST',
+        body: JSON.stringify({ delay_ms: delayMs, force }),
+      });
+      setCountdown(Math.ceil(delayMs / 1000) + 5);
+      setGwMessage({ type: 'success', text: `网关重启将在 ${delayMs / 1000}s 后执行` });
+    } catch (err: unknown) {
+      setGwMessage({ type: 'error', text: err instanceof Error ? err.message : '重启失败' });
+    } finally {
+      setRestarting(false);
+    }
+  };
+
   const formatUptime = (s: number | null) => {
-    if (s == null) return 'N/A'
-    const h = Math.floor(s / 3600)
-    const m = Math.floor((s % 3600) / 60)
-    return h > 0 ? `${h}h ${m}m` : `${m}m`
-  }
+    if (s == null) return 'N/A';
+    const d = Math.floor(s / 86400);
+    const h = Math.floor((s % 86400) / 3600);
+    const m = Math.floor((s % 3600) / 60);
+    const parts: string[] = [];
+    if (d > 0) parts.push(`${d}天`);
+    if (h > 0) parts.push(`${h}小时`);
+    parts.push(`${m}分钟`);
+    return parts.join(' ');
+  };
+
+  const shortUptime = (s: number | null) => {
+    if (s == null) return 'N/A';
+    const h = Math.floor(s / 3600);
+    const m = Math.floor((s % 3600) / 60);
+    return h > 0 ? `${h}h ${m}m` : `${m}m`;
+  };
 
   const cards = [
-    {
-      icon: Server,
-      label: '网关状态',
-      value: status?.running ? '运行中' : '未运行',
-      sub: status?.running ? `PID: ${status.pid} | 运行时间: ${formatUptime(status.uptime_seconds)}` : '',
-      color: status?.running ? 'text-[var(--success)]' : 'text-[var(--danger)]',
-      onClick: () => navigate('/gateway'),
-    },
     {
       icon: Settings,
       label: '配置',
@@ -76,7 +108,7 @@ export default function DashboardPage() {
         <p className="text-[var(--text-secondary)] text-sm mt-1">欢迎回来, {user?.username}</p>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-3 xl:grid-cols-3 gap-4 mb-6">
         {cards.map(card => (
           <button
             key={card.label}
@@ -95,7 +127,93 @@ export default function DashboardPage() {
         ))}
       </div>
 
-      <div className="mt-8 bg-[var(--bg-secondary)] border border-[var(--border)] rounded-xl p-5">
+      {/* Gateway Section */}
+      {gwMessage && (
+        <div
+          className={`mb-4 p-3 rounded-lg text-sm ${gwMessage.type === 'success' ? 'bg-[var(--success)]/10 text-[var(--success)]' : 'bg-[var(--danger)]/10 text-[var(--danger)]'}`}
+        >
+          {gwMessage.text}
+        </div>
+      )}
+
+      {countdown > 0 && (
+        <div className="mb-4 p-4 rounded-xl bg-[var(--warning)]/10 border border-[var(--warning)]/20 flex items-center gap-3">
+          <AlertTriangle className="w-5 h-5 text-[var(--warning)]" />
+          <div>
+            <p className="text-sm font-medium text-[var(--warning)]">网关重启中</p>
+            <p className="text-xs text-[var(--text-secondary)]">预计将在 ~{countdown}s 后恢复。页面将自动重新连接。</p>
+          </div>
+        </div>
+      )}
+
+      <div className="bg-[var(--bg-secondary)] border border-[var(--border)] rounded-xl p-5 mb-6">
+        <div className="flex items-center justify-between mb-4">
+          <div className="flex items-center gap-3">
+            <div className={`p-2.5 rounded-xl ${status?.running ? 'bg-[var(--success)]/10' : 'bg-[var(--danger)]/10'}`}>
+              <Server className={`w-6 h-6 ${status?.running ? 'text-[var(--success)]' : 'text-[var(--danger)]'}`} />
+            </div>
+            <div>
+              <h2 className="text-base font-semibold">
+                {status?.running ? '网关运行中' : '网关未运行'}{' '}
+                <button
+                  onClick={loadStatus}
+                  className="p-2 rounded-lg text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)] transition-colors"
+                  title="刷新状态"
+                >
+                  <RefreshCw className="w-4 h-4" />
+                </button>
+              </h2>
+              <p className="text-xs text-[var(--text-secondary)]">
+                {status?.running ? `PID: ${status.pid} · 运行时间: ${shortUptime(status.uptime_seconds)}` : '未检测到'}
+              </p>
+            </div>
+          </div>
+          {isAdmin() && (
+            <div className="flex gap-2">
+              <button
+                onClick={() => handleRestart(false)}
+                disabled={restarting}
+                className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-[var(--warning)] hover:bg-[var(--warning)]/80 text-black text-xs font-medium disabled:opacity-50"
+              >
+                <RefreshCw className="w-3.5 h-3.5" />
+                {restarting ? 'Scheduling...' : 'Graceful Restart'}
+              </button>
+              <button
+                onClick={() => handleRestart(true)}
+                disabled={restarting}
+                className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-[var(--danger)] hover:bg-[var(--danger)]/80 text-white text-xs font-medium disabled:opacity-50"
+              >
+                <Power className="w-3.5 h-3.5" /> Force Restart
+              </button>
+            </div>
+          )}
+        </div>
+
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
+          <div className="bg-[var(--bg-primary)] rounded-lg p-3">
+            <p className="text-[10px] text-[var(--text-secondary)] mb-0.5">状态</p>
+            <p
+              className={`text-sm font-semibold ${status?.running ? 'text-[var(--success)]' : 'text-[var(--danger)]'}`}
+            >
+              {status?.running ? '在线' : '离线'}
+            </p>
+          </div>
+          <div className="bg-[var(--bg-primary)] rounded-lg p-3">
+            <p className="text-[10px] text-[var(--text-secondary)] mb-0.5">PID</p>
+            <p className="text-sm font-semibold">{status?.pid ?? '-'}</p>
+          </div>
+          <div className="bg-[var(--bg-primary)] rounded-lg p-3">
+            <p className="text-[10px] text-[var(--text-secondary)] mb-0.5">端口</p>
+            <p className="text-sm font-semibold">{status?.gateway_port ?? '-'}</p>
+          </div>
+          <div className="bg-[var(--bg-primary)] rounded-lg p-3">
+            <p className="text-[10px] text-[var(--text-secondary)] mb-0.5">运行时间</p>
+            <p className="text-sm font-semibold">{formatUptime(status?.uptime_seconds ?? null)}</p>
+          </div>
+        </div>
+      </div>
+
+      <div className="bg-[var(--bg-secondary)] border border-[var(--border)] rounded-xl p-5">
         <div className="flex items-center gap-2 mb-3">
           <Activity className="w-4 h-4 text-[var(--accent)]" />
           <h2 className="text-sm font-semibold">快速信息</h2>

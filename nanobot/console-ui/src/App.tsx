@@ -7,11 +7,11 @@ import DashboardPage from './pages/DashboardPage'
 import ConfigPage from './pages/ConfigPage'
 import FilesPage from './pages/FilesPage'
 import ChatPage from './pages/ChatPage'
-import GatewayPage from './pages/GatewayPage'
 import TokenStatsPage from './pages/TokenStatsPage'
 import UsersPage from './pages/UsersPage'
 import MediaPage from './pages/MediaPage'
 import AuditPage from './pages/AuditPage'
+import ScheduledTasksPage from './pages/ScheduledTasksPage'
 
 function ProtectedRoute({ children, adminOnly = false }: { children: React.ReactNode; adminOnly?: boolean }) {
   const { user, loading } = useAuth()
@@ -44,7 +44,8 @@ export default function App() {
           <Route path="config" element={<ConfigPage />} />
           <Route path="files" element={<FilesPage />} />
           <Route path="chat" element={<ChatPage />} />
-          <Route path="gateway" element={<GatewayPage />} />
+          <Route path="gateway" element={<Navigate to="/" replace />} />
+          <Route path="tasks" element={<ScheduledTasksPage />} />
           <Route path="tokens" element={<TokenStatsPage />} />
           <Route path="media" element={<MediaPage />} />
           <Route path="users" element={<ProtectedRoute adminOnly><UsersPage /></ProtectedRoute>} />
