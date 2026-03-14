@@ -3,11 +3,10 @@ import { NavLink } from 'react-router-dom';
 import {
   LayoutDashboard,
   Settings,
-  FileText,
+  Brain,
+  UserCog,
   MessageSquare,
   BarChart3,
-  ImageIcon,
-  ClipboardList,
   Bot,
   PanelLeftClose,
   Timer,
@@ -20,11 +19,10 @@ const navItems = [
   { to: '/', icon: LayoutDashboard, label: '控制台' },
   { to: '/config', icon: Settings, label: '配置' },
   { to: '/tasks', icon: Timer, label: '定时任务' },
-  { to: '/files', icon: FileText, label: '文件' },
+  { to: '/memory', icon: Brain, label: '记忆' },
+  { to: '/persona', icon: UserCog, label: '人设' },
   { to: '/chat', icon: MessageSquare, label: '聊天' },
   { to: '/tokens', icon: BarChart3, label: 'Token 统计' },
-  { to: '/media', icon: ImageIcon, label: '生图' },
-  { to: '/audit', icon: ClipboardList, label: '行为日志', admin: true },
 ];
 
 const STORAGE_KEY = 'nanobot-sidebar-collapsed';
@@ -55,7 +53,7 @@ function FixedTooltip({ label, children }: { label: string; children: ReactNode 
 }
 
 export default function Sidebar() {
-  const { user, isAdmin } = useAuth();
+  const { user } = useAuth();
   const [collapsed, setCollapsed] = useState(() => {
     try {
       return localStorage.getItem(STORAGE_KEY) === '1';
@@ -113,7 +111,6 @@ export default function Sidebar() {
       {/* Navigation */}
       <nav className="flex-1 py-3 px-2 space-y-0.5 overflow-y-auto">
         {navItems.map(item => {
-          if (item.admin && !isAdmin()) return null;
           const link = (
             <NavLink
               key={item.to}
