@@ -152,6 +152,7 @@ class AgentLoop:
             restrict_to_workspace=restrict_to_workspace,
             restrict_config_file=restrict_config_file,
             in_loop_truncation=self._in_loop_truncation,
+            token_stats=self._token_stats,
         )
 
         self._running = False

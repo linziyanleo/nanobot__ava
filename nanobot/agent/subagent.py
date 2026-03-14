@@ -37,6 +37,7 @@ class SubagentManager:
         restrict_to_workspace: bool = False,
         restrict_config_file: bool = True,
         in_loop_truncation: "InLoopTruncationConfig | None" = None,
+        token_stats: Any | None = None,
     ):
         from nanobot.config.schema import ExecToolConfig, InLoopTruncationConfig as _ILT
         self.provider = provider
@@ -53,6 +54,7 @@ class SubagentManager:
         self.restrict_to_workspace = restrict_to_workspace
         self.restrict_config_file = restrict_config_file
         self._truncation = in_loop_truncation or _ILT()
+        self._token_stats = token_stats
         self._running_tasks: dict[str, asyncio.Task[None]] = {}
         self._session_tasks: dict[str, set[str]] = {}  # session_key -> {task_id, ...}
 
@@ -157,6 +159,30 @@ class SubagentManager:
                     reasoning_effort=self.reasoning_effort,
                 )
 
+                # Record token stats for subagent LLM calls
+                if response.usage and self._token_stats:
+                    _model_role = f"subagent_{model_tier}"
+                    _effective_provider = (
+                        selected_model.split("/", 1)[0]
+                        if "/" in selected_model
+                        else self.provider.provider_name
+                    )
+                    self._token_stats.record(
+                        model=selected_model,
+                        provider=_effective_provider,
+                        usage=response.usage,
+                        session_key=f"{origin.get('channel', '')}:{origin.get('chat_id', '')}",
+                        turn_seq=None,
+                        iteration=iteration,
+                        user_message=task[:200] if iteration == 1 else "",
+                        output_content=response.content or "",
+                        system_prompt="",
+                        conversation_history="",
+                        full_request_payload="",
+                        finish_reason=response.finish_reason or "",
+                        model_role=_model_role,
+                    )
+
                 if response.has_tool_calls:
                     # Add assistant message with tool calls
                     tool_call_dicts = [
@@ -231,11 +257,9 @@ class SubagentManager:
 Task: {task}
 
 Result:
-{result}
+{result}"""
 
-Summarize this naturally for the user. Keep it brief (1-2 sentences). Do not mention technical details like "subagent" or task IDs."""
-
-        metadata: dict[str, Any] = {}
+        metadata: dict[str, Any] = {"subagent_announce": True}
         if announce_model_tier:
             metadata["model_tier"] = announce_model_tier
 
