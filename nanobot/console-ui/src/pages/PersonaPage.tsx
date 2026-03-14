@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback } from 'react'
 import Editor from '@monaco-editor/react'
-import { UserCog, Save, RefreshCw } from 'lucide-react'
+import { UserCog, Save, RefreshCw, Users, Heart, Wrench, User } from 'lucide-react'
 import { api } from '../api/client'
 import { useAuth } from '../stores/auth'
 import { cn } from '../lib/utils'
@@ -12,15 +12,16 @@ interface FileData {
 }
 
 const PERSONA_FILES = [
-  { key: 'agents', name: 'AGENTS.md', description: 'Agent 指令配置' },
-  { key: 'soul', name: 'SOUL.md', description: '人格设定' },
-  { key: 'tools', name: 'TOOLS.md', description: '工具说明' },
-  { key: 'user', name: 'USER.md', description: '用户信息' },
+  { key: 'agents', name: 'AGENTS.md', description: 'Agent 指令配置', icon: Users },
+  { key: 'soul', name: 'SOUL.md', description: '人格设定', icon: Heart },
+  { key: 'tools', name: 'TOOLS.md', description: '工具说明', icon: Wrench },
+  { key: 'user', name: 'USER.md', description: '用户信息', icon: User },
 ] as const
 
 type FileKey = typeof PERSONA_FILES[number]['key']
 
 export default function PersonaPage() {
+  const [activeFile, setActiveFile] = useState<FileKey>('agents')
   const [files, setFiles] = useState<Record<FileKey, FileData | null>>({
     agents: null,
     soul: null,
@@ -33,7 +34,7 @@ export default function PersonaPage() {
     tools: '',
     user: '',
   })
-  const [saving, setSaving] = useState<FileKey | null>(null)
+  const [saving, setSaving] = useState(false)
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
   const { canEdit } = useAuth()
 
@@ -61,28 +62,29 @@ export default function PersonaPage() {
 
   useEffect(() => { loadFiles() }, [loadFiles])
 
-  const saveFile = async (key: FileKey) => {
-    const file = files[key]
-    const content = edits[key]
+  const saveFile = async () => {
+    const file = files[activeFile]
+    const content = edits[activeFile]
     if (!file) return
 
-    setSaving(key)
+    setSaving(true)
     setMessage(null)
     try {
       const result = await api<FileData>('/files/write', {
         method: 'PUT',
         body: JSON.stringify({ path: file.path, content, expected_mtime: file.mtime }),
       })
-      setFiles(prev => ({ ...prev, [key]: { ...file, content, mtime: result.mtime } }))
-      setMessage({ type: 'success', text: `${PERSONA_FILES.find(f => f.key === key)?.name} 保存成功` })
+      setFiles(prev => ({ ...prev, [activeFile]: { ...file, content, mtime: result.mtime } }))
+      setMessage({ type: 'success', text: `${PERSONA_FILES.find(f => f.key === activeFile)?.name} 保存成功` })
     } catch (err: unknown) {
       setMessage({ type: 'error', text: err instanceof Error ? err.message : '保存失败' })
     } finally {
-      setSaving(null)
+      setSaving(false)
     }
   }
 
-  const hasChanges = (key: FileKey) => edits[key] !== files[key]?.content
+  const hasChanges = edits[activeFile] !== files[activeFile]?.content
+  const currentFileInfo = PERSONA_FILES.find(f => f.key === activeFile)!
 
   return (
     <div className="h-[calc(100vh-3rem)] flex flex-col">
@@ -109,66 +111,104 @@ export default function PersonaPage() {
         </div>
       )}
 
-      {/* 2x2 Grid Layout */}
-      <div className="flex-1 grid grid-cols-1 lg:grid-cols-2 gap-4 min-h-0">
-        {PERSONA_FILES.map(file => (
-          <div
-            key={file.key}
-            className="bg-[var(--bg-secondary)] border border-[var(--border)] rounded-xl overflow-hidden flex flex-col min-h-0"
-          >
-            {/* Header */}
-            <div className="flex items-center justify-between px-4 py-2.5 border-b border-[var(--border)] shrink-0">
-              <div className="min-w-0">
-                <h3 className="text-sm font-semibold text-[var(--text-primary)] truncate">{file.name}</h3>
-                <p className="text-xs text-[var(--text-secondary)]">{file.description}</p>
-              </div>
-              {canEdit() && files[file.key] && (
+      <div className="flex-1 flex gap-4 min-h-0">
+        {/* Left Menu */}
+        <div className="w-48 shrink-0 bg-[var(--bg-secondary)] border border-[var(--border)] rounded-xl overflow-hidden">
+          <div className="px-4 py-3 border-b border-[var(--border)]">
+            <h3 className="text-sm font-semibold">配置文件</h3>
+          </div>
+          <div className="p-2">
+            {PERSONA_FILES.map(file => {
+              const Icon = file.icon
+              const isActive = activeFile === file.key
+              const fileHasChanges = edits[file.key] !== files[file.key]?.content
+              return (
                 <button
-                  onClick={() => saveFile(file.key)}
-                  disabled={!hasChanges(file.key) || saving === file.key}
+                  key={file.key}
+                  onClick={() => setActiveFile(file.key)}
                   className={cn(
-                    'flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all shrink-0',
-                    hasChanges(file.key)
-                      ? 'bg-[var(--accent)] hover:bg-[var(--accent-hover)] text-white'
-                      : 'bg-[var(--bg-tertiary)] text-[var(--text-secondary)]',
-                    'disabled:opacity-40'
+                    'w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-left transition-colors mb-1',
+                    isActive
+                      ? 'bg-[var(--accent)] text-white'
+                      : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)]'
                   )}
                 >
-                  <Save className="w-3.5 h-3.5" />
-                  {saving === file.key ? '保存中...' : hasChanges(file.key) ? '保存' : '已保存'}
+                  <Icon className="w-4 h-4 shrink-0" />
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm font-medium truncate">{file.name}</span>
+                      {fileHasChanges && (
+                        <span className={cn(
+                          'w-1.5 h-1.5 rounded-full shrink-0',
+                          isActive ? 'bg-white' : 'bg-[var(--warning)]'
+                        )} />
+                      )}
+                    </div>
+                    <span className={cn(
+                      'text-xs truncate',
+                      isActive ? 'text-white/70' : 'text-[var(--text-secondary)]'
+                    )}>
+                      {file.description}
+                    </span>
+                  </div>
                 </button>
-              )}
-            </div>
-            {/* Editor */}
-            <div className="flex-1 min-h-0">
-              {files[file.key] ? (
-                <Editor
-                  height="100%"
-                  language="markdown"
-                  theme="vs-dark"
-                  value={edits[file.key]}
-                  onChange={(v) => setEdits(prev => ({ ...prev, [file.key]: v || '' }))}
-                  options={{
-                    minimap: { enabled: false },
-                    fontSize: 12,
-                    readOnly: !canEdit(),
-                    wordWrap: 'on',
-                    scrollBeyondLastLine: false,
-                    lineNumbers: 'off',
-                    folding: false,
-                    glyphMargin: false,
-                    lineDecorationsWidth: 0,
-                    lineNumbersMinChars: 0,
-                  }}
-                />
-              ) : (
-                <div className="h-full flex items-center justify-center text-[var(--text-secondary)] text-sm">
-                  文件不存在
-                </div>
-              )}
-            </div>
+              )
+            })}
           </div>
-        ))}
+        </div>
+
+        {/* Editor */}
+        <div className="flex-1 bg-[var(--bg-secondary)] border border-[var(--border)] rounded-xl overflow-hidden flex flex-col min-h-0">
+          <div className="flex items-center justify-between px-4 py-3 border-b border-[var(--border)] shrink-0">
+            <div className="flex items-center gap-3">
+              <currentFileInfo.icon className="w-5 h-5 text-[var(--accent)]" />
+              <div>
+                <h3 className="text-sm font-semibold text-[var(--text-primary)]">{currentFileInfo.name}</h3>
+                <p className="text-xs text-[var(--text-secondary)]">{currentFileInfo.description}</p>
+              </div>
+            </div>
+            {canEdit() && files[activeFile] && (
+              <button
+                onClick={saveFile}
+                disabled={!hasChanges || saving}
+                className={cn(
+                  'flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium transition-all',
+                  hasChanges
+                    ? 'bg-[var(--accent)] hover:bg-[var(--accent-hover)] text-white'
+                    : 'bg-[var(--bg-tertiary)] text-[var(--text-secondary)]',
+                  'disabled:opacity-40'
+                )}
+              >
+                <Save className="w-4 h-4" />
+                {saving ? '保存中...' : hasChanges ? '保存' : '已保存'}
+              </button>
+            )}
+          </div>
+          <div className="flex-1 min-h-0">
+            {files[activeFile] ? (
+              <Editor
+                height="100%"
+                language="markdown"
+                theme="vs-dark"
+                value={edits[activeFile]}
+                onChange={(v) => setEdits(prev => ({ ...prev, [activeFile]: v || '' }))}
+                options={{
+                  minimap: { enabled: false },
+                  fontSize: 13,
+                  readOnly: !canEdit(),
+                  wordWrap: 'on',
+                  scrollBeyondLastLine: false,
+                  lineNumbers: 'on',
+                  padding: { top: 16 },
+                }}
+              />
+            ) : (
+              <div className="h-full flex items-center justify-center text-[var(--text-secondary)] text-sm">
+                文件不存在
+              </div>
+            )}
+          </div>
+        </div>
       </div>
     </div>
   )

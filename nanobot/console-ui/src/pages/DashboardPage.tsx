@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback } from 'react'
-import { Server, Settings, FileText, MessageSquare, Activity, RefreshCw, Power, AlertTriangle } from 'lucide-react';
+import { Server, Settings, Brain, UserCog, MessageSquare, Activity, RefreshCw, Power, AlertTriangle } from 'lucide-react';
 import { api } from '../api/client'
 import { useAuth } from '../stores/auth'
 import { useNavigate } from 'react-router-dom'
@@ -84,12 +84,20 @@ export default function DashboardPage() {
       onClick: () => navigate('/config'),
     },
     {
-      icon: FileText,
-      label: '文件',
-      value: '浏览',
-      sub: '工作空间 & 记忆文件',
+      icon: Brain,
+      label: '记忆',
+      value: '管理',
+      sub: '全局记忆 & 个人记忆',
       color: 'text-[var(--warning)]',
-      onClick: () => navigate('/files'),
+      onClick: () => navigate('/memory'),
+    },
+    {
+      icon: UserCog,
+      label: '人设',
+      value: '编辑',
+      sub: 'Agent 核心配置文件',
+      color: 'text-green-400',
+      onClick: () => navigate('/persona'),
     },
     {
       icon: MessageSquare,
@@ -108,7 +116,7 @@ export default function DashboardPage() {
         <p className="text-[var(--text-secondary)] text-sm mt-1">欢迎回来, {user?.username}</p>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-3 xl:grid-cols-3 gap-4 mb-6">
+      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4 mb-6">
         {cards.map(card => (
           <button
             key={card.label}
