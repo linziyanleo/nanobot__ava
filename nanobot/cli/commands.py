@@ -771,6 +771,10 @@ def gateway(
             await asyncio.gather(*tasks)
         except KeyboardInterrupt:
             console.print("\nShutting down...")
+        except Exception:
+            import traceback
+            console.print("\n[red]Error: Gateway crashed unexpectedly[/red]")
+            console.print(traceback.format_exc())
         finally:
             gateway_uvicorn.should_exit = True
             await agent.close_mcp()

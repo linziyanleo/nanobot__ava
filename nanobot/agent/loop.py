@@ -465,6 +465,9 @@ class AgentLoop:
                 msg = await asyncio.wait_for(self.bus.consume_inbound(), timeout=1.0)
             except asyncio.TimeoutError:
                 continue
+            except Exception as e:
+                logger.warning("Error consuming inbound message: {}, continuing...", e)
+                continue
 
             cmd = self._commands.match(msg.content)
             if cmd and cmd.pre_dispatch:
