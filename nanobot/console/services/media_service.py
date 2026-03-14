@@ -139,3 +139,79 @@ class MediaService:
         if path.is_file():
             return path
         return None
+
+    def delete_record(self, record_id: str) -> bool:
+        """Delete a media record and its associated image files.
+        
+        Returns True if deleted, raises ValueError if not found.
+        """
+        # Get record to find image paths
+        if self._use_db:
+            row = self._db.fetchone(
+                "SELECT output_images FROM media_records WHERE id = ?",
+                (record_id,),
+            )
+            if not row:
+                raise ValueError(f"Record {record_id} not found")
+            
+            # Parse and delete image files
+            output_images = []
+            if row["output_images"]:
+                try:
+                    output_images = json.loads(row["output_images"])
+                except json.JSONDecodeError:
+                    pass
+            
+            for img_path in output_images:
+                filename = img_path.split("/")[-1] if "/" in img_path else img_path
+                full_path = self._media_dir / filename
+                if full_path.is_file():
+                    try:
+                        full_path.unlink()
+                    except Exception:
+                        pass  # Best effort deletion
+            
+            # Delete database record
+            self._db.execute("DELETE FROM media_records WHERE id = ?", (record_id,))
+            self._db.commit()
+            return True
+        
+        # JSONL mode: rewrite file without the record
+        if not self._records_file.exists():
+            raise ValueError(f"Record {record_id} not found")
+        
+        lines = self._records_file.read_text("utf-8").splitlines()
+        new_lines = []
+        found = False
+        deleted_images = []
+        
+        for line in lines:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                record = json.loads(line)
+                if record.get("id") == record_id:
+                    found = True
+                    deleted_images = record.get("output_images", [])
+                    continue
+                new_lines.append(line)
+            except json.JSONDecodeError:
+                new_lines.append(line)
+        
+        if not found:
+            raise ValueError(f"Record {record_id} not found")
+        
+        # Delete image files
+        for img_path in deleted_images:
+            filename = img_path.split("/")[-1] if "/" in img_path else img_path
+            full_path = self._media_dir / filename
+            if full_path.is_file():
+                try:
+                    full_path.unlink()
+                except Exception:
+                    pass
+        
+        # Rewrite records file
+        self._records_file.write_text("\n".join(new_lines) + "\n" if new_lines else "", "utf-8")
+        return True
