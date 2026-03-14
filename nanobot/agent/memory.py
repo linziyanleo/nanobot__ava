@@ -41,11 +41,6 @@ _SAVE_MEMORY_TOOL = [
                         "description": "Optional full updated PERSON long-term memory for current user/session "
                         "as markdown. Only include stable user-specific facts.",
                     },
-                    "self_memory_update": {
-                        "type": "string",
-                        "description": "Optional full updated Nanobot self memory as markdown. "
-                        "Only include stable self-related facts.",
-                    },
                 },
                 "required": ["history_entry", "memory_update"],
             },
@@ -64,7 +59,6 @@ class MemoryStore:
         self.memory_dir = ensure_dir(workspace / "memory")
         self.memory_file = self.memory_dir / "MEMORY.md"
         self.history_file = self.memory_dir / "HISTORY.md"
-        self.self_memory_file = self.memory_dir / "self" / "MEMORY.md"
 
     def read_long_term(self) -> str:
         if self.memory_file.exists():
@@ -78,22 +72,9 @@ class MemoryStore:
         with open(self.history_file, "a", encoding="utf-8") as f:
             f.write(entry.rstrip() + "\n\n")
 
-    def read_self_memory(self) -> str:
-        if self.self_memory_file.exists():
-            return self.self_memory_file.read_text(encoding="utf-8")
-        return ""
-
-    def write_self_memory(self, content: str) -> None:
-        ensure_dir(self.self_memory_file.parent)
-        self.self_memory_file.write_text(content, encoding="utf-8")
-
     def get_memory_context(self) -> str:
         long_term = self.read_long_term()
         return f"## Long-term Memory\n{long_term}" if long_term else ""
-
-    def get_self_memory_context(self) -> str:
-        self_memory = self.read_self_memory()
-        return f"## Nanobot Self Memory\n{self_memory}" if self_memory else ""
 
     @classmethod
     def _normalize_memory_line(cls, text: str) -> str:
@@ -180,14 +161,10 @@ class MemoryStore:
             person_name = categorized_store.resolve_person(channel, chat_id)
 
         current_memory = self.read_long_term()
-        current_self_memory = self.read_self_memory()
         prompt = f"""Process this conversation and call the save_memory tool with your consolidation.
 
 ## Current Long-term Memory
 {current_memory or "(empty)"}
-
-## Current Nanobot Self Memory
-{current_self_memory or "(empty)"}
 
 ## Current Session Identity
 channel={channel or "unknown"}
@@ -201,8 +178,7 @@ person={person_name or "unmapped"}
 1) history_entry: history timeline summary only (2-5 sentences).
 2) memory_update: GLOBAL memory only. Keep only shared, stable facts.
 3) person_memory_update: PERSON memory only for current session user (if identifiable).
-4) self_memory_update: Nanobot self memory only.
-5) Stability criterion (LLM stage): keep a fact only if it is recurring, long-lived, or affects future decisions.
+4) Stability criterion (LLM stage): keep a fact only if it is recurring, long-lived, or affects future decisions.
    Exclude one-off timeline details and operational noise."""
 
         try:
@@ -255,17 +231,10 @@ person={person_name or "unmapped"}
                 person_update = json.dumps(person_update, ensure_ascii=False)
             person_update = self._apply_stability_rules(person_update, scope="person")
 
-            self_update = args.get("self_memory_update", current_self_memory)
-            if not isinstance(self_update, str):
-                self_update = json.dumps(self_update, ensure_ascii=False)
-            self_update = self._apply_stability_rules(self_update, scope="self") or current_self_memory
-
             if entry:
                 self.append_history(entry)
             if update != current_memory:
                 self.write_long_term(update)
-            if self_update != current_self_memory:
-                self.write_self_memory(self_update)
 
             # Sync to person-level memory if categorized store is available
             if categorized_store is not None:

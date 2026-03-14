@@ -12,11 +12,9 @@ always: false
 
 ```
 memory/
-├── MEMORY.md              # Global 长期记忆（跨用户共享事实）
+├── MEMORY.md              # Global 长期记忆（跨用户共享事实 + Nanobot自身记忆）
 ├── HISTORY.md             # Global 时间线日志（append-only）
 ├── identity_map.yaml      # 身份映射 channel:chat_id → person
-├── self/
-│   └── MEMORY.md          # Nanobot 自身记忆（身份、能力、约定）
 └── persons/
     └── <person>/
         ├── MEMORY.md      # 个人长期记忆
@@ -24,12 +22,11 @@ memory/
         └── sources/       # 渠道级笔记 (<channel>_<id>.md)
 ```
 
-## Three Scopes
+## Two Scopes
 
 | Scope | 文件路径 | 加载到 context | 用途 |
-|-------|---------|---------------|------|
-| **global** | `memory/MEMORY.md` | ✅ 始终 | 跨用户共享的稳定事实 |
-| **self** | `memory/self/MEMORY.md` | ✅ 始终 | Nanobot 自身记忆 |
+|-------|---------|---------------|————-|
+| **global** | `memory/MEMORY.md` | ✅ 始终 | 跨用户共享的稳定事实 + Nanobot自身记忆 |
 | **person** | `memory/persons/<person>/MEMORY.md` | ✅ 身份解析后 | 特定用户的偏好/关系/约定 |
 
 每个 scope 的 `HISTORY.md` 都是 append-only 时间线，**不**加载到 context，通过 `search_history` 检索。
@@ -79,7 +76,7 @@ persons:
 
 会话增长到阈值时自动触发：
 
-1. LLM 从旧消息中提取 `history_entry` / `memory_update` / `person_memory_update` / `self_memory_update`
+1. LLM 从旧消息中提取 `history_entry` / `memory_update` / `person_memory_update`
 2. 规则层过滤：去重、拦截时间戳条目进入 MEMORY.md
 3. Person 记忆通过 `CategorizedMemoryStore.on_consolidate()` 同步
 
