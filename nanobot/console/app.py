@@ -18,6 +18,7 @@ from nanobot.console.services.config_service import ConfigService
 from nanobot.console.services.file_service import FileService
 from nanobot.console.services.gateway_service import GatewayService
 from nanobot.console.services.media_service import MediaService
+from nanobot.console.services.skills_service import SkillsService
 from nanobot.console.services.token_stats_service import TokenStatsCollector
 from nanobot.console.services.user_service import UserService
 
@@ -30,6 +31,7 @@ class Services:
     files: FileService
     gateway: GatewayService
     media: MediaService
+    skills: SkillsService
     chat: ChatService | None = None
     token_stats: TokenStatsCollector | None = None
 
@@ -78,6 +80,7 @@ def create_console_app(
             console_port=console_cfg.port,
         ),
         media=MediaService(db=db),
+        skills=SkillsService(workspace, skill_dir, nanobot_dir),
         chat=ChatService(agent_loop, workspace, db=db),
         token_stats=token_stats_collector,
     )
@@ -102,6 +105,7 @@ def create_console_app(
         user_routes,
         audit_routes,
         token_routes,
+        skills_routes,
     )
 
     app.include_router(auth_routes.router)
@@ -113,6 +117,7 @@ def create_console_app(
     app.include_router(user_routes.router)
     app.include_router(audit_routes.router)
     app.include_router(token_routes.router)
+    app.include_router(skills_routes.router)
 
     static_dir = Path(__file__).parent.parent / "console-ui" / "dist"
     if static_dir.exists():
@@ -177,6 +182,7 @@ def create_console_app_standalone(
             console_port=console_port,
         ),
         media=MediaService(db=db),
+        skills=SkillsService(workspace, skill_dir, nanobot_dir),
         chat=None,  # type: ignore[arg-type]
         token_stats=token_stats,
     )
@@ -200,6 +206,7 @@ def create_console_app_standalone(
         user_routes,
         audit_routes,
         token_routes,
+        skills_routes,
     )
 
     app.include_router(auth_routes.router)
@@ -210,6 +217,7 @@ def create_console_app_standalone(
     app.include_router(user_routes.router)
     app.include_router(audit_routes.router)
     app.include_router(token_routes.router)
+    app.include_router(skills_routes.router)
 
     # --- Chat reverse proxy to gateway ----------------------------------
     gateway_base = f"http://127.0.0.1:{gateway_port}"

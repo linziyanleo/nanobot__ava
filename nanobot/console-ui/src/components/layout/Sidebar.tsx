@@ -5,6 +5,7 @@ import {
   Settings,
   Brain,
   UserCog,
+  Puzzle,
   MessageSquare,
   BarChart3,
   Bot,
@@ -21,6 +22,7 @@ const navItems = [
   { to: '/tasks', icon: Timer, label: '定时任务' },
   { to: '/memory', icon: Brain, label: '记忆' },
   { to: '/persona', icon: UserCog, label: '人设' },
+  { to: '/skills', icon: Puzzle, label: '技能 & 工具' },
   { to: '/chat', icon: MessageSquare, label: '聊天' },
   { to: '/tokens', icon: BarChart3, label: 'Token 统计' },
 ];

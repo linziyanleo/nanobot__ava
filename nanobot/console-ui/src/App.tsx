@@ -7,6 +7,7 @@ import DashboardPage from './pages/DashboardPage'
 import ConfigPage from './pages/ConfigPage'
 import MemoryPage from './pages/MemoryPage'
 import PersonaPage from './pages/PersonaPage'
+import SkillsPage from './pages/SkillsPage'
 import ChatPage from './pages/ChatPage'
 import TokenStatsPage from './pages/TokenStatsPage'
 import UsersPage from './pages/UsersPage'
@@ -43,6 +44,7 @@ export default function App() {
           <Route path="config" element={<ConfigPage />} />
           <Route path="memory" element={<MemoryPage />} />
           <Route path="persona" element={<PersonaPage />} />
+          <Route path="skills" element={<SkillsPage />} />
           <Route path="chat" element={<ChatPage />} />
           <Route path="gateway" element={<Navigate to="/" replace />} />
           <Route path="tasks" element={<ScheduledTasksPage />} />
