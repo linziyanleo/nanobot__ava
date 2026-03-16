@@ -545,9 +545,12 @@ class AgentLoop:
             history = self._summarizer.summarize(history)
             if self._compression_enabled:
                 history = self.history_compressor.compress(history, msg.content)
+            # Subagent results are assistant outputs; other system messages stay user-role.
+            current_role = "assistant" if msg.sender_id == "subagent" else "user"
             messages = self.context.build_messages(
                 history=history,
                 current_message=msg.content, channel=channel, chat_id=chat_id,
+                current_role=current_role,
             )
 
             async def _sys_progress(content: str, *, tool_hint: bool = False, is_thinking: bool = False) -> None:
