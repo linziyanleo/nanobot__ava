@@ -5,9 +5,13 @@ from __future__ import annotations
 import asyncio
 import time
 from dataclasses import dataclass
+from datetime import datetime
 from typing import TYPE_CHECKING, Awaitable, Callable
 
 from loguru import logger
+
+from nanobot.agent.memory import MemoryStore
+from nanobot.session.manager import Session
 
 if TYPE_CHECKING:
     from nanobot.agent.loop import AgentLoop
@@ -77,6 +81,59 @@ _boot_time = time.monotonic()
 def register_builtin_commands(registry: CommandRegistry, agent: AgentLoop) -> None:
     """Register the built-in slash commands."""
 
+    async def _archive_snapshot_with_retry(
+        _agent: AgentLoop,
+        *,
+        session_key: str,
+        snapshot: list[dict[str, object]],
+        retries: int = 3,
+    ) -> None:
+        """Best-effort background archival with raw fallback to avoid data loss."""
+        if not snapshot:
+            return
+
+        temp = Session(key=session_key)
+        temp.messages = list(snapshot)
+        for attempt in range(retries):
+            try:
+                if await _agent._consolidate_memory(temp, archive_all=True):
+                    return
+            except Exception:
+                logger.exception(
+                    "/new background archival attempt {} failed for {}",
+                    attempt + 1,
+                    session_key,
+                )
+
+        try:
+            lines: list[str] = []
+            for m in snapshot:
+                content = m.get("content")
+                if not content:
+                    continue
+                tools = (
+                    f" [tools: {', '.join(m['tools_used'])}]"
+                    if m.get("tools_used")
+                    else ""
+                )
+                lines.append(
+                    f"[{str(m.get('timestamp', '?'))[:16]}] "
+                    f"{str(m.get('role', '?')).upper()}{tools}: {content}"
+                )
+
+            if lines:
+                ts = datetime.now().strftime("%Y-%m-%d %H:%M")
+                MemoryStore(_agent.workspace).append_history(
+                    f"[{ts}] [RAW] {len(snapshot)} messages\n" + "\n".join(lines)
+                )
+            logger.warning(
+                "/new archival degraded to raw history dump for {} (messages={})",
+                session_key,
+                len(snapshot),
+            )
+        except Exception:
+            logger.exception("/new raw fallback archive failed for {}", session_key)
+
     async def _cmd_help(msg: InboundMessage, _agent: AgentLoop) -> str:
         return registry.get_help_text(agent=_agent)
 
@@ -88,8 +145,6 @@ def register_builtin_commands(registry: CommandRegistry, agent: AgentLoop) -> No
         )
 
     async def _cmd_new(msg: InboundMessage, _agent: AgentLoop) -> str:
-        from nanobot.session.manager import Session
-
         key = msg.session_key
         session = _agent.sessions.get_or_create(key)
 
@@ -98,21 +153,31 @@ def register_builtin_commands(registry: CommandRegistry, agent: AgentLoop) -> No
         try:
             async with lock:
                 snapshot = session.messages[session.last_consolidated:]
-                if snapshot:
-                    temp = Session(key=session.key)
-                    temp.messages = list(snapshot)
-                    if not await _agent._consolidate_memory(temp, archive_all=True):
-                        return "Memory archival failed, session not cleared. Please try again."
-        except Exception:
-            logger.exception("/new archival failed for {}", session.key)
-            return "Memory archival failed, session not cleared. Please try again."
+                session.clear()
+                _agent.sessions.save(session)
+                _agent.sessions.invalidate(session.key)
+                _agent._consolidation_locks.pop(session.key, None)
         finally:
             _agent._consolidating.discard(session.key)
 
-        session.clear()
-        _agent.sessions.save(session)
-        _agent.sessions.invalidate(session.key)
-        _agent._consolidation_locks.pop(session.key, None)
+        if snapshot:
+            task = asyncio.create_task(
+                _archive_snapshot_with_retry(
+                    _agent,
+                    session_key=session.key,
+                    snapshot=list(snapshot),
+                )
+            )
+            _agent._pending_archives.append(task)
+
+            def _drop_pending(done_task: asyncio.Task) -> None:
+                try:
+                    _agent._pending_archives.remove(done_task)
+                except ValueError:
+                    pass
+
+            task.add_done_callback(_drop_pending)
+
         return "New session started."
 
     async def _cmd_stop(msg: InboundMessage, _agent: AgentLoop) -> str:

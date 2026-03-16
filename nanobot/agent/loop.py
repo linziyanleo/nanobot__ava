@@ -170,6 +170,7 @@ class AgentLoop:
         self._consolidation_tasks: set[asyncio.Task] = set()  # Strong refs to in-flight tasks
         self._consolidation_locks: weakref.WeakValueDictionary[str, asyncio.Lock] = weakref.WeakValueDictionary()
         self._active_tasks: dict[str, list[asyncio.Task]] = {}  # session_key -> tasks
+        self._pending_archives: list[asyncio.Task] = []
         self._processing_lock = asyncio.Lock()
         self._commands = CommandRegistry()
         register_builtin_commands(self._commands, self)
@@ -503,7 +504,10 @@ class AgentLoop:
                 ))
 
     async def close_mcp(self) -> None:
-        """Close MCP connections."""
+        """Drain pending background archives, then close MCP connections."""
+        if self._pending_archives:
+            await asyncio.gather(*self._pending_archives, return_exceptions=True)
+            self._pending_archives.clear()
         if self._mcp_stack:
             try:
                 await self._mcp_stack.aclose()
