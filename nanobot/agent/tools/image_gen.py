@@ -197,13 +197,15 @@ class ImageGenTool(Tool):
             image_paths: list[str] = []
 
             if response.parts:
+                image_saved = False
                 for i, part in enumerate(response.parts):
                     if part.text is not None:
                         text_parts.append(part.text)
-                    elif part.inline_data is not None:
+                    elif part.inline_data is not None and not image_saved:
                         image = part.as_image()
                         saved_path = self._save_image(image, record_id, i)
                         image_paths.append(str(saved_path))
+                        image_saved = True
                         logger.info("Image saved: {}", saved_path)
 
             record["output_images"] = image_paths
