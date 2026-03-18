@@ -205,3 +205,17 @@ export function formatTokenCount(n: number): string {
   if (n >= 1_000) return `${(n / 1_000).toFixed(1)}K`
   return String(n)
 }
+
+export function imageUrl(path: string): string {
+  const token = localStorage.getItem('token')
+  const filename = path.split('/').pop() || path
+  const base = `/api/media/images/${filename}`
+  return token ? `${base}?token=${token}` : base
+}
+
+const GENERATED_RE = /Generated image\(s\):\s*(.+)/
+export function extractImagePaths(resultText: string): string[] {
+  const m = GENERATED_RE.exec(resultText)
+  if (!m) return []
+  return m[1].split(',').map((s) => s.trim()).filter(Boolean)
+}

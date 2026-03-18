@@ -1,8 +1,21 @@
-import { useState } from 'react'
+import { useState, useMemo, useEffect } from 'react'
 import { ChevronDown, ChevronRight, Wrench, Loader2, Image, Eye, Mic } from 'lucide-react'
 import { cn } from '../../lib/utils'
 import type { ToolCallWithResult } from './types'
-import { getContentText } from './utils'
+import { getContentText, imageUrl, extractImagePaths } from './utils'
+import { ImageCarousel } from './ImageCarousel'
+import { api } from '../../api/client'
+
+interface MediaRecord {
+  id: string
+  output_images: string[]
+  prompt: string
+  status: string
+}
+
+interface MediaResponse {
+  records: MediaRecord[]
+}
 
 interface ToolCallBlockProps {
   tc: ToolCallWithResult
@@ -36,9 +49,44 @@ export function ToolCallBlock({ tc, isLoading }: ToolCallBlockProps) {
     resultPreview = resultText.length > 120 ? resultText.slice(0, 120) + '...' : resultText
   }
 
+  const regexImageUrls = useMemo(() => {
+    if (fnName === 'image_gen' && resultText) {
+      return extractImagePaths(resultText).map((p) => imageUrl(p))
+    }
+    if ((fnName === 'vision' || fnName === 'analyze_image') && parsedArgs.url) {
+      const u = parsedArgs.url as string
+      if (u.startsWith('http://') || u.startsWith('https://')) return [u]
+    }
+    return []
+  }, [fnName, resultText, parsedArgs.url])
+
+  const [apiImageUrls, setApiImageUrls] = useState<string[]>([])
+  const prompt = (parsedArgs.prompt || '') as string
+
+  useEffect(() => {
+    if (fnName !== 'image_gen' || regexImageUrls.length > 0 || !prompt) return
+    if (!resultText && !tc.result) return
+    let cancelled = false
+    const searchTerm = prompt.slice(0, 60)
+    api<MediaResponse>(`/media/records?search=${encodeURIComponent(searchTerm)}&size=5`)
+      .then((res) => {
+        if (cancelled) return
+        const match = res.records.find(
+          (r) => r.status === 'success' && r.prompt === prompt && r.output_images.length > 0,
+        )
+        if (match) {
+          setApiImageUrls(match.output_images.map((p) => imageUrl(p)))
+        }
+      })
+      .catch(() => {})
+    return () => { cancelled = true }
+  }, [fnName, prompt, regexImageUrls.length, resultText, tc.result])
+
+  const mediaImageUrls = regexImageUrls.length > 0 ? regexImageUrls : apiImageUrls
+
   if (mediaTool) {
     const ToolIcon = mediaTool.icon
-    const prompt = (parsedArgs.prompt || parsedArgs.query || '') as string
+    const displayPrompt = (parsedArgs.prompt || parsedArgs.query || '') as string
     return (
       <div className={cn(
         'my-1 rounded-lg border text-xs',
@@ -57,25 +105,30 @@ export function ToolCallBlock({ tc, isLoading }: ToolCallBlockProps) {
           )}
           <ToolIcon className={cn('w-3.5 h-3.5 shrink-0', mediaTool.color)} />
           <span className={cn('font-medium', mediaTool.color)}>{mediaTool.label}</span>
-          {prompt && !expanded && (
-            <span className="text-[var(--text-secondary)] truncate ml-1">— {prompt.slice(0, 60)}{prompt.length > 60 ? '...' : ''}</span>
+          {displayPrompt && !expanded && (
+            <span className="text-[var(--text-secondary)] truncate ml-1">— {displayPrompt.slice(0, 60)}{displayPrompt.length > 60 ? '...' : ''}</span>
           )}
         </button>
 
         {expanded && (
           <div className="px-3 pb-2 space-y-2 border-t border-[var(--border)]">
-            {prompt && (
+            {displayPrompt && (
               <div className="pt-1.5">
                 <div className="text-[var(--text-secondary)] mb-0.5 font-medium">Prompt</div>
-                <div className="text-[var(--text-primary)] text-[11px]">{prompt}</div>
+                <div className="text-[var(--text-primary)] text-[11px]">{displayPrompt}</div>
               </div>
             )}
-            {args && args !== '{}' && !prompt && (
+            {args && args !== '{}' && !displayPrompt && (
               <div className="pt-1.5">
                 <div className="text-[var(--text-secondary)] mb-0.5 font-medium">Arguments</div>
                 <pre className="bg-[var(--bg-tertiary)] rounded p-2 overflow-x-auto whitespace-pre-wrap text-[var(--text-primary)] max-h-48 overflow-y-auto">
                   {args}
                 </pre>
+              </div>
+            )}
+            {mediaImageUrls.length > 0 && (
+              <div className="pt-1">
+                <ImageCarousel urls={mediaImageUrls} alt={displayPrompt || fnName} />
               </div>
             )}
             {resultText !== null && (
