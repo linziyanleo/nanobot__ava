@@ -249,11 +249,11 @@ class ImageGenTool(Tool):
             self._write_record(record)
 
             result_parts: list[str] = []
-            if text_parts:
-                result_parts.append("\n".join(text_parts))
             if image_paths:
                 paths_str = ", ".join(image_paths)
                 result_parts.append(f"Generated image(s): {paths_str}")
+            if text_parts:
+                result_parts.append("\n".join(text_parts))
 
             return "\n".join(result_parts)
 
