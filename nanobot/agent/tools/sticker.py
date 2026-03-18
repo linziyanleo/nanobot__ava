@@ -41,6 +41,8 @@ class StickerTool(Tool):
         max_id = max(sticker_data.keys())
         return (
             f"Send a Telegram sticker (ID {min_id}-{max_id}). "
+            f"ONLY works on Telegram — do NOT call this tool on other channels "
+            f"(console, feishu, discord, etc.). "
             f"Use to express emotions visually."
         )
 

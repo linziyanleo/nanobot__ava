@@ -104,6 +104,7 @@ vision(url: str, prompt: str = "描述这张图片的内容。") -> str
 ### send_sticker
 
 Send a Telegram sticker from the configured sticker pack. Use to express emotions visually or add playful reactions.
+ONLY works on Telegram — do NOT call this tool on other channels (console, feishu, discord, etc.). Use to express emotions visually.
 
 ```
 send_sticker(sticker_id: int, chat_id: str = None) -> str
