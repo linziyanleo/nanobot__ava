@@ -32,6 +32,8 @@ class _FakeBot:
     def __init__(self) -> None:
         self.sent_messages: list[dict] = []
         self.file = None
+        self.sent_media: list[dict] = []
+        self.get_me_calls = 0
 
     async def get_me(self):
         return SimpleNamespace(username="nanobot_test")
@@ -42,8 +44,28 @@ class _FakeBot:
     async def send_message(self, **kwargs) -> None:
         self.sent_messages.append(kwargs)
 
-    async def get_file(self, _file_id):
-        return self.file
+    async def send_photo(self, **kwargs) -> None:
+        self.sent_media.append({"kind": "photo", **kwargs})
+
+    async def send_voice(self, **kwargs) -> None:
+        self.sent_media.append({"kind": "voice", **kwargs})
+
+    async def send_audio(self, **kwargs) -> None:
+        self.sent_media.append({"kind": "audio", **kwargs})
+
+    async def send_document(self, **kwargs) -> None:
+        self.sent_media.append({"kind": "document", **kwargs})
+
+    async def send_chat_action(self, **kwargs) -> None:
+        pass
+
+    async def get_file(self, file_id: str):
+        if self.file is not None:
+            return self.file
+        """Return a fake file that 'downloads' to a path (for reply-to-media tests)."""
+        async def _fake_download(path) -> None:
+            pass
+        return SimpleNamespace(download_to_drive=_fake_download)
 
 
 class _FakeApp:
@@ -287,6 +309,65 @@ async def test_send_reply_infers_topic_from_message_id_cache() -> None:
 
     assert channel._app.bot.sent_messages[0]["message_thread_id"] == 42
     assert channel._app.bot.sent_messages[0]["reply_parameters"].message_id == 10
+
+
+@pytest.mark.asyncio
+async def test_send_remote_media_url_after_security_validation(monkeypatch) -> None:
+    channel = TelegramChannel(
+        TelegramConfig(enabled=True, token="123:abc", allow_from=["*"]),
+        MessageBus(),
+    )
+    channel._app = _FakeApp(lambda: None)
+    monkeypatch.setattr("nanobot.channels.telegram.validate_url_target", lambda url: (True, ""))
+
+    await channel.send(
+        OutboundMessage(
+            channel="telegram",
+            chat_id="123",
+            content="",
+            media=["https://example.com/cat.jpg"],
+        )
+    )
+
+    assert channel._app.bot.sent_media == [
+        {
+            "kind": "photo",
+            "chat_id": 123,
+            "photo": "https://example.com/cat.jpg",
+            "reply_parameters": None,
+        }
+    ]
+
+
+@pytest.mark.asyncio
+async def test_send_blocks_unsafe_remote_media_url(monkeypatch) -> None:
+    channel = TelegramChannel(
+        TelegramConfig(enabled=True, token="123:abc", allow_from=["*"]),
+        MessageBus(),
+    )
+    channel._app = _FakeApp(lambda: None)
+    monkeypatch.setattr(
+        "nanobot.channels.telegram.validate_url_target",
+        lambda url: (False, "Blocked: example.com resolves to private/internal address 127.0.0.1"),
+    )
+
+    await channel.send(
+        OutboundMessage(
+            channel="telegram",
+            chat_id="123",
+            content="",
+            media=["http://example.com/internal.jpg"],
+        )
+    )
+
+    assert channel._app.bot.sent_media == []
+    assert channel._app.bot.sent_messages == [
+        {
+            "chat_id": 123,
+            "text": "[Failed to send: internal.jpg]",
+            "reply_parameters": None,
+        }
+    ]
 
 
 @pytest.mark.asyncio
