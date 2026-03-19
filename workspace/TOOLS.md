@@ -103,8 +103,7 @@ vision(url: str, prompt: str = "描述这张图片的内容。") -> str
 
 ### send_sticker
 
-Send a Telegram sticker from the configured sticker pack. Use to express emotions visually or add playful reactions.
-ONLY works on Telegram — do NOT call this tool on other channels (console, feishu, discord, etc.). Use to express emotions visually.
+Send a sticker from the configured sticker pack. Use to express emotions visually or add playful reactions.
 
 ```
 send_sticker(sticker_id: int, chat_id: str = None) -> str
@@ -124,11 +123,11 @@ send_sticker(sticker_id=14, chat_id="12345678")     # 发送到指定聊天
 
 **Notes:**
 
-- Only works on the Telegram channel
+- Only works on the Telegram channel, do NOT call this tool on other channels (console, feishu, discord, etc.)
 - Sticker pack and emoji mappings are configured in `~/.nanobot/sticker.json`
 - The tool reads pack data at startup and caches it; modify the config file to switch packs or update stickers
 - When a sticker is sent, the agent suppresses the text reply for that turn (via `_sent_in_turn`)
-- Choose stickers naturally based on conversation emotion; works best as a standalone reaction at the end of a reply
+- Choose stickers naturally based on conversation emotion
 
 ## Image Generation
 
