@@ -25,6 +25,47 @@ export default function ChatPage() {
   const initializedRef = useRef(false)
   useAuth()
 
+  const loadSessionMessagesWithMeta = useCallback(async (sessionKey: string, meta: SessionMeta | null, silent = false) => {
+    if (!silent) setLoadingMessages(true)
+    try {
+      const messages = await api<RawMessage[]>(`/chat/messages?session_key=${encodeURIComponent(sessionKey)}`)
+      setCurrentMeta(meta)
+      setTurns(groupTurns(messages))
+    } catch (err) {
+      console.error('Failed to load messages:', err)
+      if (!silent) setTurns([])
+    } finally {
+      if (!silent) setLoadingMessages(false)
+    }
+  }, [])
+
+  const loadSessionMessages = useCallback(async (sessionKey: string, silent = false) => {
+    const meta = sessions.find((s) => s.key === sessionKey) || null
+    return loadSessionMessagesWithMeta(sessionKey, meta, silent)
+  }, [sessions, loadSessionMessagesWithMeta])
+
+  const connectWs = useCallback((sid: string) => {
+    wsRef.current?.close()
+    const sessionKey = `console:${sid}`
+    const ws = new WebSocket(wsUrl(`/chat/ws/${sid}`))
+    ws.onmessage = (e) => {
+      const data = JSON.parse(e.data)
+      if (data.type === 'thinking') {
+        setThinkingStreaming((prev) => prev + data.content)
+      } else if (data.type === 'progress') {
+        setStreaming((prev) => prev + data.content)
+      } else if (data.type === 'complete') {
+        setStreaming('')
+        setThinkingStreaming('')
+        setSending(false)
+        loadSessionMessages(sessionKey)
+      }
+    }
+    ws.onerror = () => setSending(false)
+    ws.onclose = () => setSending(false)
+    wsRef.current = ws
+  }, [loadSessionMessages])
+
   const loadSessionList = useCallback(async () => {
     try {
       const data = await api<SessionMeta[]>('/chat/sessions')
@@ -48,8 +89,7 @@ export default function ChatPage() {
         const firstSessionInScene = metas.find((m) => m.scene === firstScene)
         if (firstSessionInScene) {
           setActiveSession(firstSessionInScene.key)
-          setCurrentMeta(firstSessionInScene)
-          loadSessionMessages(firstSessionInScene.key)
+          loadSessionMessagesWithMeta(firstSessionInScene.key, firstSessionInScene)
           if (firstScene === 'console') {
             const sid = firstSessionInScene.key.replace(/^console:/, '')
             connectWs(sid)
@@ -59,22 +99,7 @@ export default function ChatPage() {
     } catch (err) {
       console.error('Failed to load sessions:', err)
     }
-  }, [])
-
-  const loadSessionMessages = useCallback(async (sessionKey: string, silent = false) => {
-    if (!silent) setLoadingMessages(true)
-    try {
-      const messages = await api<RawMessage[]>(`/chat/messages?session_key=${encodeURIComponent(sessionKey)}`)
-      const meta = sessions.find((s) => s.key === sessionKey) || null
-      setCurrentMeta(meta)
-      setTurns(groupTurns(messages))
-    } catch (err) {
-      console.error('Failed to load messages:', err)
-      if (!silent) setTurns([])
-    } finally {
-      if (!silent) setLoadingMessages(false)
-    }
-  }, [sessions])
+  }, [loadSessionMessagesWithMeta, connectWs])
 
   useEffect(() => {
     loadSessionList()
@@ -211,28 +236,6 @@ export default function ChatPage() {
 
   const activeSessionRef = useRef(activeSession)
   activeSessionRef.current = activeSession
-
-  const connectWs = useCallback((sid: string) => {
-    wsRef.current?.close()
-    const sessionKey = `console:${sid}`
-    const ws = new WebSocket(wsUrl(`/chat/ws/${sid}`))
-    ws.onmessage = (e) => {
-      const data = JSON.parse(e.data)
-      if (data.type === 'thinking') {
-        setThinkingStreaming((prev) => prev + data.content)
-      } else if (data.type === 'progress') {
-        setStreaming((prev) => prev + data.content)
-      } else if (data.type === 'complete') {
-        setStreaming('')
-        setThinkingStreaming('')
-        setSending(false)
-        loadSessionMessages(sessionKey)
-      }
-    }
-    ws.onerror = () => setSending(false)
-    ws.onclose = () => setSending(false)
-    wsRef.current = ws
-  }, [loadSessionMessages])
 
   const handleSend = (message: string) => {
     if (!wsRef.current || sending) return

@@ -1,99 +1,114 @@
-import { useEffect, useState, useCallback } from 'react'
-import Editor from '@monaco-editor/react'
+import { useEffect, useState, useCallback } from 'react';
+import Editor from '@monaco-editor/react';
 import {
-  Brain, BookOpen, ImageIcon, ChevronRight, ChevronLeft,
-  Save, RefreshCw, Calendar, Search, X, AlertCircle, Pencil, Trash2,
-  Globe, User, Check,
-} from 'lucide-react'
-import { api } from '../api/client'
-import { useAuth } from '../stores/auth'
-import { cn } from '../lib/utils'
-import yaml from 'js-yaml'
+  Brain,
+  BookOpen,
+  ImageIcon,
+  ChevronRight,
+  ChevronLeft,
+  Save,
+  RefreshCw,
+  Calendar,
+  Search,
+  X,
+  AlertCircle,
+  Pencil,
+  Trash2,
+  Globe,
+  User,
+  Check,
+} from 'lucide-react';
+import { api } from '../api/client';
+import { useAuth } from '../stores/auth';
+import { cn } from '../lib/utils';
+import yaml from 'js-yaml';
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
 interface FileData {
-  path: string
-  content: string
-  mtime: number
+  path: string;
+  content: string;
+  mtime: number;
 }
 
 interface Person {
-  key: string
-  displayName: string
+  key: string;
+  displayName: string;
 }
 
 interface MediaRecord {
-  id: string
-  timestamp: string
-  prompt: string
-  reference_image: string | null
-  output_images: string[]
-  output_text: string
-  model: string
-  status: string
-  error: string | null
+  id: string;
+  timestamp: string;
+  prompt: string;
+  reference_image: string | null;
+  output_images: string[];
+  output_text: string;
+  model: string;
+  status: string;
+  error: string | null;
 }
 
 interface MediaResponse {
-  records: MediaRecord[]
-  total: number
-  page: number
-  size: number
+  records: MediaRecord[];
+  total: number;
+  page: number;
+  size: number;
 }
 
 interface DiaryEntry {
-  date: string
-  filename: string
+  date: string;
+  filename: string;
 }
 
 // ── Helper Functions ───────────────────────────────────────────────────────
 
-function parseHistoryEntries(content: string): Array<{ date: string; text: string; startLine: number; endLine: number }> {
-  const entries: Array<{ date: string; text: string; startLine: number; endLine: number }> = []
-  const lines = content.split('\n')
-  let currentEntry: { date: string; text: string; startLine: number; endLine: number } | null = null
+function parseHistoryEntries(
+  content: string,
+): Array<{ date: string; text: string; startLine: number; endLine: number }> {
+  const entries: Array<{ date: string; text: string; startLine: number; endLine: number }> = [];
+  const lines = content.split('\n');
+  let currentEntry: { date: string; text: string; startLine: number; endLine: number } | null = null;
 
   for (let i = 0; i < lines.length; i++) {
-    const line = lines[i]
-    const match = line.match(/^\[(\d{4}-\d{2}-\d{2}[^\]]*)\](.*)/)
+    const line = lines[i];
+    const match = line.match(/^\[(\d{4}-\d{2}-\d{2}[^\]]*)\](.*)/);
     if (match) {
       if (currentEntry) {
-        currentEntry.endLine = i - 1
-        entries.push(currentEntry)
+        currentEntry.endLine = i - 1;
+        entries.push(currentEntry);
       }
-      currentEntry = { date: match[1], text: match[2].trim(), startLine: i, endLine: i }
+      currentEntry = { date: match[1], text: match[2].trim(), startLine: i, endLine: i };
     } else if (currentEntry && line.trim()) {
-      currentEntry.text += '\n' + line
-      currentEntry.endLine = i
+      currentEntry.text += '\n' + line;
+      currentEntry.endLine = i;
     }
   }
   if (currentEntry) {
-    currentEntry.endLine = lines.length - 1
-    entries.push(currentEntry)
+    currentEntry.endLine = lines.length - 1;
+    entries.push(currentEntry);
   }
-  return entries.reverse()
+  return entries.reverse();
 }
 
 function imageUrl(path: string): string {
-  const token = localStorage.getItem('token')
-  const filename = path.split('/').pop() || path
-  const base = `/api/media/images/${filename}`
-  return token ? `${base}?token=${token}` : base
+  const token = localStorage.getItem('token');
+  const filename = path.split('/').pop() || path;
+  const base = `/api/media/images/${filename}`;
+  return token ? `${base}?token=${token}` : base;
 }
 
 // ── Memory Scope Menu ──────────────────────────────────────────────────────
 
-type MemoryScope = { type: 'global' } | { type: 'person'; key: string; displayName: string }
+type MemoryScope = { type: 'global' } | { type: 'person'; key: string; displayName: string };
 
-function ScopeMenu({ 
-  persons, 
-  scope, 
-  onSelect 
-}: { 
-  persons: Person[]
-  scope: MemoryScope
-  onSelect: (scope: MemoryScope) => void 
+function ScopeMenu({
+  persons,
+  scope,
+  onSelect,
+}: {
+  persons: Person[];
+  scope: MemoryScope;
+  onSelect: (scope: MemoryScope) => void;
 }) {
   return (
     <div className="w-48 shrink-0 bg-[var(--bg-secondary)] border border-[var(--border)] rounded-xl overflow-hidden">
@@ -108,13 +123,13 @@ function ScopeMenu({
             'w-full flex items-center gap-2 px-4 py-2.5 text-left text-sm transition-colors',
             scope.type === 'global'
               ? 'bg-[var(--accent)] text-white'
-              : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)]'
+              : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)]',
           )}
         >
           <Globe className="w-4 h-4" />
           全局记忆
         </button>
-        
+
         {/* Persons */}
         {persons.length > 0 && (
           <div className="px-3 py-2 text-xs text-[var(--text-secondary)] font-medium uppercase tracking-wide">
@@ -129,7 +144,7 @@ function ScopeMenu({
               'w-full flex items-center gap-2 px-4 py-2.5 text-left text-sm transition-colors',
               scope.type === 'person' && scope.key === p.key
                 ? 'bg-[var(--accent)] text-white'
-                : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)]'
+                : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)]',
             )}
           >
             <User className="w-4 h-4" />
@@ -138,106 +153,100 @@ function ScopeMenu({
         ))}
       </div>
     </div>
-  )
+  );
 }
 
 // ── Memory Content (Memory + History tabs) ─────────────────────────────────
 
 function MemoryContent({ scope }: { scope: MemoryScope }) {
-  const [activeTab, setActiveTab] = useState<'memory' | 'history'>('memory')
-  const [memoryData, setMemoryData] = useState<FileData | null>(null)
-  const [historyData, setHistoryData] = useState<FileData | null>(null)
-  const [memoryEdit, setMemoryEdit] = useState('')
-  const [saving, setSaving] = useState(false)
-  const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
-  const [editingEntry, setEditingEntry] = useState<number | null>(null)
-  const [editingText, setEditingText] = useState('')
-  const { canEdit } = useAuth()
+  const [activeTab, setActiveTab] = useState<'memory' | 'history'>('memory');
+  const [memoryData, setMemoryData] = useState<FileData | null>(null);
+  const [historyData, setHistoryData] = useState<FileData | null>(null);
+  const [memoryEdit, setMemoryEdit] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const [editingEntry, setEditingEntry] = useState<number | null>(null);
+  const [editingText, setEditingText] = useState('');
+  const { canEdit } = useAuth();
 
-  const basePath = scope.type === 'global' 
-    ? 'workspace/memory' 
-    : `workspace/memory/persons/${scope.key}`
+  const basePath = scope.type === 'global' ? 'workspace/memory' : `workspace/memory/persons/${scope.key}`;
 
   const loadFiles = useCallback(async () => {
-    setMessage(null)
+    setMessage(null);
     try {
       const [mem, hist] = await Promise.all([
         api<FileData>(`/files/read?path=${basePath}/MEMORY.md`).catch(() => null),
         api<FileData>(`/files/read?path=${basePath}/HISTORY.md`).catch(() => null),
-      ])
-      setMemoryData(mem)
-      setMemoryEdit(mem?.content || '')
-      setHistoryData(hist)
+      ]);
+      setMemoryData(mem);
+      setMemoryEdit(mem?.content || '');
+      setHistoryData(hist);
     } catch (err: unknown) {
-      setMessage({ type: 'error', text: err instanceof Error ? err.message : '加载失败' })
+      setMessage({ type: 'error', text: err instanceof Error ? err.message : '加载失败' });
     }
-  }, [basePath])
+  }, [basePath]);
 
-  useEffect(() => { 
-    loadFiles()
-    setEditingEntry(null)
-  }, [loadFiles])
+  useEffect(() => {
+    loadFiles();
+    setEditingEntry(null);
+  }, [loadFiles]);
 
   const saveMemory = async () => {
-    if (!memoryData) return
-    setSaving(true)
-    setMessage(null)
+    if (!memoryData) return;
+    setSaving(true);
+    setMessage(null);
     try {
       const result = await api<FileData>('/files/write', {
         method: 'PUT',
         body: JSON.stringify({ path: memoryData.path, content: memoryEdit, expected_mtime: memoryData.mtime }),
-      })
-      setMemoryData({ ...memoryData, content: memoryEdit, mtime: result.mtime })
-      setMessage({ type: 'success', text: '保存成功' })
+      });
+      setMemoryData({ ...memoryData, content: memoryEdit, mtime: result.mtime });
+      setMessage({ type: 'success', text: '保存成功' });
     } catch (err: unknown) {
-      setMessage({ type: 'error', text: err instanceof Error ? err.message : '保存失败' })
+      setMessage({ type: 'error', text: err instanceof Error ? err.message : '保存失败' });
     } finally {
-      setSaving(false)
+      setSaving(false);
     }
-  }
+  };
 
   const saveHistoryEntry = async (idx: number) => {
-    if (!historyData) return
-    const entries = parseHistoryEntries(historyData.content)
-    const entry = entries[idx]
-    if (!entry) return
+    if (!historyData) return;
+    const entries = parseHistoryEntries(historyData.content);
+    const entry = entries[idx];
+    if (!entry) return;
 
     // Rebuild content with edited entry
-    const lines = historyData.content.split('\n')
-    const newEntryText = `[${entry.date}] ${editingText}`
-    const newLines = [
-      ...lines.slice(0, entry.startLine),
-      newEntryText,
-      ...lines.slice(entry.endLine + 1)
-    ]
-    const newContent = newLines.join('\n')
+    const lines = historyData.content.split('\n');
+    const newEntryText = `[${entry.date}] ${editingText}`;
+    const newLines = [...lines.slice(0, entry.startLine), newEntryText, ...lines.slice(entry.endLine + 1)];
+    const newContent = newLines.join('\n');
 
-    setSaving(true)
-    setMessage(null)
+    setSaving(true);
+    setMessage(null);
     try {
       const result = await api<FileData>('/files/write', {
         method: 'PUT',
         body: JSON.stringify({ path: historyData.path, content: newContent, expected_mtime: historyData.mtime }),
-      })
-      setHistoryData({ ...historyData, content: newContent, mtime: result.mtime })
-      setEditingEntry(null)
-      setMessage({ type: 'success', text: '保存成功' })
+      });
+      setHistoryData({ ...historyData, content: newContent, mtime: result.mtime });
+      setEditingEntry(null);
+      setMessage({ type: 'success', text: '保存成功' });
     } catch (err: unknown) {
-      setMessage({ type: 'error', text: err instanceof Error ? err.message : '保存失败' })
+      setMessage({ type: 'error', text: err instanceof Error ? err.message : '保存失败' });
     } finally {
-      setSaving(false)
+      setSaving(false);
     }
-  }
+  };
 
   const startEditEntry = (idx: number, text: string) => {
-    setEditingEntry(idx)
-    setEditingText(text)
-  }
+    setEditingEntry(idx);
+    setEditingText(text);
+  };
 
-  const historyEntries = historyData ? parseHistoryEntries(historyData.content) : []
-  const memoryChanged = memoryEdit !== memoryData?.content
+  const historyEntries = historyData ? parseHistoryEntries(historyData.content) : [];
+  const memoryChanged = memoryEdit !== memoryData?.content;
 
-  const scopeLabel = scope.type === 'global' ? '全局' : scope.displayName
+  const scopeLabel = scope.type === 'global' ? '全局' : scope.displayName;
 
   return (
     <div className="flex-1 flex flex-col min-h-0">
@@ -250,7 +259,7 @@ function MemoryContent({ scope }: { scope: MemoryScope }) {
               'flex items-center gap-2 px-4 py-2.5 text-sm font-medium border-b-2 -mb-px transition-colors',
               activeTab === 'memory'
                 ? 'text-[var(--accent)] border-[var(--accent)]'
-                : 'text-[var(--text-secondary)] border-transparent hover:text-[var(--text-primary)]'
+                : 'text-[var(--text-secondary)] border-transparent hover:text-[var(--text-primary)]',
             )}
           >
             <Brain className="w-4 h-4" />
@@ -262,7 +271,7 @@ function MemoryContent({ scope }: { scope: MemoryScope }) {
               'flex items-center gap-2 px-4 py-2.5 text-sm font-medium border-b-2 -mb-px transition-colors',
               activeTab === 'history'
                 ? 'text-[var(--accent)] border-[var(--accent)]'
-                : 'text-[var(--text-secondary)] border-transparent hover:text-[var(--text-primary)]'
+                : 'text-[var(--text-secondary)] border-transparent hover:text-[var(--text-primary)]',
             )}
           >
             <BookOpen className="w-4 h-4" />
@@ -274,14 +283,20 @@ function MemoryContent({ scope }: { scope: MemoryScope }) {
         </div>
         <div className="flex items-center gap-2">
           <span className="text-xs text-[var(--text-secondary)]">{scopeLabel}</span>
-          <button onClick={loadFiles} title="刷新" className="p-1.5 rounded-lg text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)]">
+          <button
+            onClick={loadFiles}
+            title="刷新"
+            className="p-1.5 rounded-lg text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)]"
+          >
             <RefreshCw className="w-4 h-4" />
           </button>
         </div>
       </div>
 
       {message && (
-        <div className={`mx-4 mt-3 p-2 rounded-lg text-sm ${message.type === 'success' ? 'bg-[var(--success)]/10 text-[var(--success)]' : 'bg-[var(--danger)]/10 text-[var(--danger)]'}`}>
+        <div
+          className={`mx-4 mt-3 p-2 rounded-lg text-sm ${message.type === 'success' ? 'bg-[var(--success)]/10 text-[var(--success)]' : 'bg-[var(--danger)]/10 text-[var(--danger)]'}`}
+        >
           {message.text}
         </div>
       )}
@@ -308,13 +323,17 @@ function MemoryContent({ scope }: { scope: MemoryScope }) {
                 language="markdown"
                 theme="vs-dark"
                 value={memoryEdit}
-                onChange={(v) => setMemoryEdit(v || '')}
-                options={{ minimap: { enabled: false }, fontSize: 13, readOnly: !canEdit(), wordWrap: 'on', scrollBeyondLastLine: false }}
+                onChange={v => setMemoryEdit(v || '')}
+                options={{
+                  minimap: { enabled: false },
+                  fontSize: 13,
+                  readOnly: !canEdit(),
+                  wordWrap: 'on',
+                  scrollBeyondLastLine: false,
+                }}
               />
             ) : (
-              <div className="h-full flex items-center justify-center text-[var(--text-secondary)]">
-                文件不存在
-              </div>
+              <div className="h-full flex items-center justify-center text-[var(--text-secondary)]">文件不存在</div>
             )}
           </div>
         </div>
@@ -324,12 +343,13 @@ function MemoryContent({ scope }: { scope: MemoryScope }) {
       {activeTab === 'history' && (
         <div className="flex-1 overflow-y-auto p-4 space-y-2">
           {historyEntries.length === 0 ? (
-            <div className="flex items-center justify-center h-32 text-[var(--text-secondary)]">
-              暂无历史记录
-            </div>
+            <div className="flex items-center justify-center h-32 text-[var(--text-secondary)]">暂无历史记录</div>
           ) : (
             historyEntries.map((entry, idx) => (
-              <div key={idx} className="bg-[var(--bg-secondary)] border border-[var(--border)] rounded-lg overflow-hidden">
+              <div
+                key={idx}
+                className="bg-[var(--bg-secondary)] border border-[var(--border)] rounded-lg overflow-hidden"
+              >
                 <div className="flex items-start justify-between px-4 py-3">
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 mb-1">
@@ -338,7 +358,7 @@ function MemoryContent({ scope }: { scope: MemoryScope }) {
                     {editingEntry === idx ? (
                       <textarea
                         value={editingText}
-                        onChange={(e) => setEditingText(e.target.value)}
+                        onChange={e => setEditingText(e.target.value)}
                         placeholder="编辑记录内容..."
                         className="w-full p-2 rounded-lg bg-[var(--bg-primary)] border border-[var(--border)] text-sm text-[var(--text-primary)] resize-y min-h-[80px]"
                         autoFocus
@@ -385,68 +405,72 @@ function MemoryContent({ scope }: { scope: MemoryScope }) {
         </div>
       )}
     </div>
-  )
+  );
 }
 
 // ── Diary Tab ──────────────────────────────────────────────────────────────
 
 function DiaryTab() {
-  const [diaries, setDiaries] = useState<DiaryEntry[]>([])
-  const [selected, setSelected] = useState<string | null>(null)
-  const [content, setContent] = useState<FileData | null>(null)
-  const [editing, setEditing] = useState('')
-  const [saving, setSaving] = useState(false)
-  const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
-  const { canEdit } = useAuth()
+  const [diaries, setDiaries] = useState<DiaryEntry[]>([]);
+  const [selected, setSelected] = useState<string | null>(null);
+  const [content, setContent] = useState<FileData | null>(null);
+  const [editing, setEditing] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const { canEdit } = useAuth();
 
   const loadDiaryList = useCallback(async () => {
     try {
-      const tree = await api<{ children?: Array<{ name: string; path: string }> }>('/files/tree?root=workspace')
-      const diaryFolder = tree.children?.find(c => c.name === 'diary')
+      const tree = await api<{ children?: Array<{ name: string; path: string }> }>('/files/tree?root=workspace');
+      const diaryFolder = tree.children?.find(c => c.name === 'diary');
       if (diaryFolder && 'children' in diaryFolder) {
         const entries: DiaryEntry[] = ((diaryFolder as { children?: Array<{ name: string }> }).children || [])
           .filter(f => f.name.endsWith('.md'))
           .map(f => ({ date: f.name.replace('.md', ''), filename: f.name }))
-          .sort((a, b) => b.date.localeCompare(a.date))
-        setDiaries(entries)
+          .sort((a, b) => b.date.localeCompare(a.date));
+        setDiaries(entries);
         if (entries.length > 0 && !selected) {
-          setSelected(entries[0].date)
+          setSelected(entries[0].date);
         }
       }
-    } catch {}
-  }, [selected])
-
-  useEffect(() => { loadDiaryList() }, [loadDiaryList])
+    } catch {
+      setMessage({ type: 'error', text: '加载日记列表失败' });
+    }
+  }, [selected]);
 
   useEffect(() => {
-    if (!selected) return
+    loadDiaryList();
+  }, [loadDiaryList]);
+
+  useEffect(() => {
+    if (!selected) return;
     api<FileData>(`/files/read?path=workspace/diary/${selected}.md`)
       .then(data => {
-        setContent(data)
-        setEditing(data.content)
+        setContent(data);
+        setEditing(data.content);
       })
-      .catch(() => setContent(null))
-  }, [selected])
+      .catch(() => setContent(null));
+  }, [selected]);
 
   const saveFile = async () => {
-    if (!content) return
-    setSaving(true)
-    setMessage(null)
+    if (!content) return;
+    setSaving(true);
+    setMessage(null);
     try {
       const result = await api<FileData>('/files/write', {
         method: 'PUT',
         body: JSON.stringify({ path: content.path, content: editing, expected_mtime: content.mtime }),
-      })
-      setContent({ ...content, content: editing, mtime: result.mtime })
-      setMessage({ type: 'success', text: '保存成功' })
+      });
+      setContent({ ...content, content: editing, mtime: result.mtime });
+      setMessage({ type: 'success', text: '保存成功' });
     } catch (err: unknown) {
-      setMessage({ type: 'error', text: err instanceof Error ? err.message : '保存失败' })
+      setMessage({ type: 'error', text: err instanceof Error ? err.message : '保存失败' });
     } finally {
-      setSaving(false)
+      setSaving(false);
     }
-  }
+  };
 
-  const hasChanges = editing !== content?.content
+  const hasChanges = editing !== content?.content;
 
   return (
     <div className="flex gap-4 h-[calc(100vh-14rem)]">
@@ -466,7 +490,7 @@ function DiaryTab() {
                 'w-full px-4 py-2.5 text-left text-sm transition-colors',
                 selected === d.date
                   ? 'bg-[var(--accent)] text-white'
-                  : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)]'
+                  : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)]',
               )}
             >
               {d.date}
@@ -492,7 +516,9 @@ function DiaryTab() {
           )}
         </div>
         {message && (
-          <div className={`mx-4 mt-3 p-2 rounded-lg text-xs ${message.type === 'success' ? 'bg-[var(--success)]/10 text-[var(--success)]' : 'bg-[var(--danger)]/10 text-[var(--danger)]'}`}>
+          <div
+            className={`mx-4 mt-3 p-2 rounded-lg text-xs ${message.type === 'success' ? 'bg-[var(--success)]/10 text-[var(--success)]' : 'bg-[var(--danger)]/10 text-[var(--danger)]'}`}
+          >
             {message.text}
           </div>
         )}
@@ -503,8 +529,14 @@ function DiaryTab() {
               language="markdown"
               theme="vs-dark"
               value={editing}
-              onChange={(v) => setEditing(v || '')}
-              options={{ minimap: { enabled: false }, fontSize: 13, readOnly: !canEdit(), wordWrap: 'on', scrollBeyondLastLine: false }}
+              onChange={v => setEditing(v || '')}
+              options={{
+                minimap: { enabled: false },
+                fontSize: 13,
+                readOnly: !canEdit(),
+                wordWrap: 'on',
+                scrollBeyondLastLine: false,
+              }}
             />
           ) : (
             <div className="h-full flex items-center justify-center text-[var(--text-secondary)]">
@@ -514,63 +546,150 @@ function DiaryTab() {
         </div>
       </div>
     </div>
-  )
+  );
 }
 
 // ── Generated Images Tab ───────────────────────────────────────────────────
 
 function GeneratedImagesTab() {
-  const [data, setData] = useState<MediaResponse | null>(null)
-  const [page, setPage] = useState(1)
-  const [search, setSearch] = useState('')
-  const [searchInput, setSearchInput] = useState('')
-  const [selected, setSelected] = useState<MediaRecord | null>(null)
-  const [deleting, setDeleting] = useState<string | null>(null)
-  const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
-  const { canEdit } = useAuth()
+  const [data, setData] = useState<MediaResponse | null>(null);
+  const [page, setPage] = useState(1);
+  const [search, setSearch] = useState('');
+  const [searchInput, setSearchInput] = useState('');
+  const [selected, setSelected] = useState<MediaRecord | null>(null);
+  const [deleting, setDeleting] = useState<string | null>(null);
+  const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const [jumpToPage, setJumpToPage] = useState('');
+  const { canEdit } = useAuth();
 
   const loadRecords = useCallback(async () => {
-    const params = new URLSearchParams({ page: String(page), size: '18' })
-    if (search) params.set('search', search)
-    const res = await api<MediaResponse>(`/media/records?${params}`)
-    setData(res)
-  }, [page, search])
+    const params = new URLSearchParams({ page: String(page), size: '18' });
+    if (search) params.set('search', search);
+    const res = await api<MediaResponse>(`/media/records?${params}`);
+    setData(res);
+  }, [page, search]);
 
-  useEffect(() => { loadRecords() }, [loadRecords])
+  useEffect(() => {
+    loadRecords();
+  }, [loadRecords]);
 
-  const handleSearch = () => { setSearch(searchInput); setPage(1) }
-  const clearSearch = () => { setSearchInput(''); setSearch(''); setPage(1) }
+  const handleSearch = () => {
+    setSearch(searchInput);
+    setPage(1);
+  };
+  const clearSearch = () => {
+    setSearchInput('');
+    setSearch('');
+    setPage(1);
+  };
 
   const handleDelete = async (record: MediaRecord, e: React.MouseEvent) => {
-    e.stopPropagation()
-    if (!confirm(`确定删除这条生图记录吗？\n\n${record.prompt.slice(0, 100)}...`)) return
-    setDeleting(record.id)
-    setMessage(null)
+    e.stopPropagation();
+    if (!confirm(`确定删除这条生图记录吗？\n\n${record.prompt.slice(0, 100)}...`)) return;
+    setDeleting(record.id);
+    setMessage(null);
     try {
-      await api(`/media/records/${record.id}`, { method: 'DELETE' })
-      setMessage({ type: 'success', text: '删除成功' })
-      loadRecords()
-      if (selected?.id === record.id) setSelected(null)
+      await api(`/media/records/${record.id}`, { method: 'DELETE' });
+      setMessage({ type: 'success', text: '删除成功' });
+      loadRecords();
+      if (selected?.id === record.id) setSelected(null);
     } catch (err: unknown) {
-      setMessage({ type: 'error', text: err instanceof Error ? err.message : '删除失败' })
+      setMessage({ type: 'error', text: err instanceof Error ? err.message : '删除失败' });
     } finally {
-      setDeleting(null)
+      setDeleting(null);
     }
-  }
+  };
 
-  const totalPages = data ? Math.ceil(data.total / data.size) : 0
+  const totalPages = data ? Math.ceil(data.total / data.size) : 0;
+
+  const handleJumpToPage = () => {
+    const targetPage = parseInt(jumpToPage);
+    if (targetPage >= 1 && targetPage <= totalPages) {
+      setPage(targetPage);
+      setJumpToPage('');
+    }
+  };
+
+  const renderPageNumbers = () => {
+    if (totalPages <= 1) return null;
+
+    const pages = [];
+    const showEllipsis = totalPages > 5;
+
+    if (showEllipsis) {
+      // 计算显示的页码范围
+      let start = Math.max(1, page - 2);
+      let end = Math.min(totalPages, page + 2);
+
+      // 调整范围确保显示5个页码
+      if (end - start < 4) {
+        if (start === 1) {
+          end = Math.min(totalPages, start + 4);
+        } else if (end === totalPages) {
+          start = Math.max(1, end - 4);
+        }
+      }
+
+      // 首页
+      if (start > 1) {
+        pages.push(1);
+        if (start > 2) pages.push('ellipsis-start');
+      }
+
+      // 中间页码
+      for (let i = start; i <= end; i++) {
+        pages.push(i);
+      }
+
+      // 末页
+      if (end < totalPages) {
+        if (end < totalPages - 1) pages.push('ellipsis-end');
+        pages.push(totalPages);
+      }
+    } else {
+      for (let i = 1; i <= totalPages; i++) {
+        pages.push(i);
+      }
+    }
+
+    return pages.map(pageNum => {
+      if (typeof pageNum === 'string') {
+        return (
+          <span key={pageNum} className="px-2 text-[var(--text-secondary)]">
+            ...
+          </span>
+        );
+      }
+
+      return (
+        <button
+          key={pageNum}
+          onClick={() => setPage(pageNum)}
+          className={cn(
+            'w-8 h-8 rounded-lg text-sm font-medium transition-colors',
+            pageNum === page
+              ? 'bg-[var(--accent)] text-white'
+              : 'bg-[var(--bg-secondary)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)]',
+          )}
+        >
+          {pageNum}
+        </button>
+      );
+    });
+  };
 
   return (
-    <div>
-      <div className="flex items-center justify-between mb-4">
+    <div className="flex flex-col h-full min-h-0">
+      {/* Header: search bar */}
+      <div className="shrink-0 flex items-center justify-between mb-4">
         <div className="flex items-center gap-2">
           <div className="relative">
             <input
               type="text"
               placeholder="搜索 prompt..."
               value={searchInput}
-              onChange={(e) => setSearchInput(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
+              onChange={e => setSearchInput(e.target.value)}
+              onKeyDown={e => e.key === 'Enter' && handleSearch()}
               className="pl-9 pr-8 py-1.5 rounded-lg bg-[var(--bg-secondary)] border border-[var(--border)] text-sm text-[var(--text-primary)] w-56"
             />
             <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-[var(--text-secondary)]" />
@@ -585,83 +704,188 @@ function GeneratedImagesTab() {
       </div>
 
       {message && (
-        <div className={`mb-4 p-3 rounded-lg text-sm ${message.type === 'success' ? 'bg-[var(--success)]/10 text-[var(--success)]' : 'bg-[var(--danger)]/10 text-[var(--danger)]'}`}>
+        <div
+          className={`shrink-0 mb-4 p-3 rounded-lg text-sm ${message.type === 'success' ? 'bg-[var(--success)]/10 text-[var(--success)]' : 'bg-[var(--danger)]/10 text-[var(--danger)]'}`}
+        >
           {message.text}
         </div>
       )}
 
-      {data?.records.length === 0 ? (
-        <div className="flex flex-col items-center justify-center py-20 text-[var(--text-secondary)]">
-          <ImageIcon className="w-12 h-12 mb-3 opacity-30" />
-          <p className="text-sm">{search ? '没有匹配的记录' : '暂无图片生成记录'}</p>
-        </div>
-      ) : (
-        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-4">
-          {data?.records.map((record) => (
-            <div
-              key={record.id}
-              onClick={() => setSelected(record)}
-              className="group cursor-pointer bg-[var(--bg-secondary)] border border-[var(--border)] rounded-xl overflow-hidden hover:border-[var(--accent)] transition-all duration-200 relative"
-            >
-              {canEdit() && (
-                <button
-                  onClick={(e) => handleDelete(record, e)}
-                  disabled={deleting === record.id}
-                  className="absolute top-2 left-2 z-10 p-1.5 rounded-lg bg-black/60 text-white opacity-0 group-hover:opacity-100 hover:bg-[var(--danger)] transition-all"
-                  title="删除"
-                >
-                  <Trash2 className="w-3.5 h-3.5" />
-                </button>
-              )}
-              <div className="aspect-square bg-[var(--bg-tertiary)] relative overflow-hidden">
-                {record.output_images.length > 0 ? (
-                  <img src={imageUrl(record.output_images[0])} alt={record.prompt} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300" loading="lazy" />
-                ) : (
-                  <div className="w-full h-full flex items-center justify-center">
-                    <AlertCircle className="w-8 h-8 text-[var(--danger)] opacity-50" />
-                  </div>
+      {/* Fixed grid area (no scroll) - 6x3 layout for 18 images */}
+      <div className="flex-1 flex flex-col justify-center min-h-0">
+        {data?.records.length === 0 ? (
+          <div className="flex flex-col items-center justify-center py-20 text-[var(--text-secondary)]">
+            <ImageIcon className="w-12 h-12 mb-3 opacity-30" />
+            <p className="text-sm">{search ? '没有匹配的记录' : '暂无图片生成记录'}</p>
+          </div>
+        ) : (
+          <div
+            style={{
+              display: 'grid',
+              gap: '1rem',
+              gridTemplateColumns: 'repeat(6, 1fr)',
+              gridTemplateRows: 'repeat(3, 1fr)',
+              height: '100%',
+              minHeight: '400px',
+            }}
+          >
+            {data?.records.map(record => (
+              <div
+                key={record.id}
+                onClick={() => setSelected(record)}
+                className="group cursor-pointer bg-[var(--bg-secondary)] border border-[var(--border)] rounded-xl overflow-hidden hover:border-[var(--accent)] transition-all duration-200 relative"
+              >
+                {canEdit() && (
+                  <button
+                    onClick={e => handleDelete(record, e)}
+                    disabled={deleting === record.id}
+                    className="absolute top-2 left-2 z-10 p-1.5 rounded-lg bg-black/60 text-white opacity-0 group-hover:opacity-100 hover:bg-[var(--danger)] transition-all"
+                    title="删除"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </button>
                 )}
-                {record.reference_image && (
-                  <div className="absolute top-2 right-2 bg-[var(--accent)] text-white rounded-full p-1" title="编辑模式">
-                    <Pencil className="w-3 h-3" />
-                  </div>
-                )}
-                {record.status === 'error' && (
-                  <div className="absolute inset-0 bg-black/50 flex items-center justify-center">
-                    <span className="text-xs text-[var(--danger)] font-medium px-2 py-1 bg-black/60 rounded">失败</span>
-                  </div>
-                )}
+                <div className="aspect-square bg-[var(--bg-tertiary)] relative overflow-hidden">
+                  {record.output_images.length > 0 ? (
+                    <img
+                      src={imageUrl(record.output_images[0])}
+                      alt={record.prompt}
+                      className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+                      loading="lazy"
+                    />
+                  ) : (
+                    <div className="w-full h-full flex items-center justify-center">
+                      <AlertCircle className="w-8 h-8 text-[var(--danger)] opacity-50" />
+                    </div>
+                  )}
+                  {record.reference_image && (
+                    <div
+                      className="absolute top-2 right-2 bg-[var(--accent)] text-white rounded-full p-1"
+                      title="编辑模式"
+                    >
+                      <Pencil className="w-3 h-3" />
+                    </div>
+                  )}
+                  {record.status === 'error' && (
+                    <div className="absolute inset-0 bg-black/50 flex items-center justify-center">
+                      <span className="text-xs text-[var(--danger)] font-medium px-2 py-1 bg-black/60 rounded">失败</span>
+                    </div>
+                  )}
+                </div>
+                <div className="p-3">
+                  <p className="text-xs text-[var(--text-primary)] line-clamp-2 leading-relaxed">{record.prompt}</p>
+                  <p className="text-[10px] text-[var(--text-secondary)] mt-1.5">
+                    {new Date(record.timestamp).toLocaleString()}
+                  </p>
+                </div>
               </div>
-              <div className="p-3">
-                <p className="text-xs text-[var(--text-primary)] line-clamp-2 leading-relaxed">{record.prompt}</p>
-                <p className="text-[10px] text-[var(--text-secondary)] mt-1.5">{new Date(record.timestamp).toLocaleString()}</p>
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
+            ))}
+            {/* Fill empty slots with placeholders if needed */}
+            {data && data.records.length < 18 &&
+              Array.from({ length: 18 - data.records.length }).map((_, i) => (
+                <div key={`placeholder-${i}`} className="opacity-0 pointer-events-none" />
+              ))
+            }
+          </div>
+        )}
+      </div>
 
+      {/* Footer: pagination — always visible at bottom */}
+      <div className="shrink-0 border-t border-[var(--border)] pt-3 mt-3">
       {totalPages > 1 && (
-        <div className="flex items-center justify-between mt-6">
-          <p className="text-sm text-[var(--text-secondary)]">共 {data?.total} 条记录</p>
-          <div className="flex items-center gap-2">
-            <button onClick={() => setPage(Math.max(1, page - 1))} disabled={page <= 1} title="上一页" className="p-2 rounded-lg bg-[var(--bg-secondary)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] disabled:opacity-30">
+        <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
+          <p className="text-sm text-[var(--text-secondary)]">
+            共 {data?.total} 条记录 · 第 {page} / {totalPages} 页 · 每页 {data?.size || 18} 张
+          </p>
+
+          <div className="flex items-center gap-3">
+            {/* 首页按钮 */}
+            <button
+              onClick={() => setPage(1)}
+              disabled={page <= 1}
+              title="首页"
+              className="p-2 rounded-lg bg-[var(--bg-secondary)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+            >
+              <ChevronLeft className="w-4 h-4" />
+              <ChevronLeft className="w-4 h-4 -ml-2" />
+            </button>
+
+            {/* 上一页按钮 */}
+            <button
+              onClick={() => setPage(Math.max(1, page - 1))}
+              disabled={page <= 1}
+              title="上一页"
+              className="p-2 rounded-lg bg-[var(--bg-secondary)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+            >
               <ChevronLeft className="w-4 h-4" />
             </button>
-            <span className="text-sm">{page} / {totalPages}</span>
-            <button onClick={() => setPage(Math.min(totalPages, page + 1))} disabled={page >= totalPages} title="下一页" className="p-2 rounded-lg bg-[var(--bg-secondary)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] disabled:opacity-30">
+
+            {/* 页码按钮 */}
+            <div className="flex items-center gap-1">{renderPageNumbers()}</div>
+
+            {/* 下一页按钮 */}
+            <button
+              onClick={() => setPage(Math.min(totalPages, page + 1))}
+              disabled={page >= totalPages}
+              title="下一页"
+              className="p-2 rounded-lg bg-[var(--bg-secondary)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+            >
               <ChevronRight className="w-4 h-4" />
             </button>
+
+            {/* 末页按钮 */}
+            <button
+              onClick={() => setPage(totalPages)}
+              disabled={page >= totalPages}
+              title="末页"
+              className="p-2 rounded-lg bg-[var(--bg-secondary)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+            >
+              <ChevronRight className="w-4 h-4" />
+              <ChevronRight className="w-4 h-4 -ml-2" />
+            </button>
+
+            {/* 跳页输入框 */}
+            <div className="flex items-center gap-2 ml-2">
+              <span className="text-sm text-[var(--text-secondary)]">跳至</span>
+              <input
+                type="number"
+                min="1"
+                max={totalPages}
+                value={jumpToPage}
+                onChange={e => setJumpToPage(e.target.value)}
+                onKeyDown={e => e.key === 'Enter' && handleJumpToPage()}
+                placeholder={String(page)}
+                className="w-16 px-2 py-1 text-sm text-center rounded-lg bg-[var(--bg-secondary)] border border-[var(--border)] text-[var(--text-primary)] focus:border-[var(--accent)] focus:outline-none"
+              />
+              <button
+                onClick={handleJumpToPage}
+                disabled={!jumpToPage || parseInt(jumpToPage) < 1 || parseInt(jumpToPage) > totalPages}
+                className="px-3 py-1 text-sm rounded-lg bg-[var(--accent)] hover:bg-[var(--accent-hover)] text-white disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+              >
+                确定
+              </button>
+            </div>
           </div>
         </div>
       )}
+      </div>
 
       {selected && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-6" onClick={() => setSelected(null)}>
-          <div className="bg-[var(--bg-primary)] border border-[var(--border)] rounded-2xl max-w-3xl w-full max-h-[90vh] overflow-y-auto shadow-2xl" onClick={(e) => e.stopPropagation()}>
+        <div
+          className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-6"
+          onClick={() => setSelected(null)}
+        >
+          <div
+            className="bg-[var(--bg-primary)] border border-[var(--border)] rounded-2xl max-w-3xl w-full max-h-[90vh] overflow-y-auto shadow-2xl"
+            onClick={e => e.stopPropagation()}
+          >
             {selected.output_images.length > 0 && (
               <div className="bg-[var(--bg-tertiary)] flex items-center justify-center p-4">
-                <img src={imageUrl(selected.output_images[0])} alt={selected.prompt} className="max-h-[50vh] rounded-lg object-contain" />
+                <img
+                  src={imageUrl(selected.output_images[0])}
+                  alt={selected.prompt}
+                  className="max-h-[50vh] rounded-lg object-contain"
+                />
               </div>
             )}
             <div className="p-6 space-y-4">
@@ -672,7 +896,9 @@ function GeneratedImagesTab() {
               {selected.reference_image && (
                 <div>
                   <label className="text-xs font-medium text-[var(--text-secondary)] uppercase">参考图片</label>
-                  <p className="mt-1 text-xs text-[var(--text-secondary)] font-mono break-all">{selected.reference_image}</p>
+                  <p className="mt-1 text-xs text-[var(--text-secondary)] font-mono break-all">
+                    {selected.reference_image}
+                  </p>
                 </div>
               )}
               {selected.output_text && (
@@ -689,16 +915,31 @@ function GeneratedImagesTab() {
               )}
               <div className="flex items-center gap-6 text-xs text-[var(--text-secondary)]">
                 <span>模型: {selected.model}</span>
-                <span>状态: <span className={selected.status === 'success' ? 'text-[var(--success)]' : 'text-[var(--danger)]'}>{selected.status}</span></span>
+                <span>
+                  状态:{' '}
+                  <span className={selected.status === 'success' ? 'text-[var(--success)]' : 'text-[var(--danger)]'}>
+                    {selected.status}
+                  </span>
+                </span>
                 <span>{new Date(selected.timestamp).toLocaleString()}</span>
               </div>
               <div className="flex justify-end gap-2 pt-2">
                 {canEdit() && (
-                  <button onClick={(e) => { handleDelete(selected, e); setSelected(null) }} disabled={deleting === selected.id} className="flex items-center gap-1.5 px-4 py-2 rounded-lg bg-[var(--danger)]/10 text-[var(--danger)] hover:bg-[var(--danger)]/20 text-sm font-medium">
+                  <button
+                    onClick={e => {
+                      handleDelete(selected, e);
+                      setSelected(null);
+                    }}
+                    disabled={deleting === selected.id}
+                    className="flex items-center gap-1.5 px-4 py-2 rounded-lg bg-[var(--danger)]/10 text-[var(--danger)] hover:bg-[var(--danger)]/20 text-sm font-medium"
+                  >
                     <Trash2 className="w-4 h-4" /> 删除
                   </button>
                 )}
-                <button onClick={() => setSelected(null)} className="px-4 py-2 rounded-lg bg-[var(--bg-secondary)] text-sm text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)] transition-colors">
+                <button
+                  onClick={() => setSelected(null)}
+                  className="px-4 py-2 rounded-lg bg-[var(--bg-secondary)] text-sm text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)] transition-colors"
+                >
                   关闭
                 </button>
               </div>
@@ -707,7 +948,7 @@ function GeneratedImagesTab() {
         </div>
       )}
     </div>
-  )
+  );
 }
 
 // ── Main Page ──────────────────────────────────────────────────────────────
@@ -716,30 +957,30 @@ const TABS = [
   { id: 'memory', label: '记忆', icon: Brain },
   { id: 'diary', label: '日记', icon: BookOpen },
   { id: 'images', label: '生成图片', icon: ImageIcon },
-] as const
+] as const;
 
-type TabId = typeof TABS[number]['id']
+type TabId = (typeof TABS)[number]['id'];
 
 export default function MemoryPage() {
-  const [activeTab, setActiveTab] = useState<TabId>('memory')
-  const [persons, setPersons] = useState<Person[]>([])
-  const [scope, setScope] = useState<MemoryScope>({ type: 'global' })
+  const [activeTab, setActiveTab] = useState<TabId>('memory');
+  const [persons, setPersons] = useState<Person[]>([]);
+  const [scope, setScope] = useState<MemoryScope>({ type: 'global' });
 
   // Load persons from identity_map.yaml
   useEffect(() => {
     api<FileData>('/files/read?path=workspace/memory/identity_map.yaml')
       .then(data => {
-        const parsed = yaml.load(data.content) as { persons?: Record<string, { display_name?: string }> }
+        const parsed = yaml.load(data.content) as { persons?: Record<string, { display_name?: string }> };
         if (parsed?.persons) {
           const list = Object.entries(parsed.persons).map(([key, val]) => ({
             key,
             displayName: val.display_name || key,
-          }))
-          setPersons(list)
+          }));
+          setPersons(list);
         }
       })
-      .catch(() => {})
-  }, [])
+      .catch(() => {});
+  }, []);
 
   return (
     <div className="h-[calc(100vh-3rem)] flex flex-col">
@@ -761,7 +1002,7 @@ export default function MemoryPage() {
               'flex items-center gap-2 px-4 py-2.5 text-sm font-medium transition-colors border-b-2 -mb-px',
               activeTab === tab.id
                 ? 'text-[var(--accent)] border-[var(--accent)]'
-                : 'text-[var(--text-secondary)] border-transparent hover:text-[var(--text-primary)]'
+                : 'text-[var(--text-secondary)] border-transparent hover:text-[var(--text-primary)]',
             )}
           >
             <tab.icon className="w-4 h-4" />
@@ -780,7 +1021,11 @@ export default function MemoryPage() {
         </div>
       )}
       {activeTab === 'diary' && <DiaryTab />}
-      {activeTab === 'images' && <GeneratedImagesTab />}
+      {activeTab === 'images' && (
+        <div className="flex-1 flex flex-col min-h-0 bg-[var(--bg-secondary)] border border-[var(--border)] rounded-xl p-4 overflow-hidden">
+          <GeneratedImagesTab />
+        </div>
+      )}
     </div>
-  )
+  );
 }
