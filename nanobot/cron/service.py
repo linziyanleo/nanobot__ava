@@ -10,7 +10,7 @@ from typing import Any, Callable, Coroutine
 
 from loguru import logger
 
-from nanobot.cron.types import CronJob, CronJobState, CronPayload, CronSchedule, CronStore
+from nanobot.cron.types import CronJob, CronJobState, CronPayload, CronRunRecord, CronSchedule, CronStore
 
 
 def _now_ms() -> int:
@@ -61,11 +61,13 @@ def _validate_schedule_for_add(schedule: CronSchedule) -> None:
 
 class CronService:
     """Service for managing and executing scheduled jobs."""
-    
+
+    _MAX_RUN_HISTORY = 20
+
     def __init__(
         self,
         store_path: Path,
-        on_job: Callable[[CronJob], Coroutine[Any, Any, str | None]] | None = None
+        on_job: Callable[[CronJob], Coroutine[Any, Any, str | None]] | None = None,
     ):
         self.store_path = store_path
         self.on_job = on_job  # Callback to execute job, returns response text
@@ -109,6 +111,15 @@ class CronService:
                             last_error=j.get("state", {}).get("lastError"),
                             task_completed_at_ms=j.get("state", {}).get("taskCompletedAtMs"),
                             task_cycle_id=j.get("state", {}).get("taskCycleId"),
+                            run_history=[
+                                CronRunRecord(
+                                    run_at_ms=r["runAtMs"],
+                                    status=r["status"],
+                                    duration_ms=r.get("durationMs", 0),
+                                    error=r.get("error"),
+                                )
+                                for r in j.get("state", {}).get("runHistory", [])
+                            ],
                         ),
                         created_at_ms=j.get("createdAtMs", 0),
                         updated_at_ms=j.get("updatedAtMs", 0),
@@ -160,6 +171,15 @@ class CronService:
                         "lastError": j.state.last_error,
                         "taskCompletedAtMs": j.state.task_completed_at_ms,
                         "taskCycleId": j.state.task_cycle_id,
+                        "runHistory": [
+                            {
+                                "runAtMs": r.run_at_ms,
+                                "status": r.status,
+                                "durationMs": r.duration_ms,
+                                "error": r.error,
+                            }
+                            for r in j.state.run_history
+                        ],
                     },
                     "createdAtMs": j.created_at_ms,
                     "updatedAtMs": j.updated_at_ms,
@@ -285,10 +305,17 @@ class CronService:
         logger.info("Cron: executing job '{}' ({})", job.name, job.id)
         
         try:
-            response = None
             if self.on_job:
-                response = await self.on_job(job)
-            
+                original = job.payload.message
+                job.payload.message = (
+                    f"{job.payload.message}\n\n"
+                    "[SYSTEM DIRECTIVE: Fulfill the above request. Do NOT schedule, "
+                    "create, or suggest any new cron jobs or recurring tasks.]"
+                )
+                try:
+                    await self.on_job(job)
+                finally:
+                    job.payload.message = original
             job.state.last_status = "ok"
             job.state.last_error = None
             logger.info("Cron: job '{}' completed", job.name)
@@ -297,10 +324,17 @@ class CronService:
             job.state.last_status = "error"
             job.state.last_error = str(e)
             logger.error("Cron: job '{}' failed: {}", job.name, e)
-        
+        end_ms = _now_ms()
         job.state.last_run_at_ms = start_ms
-        job.updated_at_ms = _now_ms()
-        
+        job.updated_at_ms = end_ms
+
+        job.state.run_history.append(CronRunRecord(
+            run_at_ms=start_ms,
+            status=job.state.last_status,
+            duration_ms=end_ms - start_ms,
+            error=job.state.last_error,
+        ))
+        job.state.run_history = job.state.run_history[-self._MAX_RUN_HISTORY:]
         # Handle one-shot jobs
         if job.schedule.kind == "at":
             if job.delete_after_run:
@@ -561,6 +595,11 @@ class CronService:
 
         self._save_store()
         return len([j for j in store.jobs if j.source == "schedule"])
+
+    def get_job(self, job_id: str) -> CronJob | None:
+        """Get a job by ID."""
+        store = self._load_store()
+        return next((j for j in store.jobs if j.id == job_id), None)
 
     def status(self) -> dict:
         """Get service status."""
