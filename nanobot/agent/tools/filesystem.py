@@ -1,10 +1,13 @@
 """File system tools: read, write, edit."""
 
+import base64
 import difflib
+import mimetypes
 from pathlib import Path
 from typing import Any
 
 from nanobot.agent.tools.base import Tool
+from nanobot.utils.helpers import detect_image_mime
 
 
 def _resolve_path(
@@ -56,7 +59,7 @@ class ReadFileTool(Tool):
             "required": ["path"],
         }
 
-    async def execute(self, path: str, **kwargs: Any) -> str:
+    async def execute(self, path: str, **kwargs: Any) -> Any:
         try:
             file_path = _resolve_path(path, self._workspace, self._allowed_dir, self._blocked_paths)
             if not file_path.exists():
@@ -64,16 +67,42 @@ class ReadFileTool(Tool):
             if not file_path.is_file():
                 return f"Error: Not a file: {path}"
 
-            size = file_path.stat().st_size
-            if size > self._MAX_CHARS * 4:  # rough upper bound (UTF-8 chars ≤ 4 bytes)
+            raw = file_path.read_bytes()
+            if not raw:
+                return f"(Empty file: {path})"
+
+            mime = detect_image_mime(raw) or mimetypes.guess_type(path)[0]
+            if mime and mime.startswith("image/"):
+                b64 = base64.b64encode(raw).decode()
+                return [
+                    {
+                        "type": "image_url",
+                        "image_url": {"url": f"data:{mime};base64,{b64}"},
+                        "_meta": {"path": str(file_path)},
+                    },
+                    {"type": "text", "text": f"(Image file: {path})"}
+                ]
+
+            if len(raw) > self._MAX_CHARS * 4:  # rough upper bound (UTF-8 chars <= 4 bytes)
                 return (
-                    f"Error: File too large ({size:,} bytes). "
-                    f"Use exec tool with head/tail/grep to read portions."
+                    f"Error: File too large ({len(raw):,} bytes). "
+                    "Use a targeted read approach instead of loading the full file."
                 )
 
-            content = file_path.read_text(encoding="utf-8")
+            try:
+                content = raw.decode("utf-8")
+            except UnicodeDecodeError:
+                return (
+                    f"Error: Cannot read binary file {path} (MIME: {mime or 'unknown'}). "
+                    "Only UTF-8 text and images are supported."
+                )
+
             if len(content) > self._MAX_CHARS:
-                return content[: self._MAX_CHARS] + f"\n\n... (truncated — file is {len(content):,} chars, limit {self._MAX_CHARS:,})"
+                return (
+                    content[: self._MAX_CHARS]
+                    + f"\n\n... (truncated — file is {len(content):,} chars, "
+                    f"limit {self._MAX_CHARS:,})"
+                )
             return content
         except PermissionError as e:
             return f"Error: {e}"

@@ -1,8 +1,8 @@
 """Web tools: web_search and web_fetch."""
 
+import base64
 import html
 import json
-import os
 import re
 from typing import Any
 from urllib.parse import urlparse
@@ -87,6 +87,7 @@ class WebSearchTool(Tool):
             )
             
             if not results:
+                
                 return f"No results for: {query}"
             
             lines = [f"Results for: {query}\n"]
@@ -127,35 +128,59 @@ class WebFetchTool(Tool):
         self.max_chars = max_chars
         self.proxy = proxy
     
-    async def execute(self, url: str, extractMode: str = "markdown", maxChars: int | None = None, **kwargs: Any) -> str:
+    async def execute(
+        self,
+        url: str,
+        extractMode: str = "markdown",
+        maxChars: int | None = None,
+        **kwargs: Any,
+    ) -> Any:
         from readability import Document
 
         max_chars = maxChars or self.max_chars
 
-        # Validate URL before fetching
         is_valid, error_msg = _validate_url(url)
         if not is_valid:
-            return json.dumps({"error": f"URL validation failed: {error_msg}", "url": url}, ensure_ascii=False)
+            return json.dumps(
+                {"error": f"URL validation failed: {error_msg}", "url": url},
+                ensure_ascii=False,
+            )
 
         try:
             async with httpx.AsyncClient(
                 follow_redirects=True,
                 max_redirects=MAX_REDIRECTS,
                 timeout=30.0,
-                proxy=self.proxy
+                proxy=self.proxy,
             ) as client:
                 r = await client.get(url, headers={"User-Agent": USER_AGENT})
                 r.raise_for_status()
 
-                ctype = r.headers.get("content-type", "")
+                ctype = (r.headers.get("content-type", "") or "").lower()
+                if ctype.startswith("image/"):
+                    b64 = base64.b64encode(r.content).decode()
+                    return [
+                        {
+                            "type": "image_url",
+                            "image_url": {"url": f"data:{ctype};base64,{b64}"},
+                            "_meta": {"path": url},
+                        },
+                        {"type": "text", "text": f"(Image fetched from: {url})"},
+                    ]
 
-                # JSON
                 if "application/json" in ctype:
-                    text, extractor = json.dumps(r.json(), indent=2, ensure_ascii=False), "json"
-                # HTML
-                elif "text/html" in ctype or r.text[:256].lower().startswith(("<!doctype", "<html")):
+                    text, extractor = json.dumps(
+                        r.json(), indent=2, ensure_ascii=False
+                    ), "json"
+                elif "text/html" in ctype or r.text[:256].lower().startswith(
+                    ("<!doctype", "<html")
+                ):
                     doc = Document(r.text)
-                    content = self._to_markdown(doc.summary()) if extractMode == "markdown" else _strip_tags(doc.summary())
+                    content = (
+                        self._to_markdown(doc.summary())
+                        if extractMode == "markdown"
+                        else _strip_tags(doc.summary())
+                    )
                     text = f"# {doc.title()}\n\n{content}" if doc.title() else content
                     extractor = "readability"
                 else:
@@ -165,10 +190,23 @@ class WebFetchTool(Tool):
             if truncated:
                 text = text[:max_chars]
 
-            return json.dumps({"url": url, "finalUrl": str(r.url), "status": r.status_code,
-                              "extractor": extractor, "truncated": truncated, "length": len(text), "text": text}, ensure_ascii=False)
+            return json.dumps(
+                {
+                    "url": url,
+                    "finalUrl": str(r.url),
+                    "status": r.status_code,
+                    "extractor": extractor,
+                    "truncated": truncated,
+                    "length": len(text),
+                    "text": text,
+                },
+                ensure_ascii=False,
+            )
         except Exception as e:
-            return json.dumps({"error": f"{type(e).__name__}: {e}", "url": url}, ensure_ascii=False)
+            return json.dumps(
+                {"error": f"{type(e).__name__}: {e}", "url": url},
+                ensure_ascii=False,
+            )
     
     def _to_markdown(self, html: str) -> str:
         """Convert HTML to markdown."""
