@@ -243,6 +243,7 @@ class InLoopTruncationConfig(Base):
     read_file: int = 16000   # ~4K tokens — covers most source files
     exec: int = 8000         # ~2K tokens — command output head/tail
     web_fetch: int = 12000   # ~3K tokens — page content
+    claude_code: int = 16000 # ~4K tokens — heavy tool, deserves more context
     default: int = 8000      # fallback for unlisted tools
 
     def limit_for(self, tool_name: str) -> int:
@@ -385,11 +386,22 @@ class MCPServerConfig(Base):
     tool_timeout: int = 30  # Seconds before a tool call is cancelled
 
 
+class ClaudeCodeConfig(Base):
+    """Claude Code CLI tool configuration."""
+
+    default_project: str = ""
+    model: str = "claude-sonnet-4-20250514"
+    max_turns: int = 15
+    allowed_tools: str = "Read,Edit,Bash,Glob,Grep"
+    timeout: int = 600
+
+
 class ToolsConfig(Base):
     """Tools configuration."""
 
     web: WebToolsConfig = Field(default_factory=WebToolsConfig)
     exec: ExecToolConfig = Field(default_factory=ExecToolConfig)
+    claude_code: ClaudeCodeConfig = Field(default_factory=ClaudeCodeConfig)
     restrict_to_workspace: bool = False  # If true, restrict all tool access to workspace directory
     restrict_config_file: bool = True  # If true, block agent from reading/writing/editing config.json
     mcp_servers: dict[str, MCPServerConfig] = Field(default_factory=dict)

@@ -28,6 +28,7 @@ from nanobot.agent.tools.image_gen import ImageGenTool
 from nanobot.agent.tools.shell import ExecTool
 from nanobot.agent.tools.spawn import SpawnTool
 from nanobot.agent.tools.vision import VisionTool
+from nanobot.agent.tools.claude_code import ClaudeCodeTool
 from nanobot.agent.tools.sticker import StickerTool
 from nanobot.agent.tools.web import WebFetchTool, WebSearchTool
 from nanobot.bus.events import InboundMessage, OutboundMessage
@@ -200,6 +201,26 @@ class AgentLoop:
             self.tools.register(ImageGenTool(token_stats=self._token_stats, media_service=_media_svc))
         except ValueError as e:
             logger.debug("ImageGenTool not registered: {}", e)
+
+        import shutil
+        if shutil.which("npx"):
+            try:
+                from nanobot.config.loader import load_config as _lc
+                _cc_cfg = _lc().tools.claude_code
+            except Exception:
+                from nanobot.config.schema import ClaudeCodeConfig
+                _cc_cfg = ClaudeCodeConfig()
+            self.tools.register(ClaudeCodeTool(
+                workspace=self.workspace,
+                token_stats=self._token_stats,
+                default_project=_cc_cfg.default_project,
+                model=_cc_cfg.model,
+                max_turns=_cc_cfg.max_turns,
+                allowed_tools=_cc_cfg.allowed_tools,
+                timeout=_cc_cfg.timeout,
+            ))
+        else:
+            logger.debug("ClaudeCodeTool not registered: npx not found")
 
     async def _connect_mcp(self) -> None:
         """Connect to configured MCP servers (one-time, lazy)."""

@@ -35,6 +35,7 @@ class TokenUsageRecord:
     model_role: str = "default"
     cached_tokens: int = 0
     cache_creation_tokens: int = 0
+    cost_usd: float = 0.0
 
 
 class TokenStatsCollector:
@@ -86,6 +87,7 @@ class TokenStatsCollector:
         full_request_payload: str = "",
         finish_reason: str = "",
         model_role: str = "default",
+        cost_usd: float = 0.0,
     ) -> None:
         """Append a single LLM call record."""
         ts = datetime.now().isoformat()
@@ -93,9 +95,6 @@ class TokenStatsCollector:
         completion_tokens = usage.get("completion_tokens", 0)
         total_tokens = usage.get("total_tokens", 0)
 
-        # Extract cache info from LiteLLM usage response
-        # OpenAI/DeepSeek: prompt_tokens_details.cached_tokens
-        # Anthropic: cache_creation_input_tokens
         cached_tokens = 0
         cache_creation_tokens = 0
         prompt_details = usage.get("prompt_tokens_details")
@@ -109,13 +108,13 @@ class TokenStatsCollector:
                    (timestamp, model, provider, prompt_tokens, completion_tokens, total_tokens,
                     session_key, turn_seq, iteration, user_message, output_content,
                     system_prompt_preview, conversation_history, full_request_payload, finish_reason,
-                    model_role, cached_tokens, cache_creation_tokens)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    model_role, cached_tokens, cache_creation_tokens, cost_usd)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
                     ts, model, provider, prompt_tokens, completion_tokens, total_tokens,
                     session_key, turn_seq, iteration, user_message, output_content,
                     system_prompt, conversation_history, full_request_payload, finish_reason,
-                    model_role, cached_tokens, cache_creation_tokens,
+                    model_role, cached_tokens, cache_creation_tokens, cost_usd,
                 ),
             )
             self._db.commit()
@@ -140,6 +139,7 @@ class TokenStatsCollector:
             model_role=model_role,
             cached_tokens=cached_tokens,
             cache_creation_tokens=cache_creation_tokens,
+            cost_usd=cost_usd,
         )
         with self._lock:
             self._records.append(rec)
@@ -484,6 +484,7 @@ class TokenStatsCollector:
                     model_role=item.get("model_role", "default"),
                     cached_tokens=item.get("cached_tokens", 0),
                     cache_creation_tokens=item.get("cache_creation_tokens", 0),
+                    cost_usd=item.get("cost_usd", 0.0),
                 ))
             if len(self._records) > self._max_records:
                 self._records = self._records[-self._max_records:]

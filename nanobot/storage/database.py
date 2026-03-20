@@ -62,6 +62,11 @@ class Database:
     def _create_schema(self) -> None:
         conn = self._get_conn()
         conn.executescript(_SCHEMA_DDL)
+        for col, col_type, default in _SAFE_ALTER_COLUMNS:
+            try:
+                conn.execute(f"ALTER TABLE token_usage ADD COLUMN {col} {col_type} DEFAULT {default}")
+            except sqlite3.OperationalError:
+                pass  # column already exists
         conn.commit()
 
     # ------------------------------------------------------------------
@@ -354,6 +359,10 @@ class Database:
 # DDL
 # ------------------------------------------------------------------
 
+_SAFE_ALTER_COLUMNS: list[tuple[str, str, str]] = [
+    ("cost_usd", "REAL", "0"),
+]
+
 _SCHEMA_DDL = """
 CREATE TABLE IF NOT EXISTS schema_version (
     version INTEGER NOT NULL
@@ -406,7 +415,8 @@ CREATE TABLE IF NOT EXISTS token_usage (
     finish_reason TEXT DEFAULT '',
     model_role TEXT DEFAULT 'default',
     cached_tokens INTEGER DEFAULT 0,
-    cache_creation_tokens INTEGER DEFAULT 0
+    cache_creation_tokens INTEGER DEFAULT 0,
+    cost_usd REAL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS idx_tu_timestamp ON token_usage(timestamp);
 CREATE INDEX IF NOT EXISTS idx_tu_model ON token_usage(model);
