@@ -35,6 +35,7 @@ interface TokenRecord {
   model_role: string;
   cached_tokens: number;
   cache_creation_tokens: number;
+  cost_usd: number;
 }
 
 interface ModelStats {
@@ -103,6 +104,7 @@ const MODEL_ROLE_CONFIG: Record<string, { icon: string; label: string }> = {
   vision: { icon: '👁️', label: '视觉模型' },
   voice: { icon: '🎙️', label: '语音模型' },
   imageGen: { icon: '🎨', label: '图像生成' },
+  claude_code: { icon: '💻', label: 'Claude Code' },
 };
 
 function ModelRoleIcon({ role }: { role: string }) {
@@ -549,19 +551,20 @@ export default function TokenStatsPage() {
                   <th className="text-center px-4 py-3 font-medium">缓存</th>
                   <th className="text-center px-4 py-3 font-medium">类型</th>
                   <th className="text-right px-4 py-3 font-medium">Total</th>
+                  <th className="text-right px-4 py-3 font-medium">Cost</th>
                   <th className="text-center px-4 py-3 font-medium w-10"></th>
                 </tr>
               </thead>
               <tbody>
                 {loading ? (
                   <tr>
-                    <td colSpan={10} className="text-center py-8 text-[var(--text-secondary)]">
+                    <td colSpan={11} className="text-center py-8 text-[var(--text-secondary)]">
                       加载中...
                     </td>
                   </tr>
                 ) : records.length === 0 ? (
                   <tr>
-                    <td colSpan={10} className="text-center py-8 text-[var(--text-secondary)]">
+                    <td colSpan={11} className="text-center py-8 text-[var(--text-secondary)]">
                       暂无数据
                     </td>
                   </tr>
@@ -782,6 +785,90 @@ function CopyablePre({ children, className }: { children: string; className?: st
   );
 }
 
+function ClaudeCodeMeta({ record }: { record: TokenRecord }) {
+  const { user_message, cost_usd, prompt_tokens, completion_tokens, cached_tokens, cache_creation_tokens } = record;
+  const parsed: Record<string, string> = {};
+  const firstLine = user_message.split('\n')[0];
+  const match = firstLine.match(/\[claude_code\]\s*(.*)/);
+  if (match) {
+    for (const part of match[1].split(/\s+/)) {
+      const [k, v] = part.split('=');
+      if (k && v) parsed[k] = v;
+    }
+  }
+
+  const promptSection = user_message.match(/--- Prompt ---\n([\s\S]*)/);
+  const promptText = promptSection ? promptSection[1].trim() : '';
+
+  const nonCachedInput = prompt_tokens - (cached_tokens || 0) - (cache_creation_tokens || 0);
+
+  return (
+    <div className="space-y-2">
+      {/* Meta bar */}
+      <div className="flex flex-wrap gap-3 py-1.5 px-3 rounded-lg bg-[var(--bg-primary)] border border-[var(--border)]">
+        <div className="flex items-center gap-1.5">
+          <span className="text-base">💻</span>
+          <span className="font-medium text-[var(--accent)]">Claude Code</span>
+        </div>
+        {parsed.session && (
+          <div>
+            <span className="text-[var(--text-secondary)]">Session: </span>
+            <span className="font-mono text-[10px]">{parsed.session}</span>
+          </div>
+        )}
+        {parsed.turns && (
+          <div>
+            <span className="text-[var(--text-secondary)]">Turns: </span>
+            <span className="font-medium">{parsed.turns}</span>
+          </div>
+        )}
+        {parsed.duration && (
+          <div>
+            <span className="text-[var(--text-secondary)]">Duration: </span>
+            <span className="font-medium">{parsed.duration}</span>
+          </div>
+        )}
+        {cost_usd > 0 && (
+          <div>
+            <span className="text-[var(--text-secondary)]">Cost: </span>
+            <span className="font-medium text-amber-400">${cost_usd.toFixed(4)}</span>
+          </div>
+        )}
+      </div>
+
+      {/* Token breakdown */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+        <div className="px-2.5 py-1.5 rounded-lg bg-[var(--bg-primary)] border border-[var(--border)]">
+          <div className="text-[10px] text-[var(--text-secondary)]">Input (non-cached)</div>
+          <div className="text-sm font-medium text-cyan-400">{formatTokens(Math.max(0, nonCachedInput))}</div>
+        </div>
+        <div className="px-2.5 py-1.5 rounded-lg bg-[var(--bg-primary)] border border-[var(--border)]">
+          <div className="text-[10px] text-[var(--text-secondary)]">Cache Read 🎯</div>
+          <div className="text-sm font-medium text-emerald-400">{formatTokens(cached_tokens || 0)}</div>
+        </div>
+        <div className="px-2.5 py-1.5 rounded-lg bg-[var(--bg-primary)] border border-[var(--border)]">
+          <div className="text-[10px] text-[var(--text-secondary)]">Cache Write ✍️</div>
+          <div className="text-sm font-medium text-amber-400">{formatTokens(cache_creation_tokens || 0)}</div>
+        </div>
+        <div className="px-2.5 py-1.5 rounded-lg bg-[var(--bg-primary)] border border-[var(--border)]">
+          <div className="text-[10px] text-[var(--text-secondary)]">Output</div>
+          <div className="text-sm font-medium text-purple-400">{formatTokens(completion_tokens)}</div>
+        </div>
+      </div>
+
+      {/* Prompt */}
+      {promptText && (
+        <div>
+          <p className="text-[var(--text-secondary)] mb-1">Prompt:</p>
+          <CopyablePre className="bg-[var(--bg-primary)] rounded-lg p-3 text-xs whitespace-pre-wrap break-all max-h-40 overflow-y-auto">
+            {promptText}
+          </CopyablePre>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function RecordRow({
   record: r,
   expanded,
@@ -824,6 +911,13 @@ function RecordRow({
           </span>
         </td>
         <td className="px-4 py-2.5 text-right font-medium text-xs">{formatTokens(r.total_tokens)}</td>
+        <td className="px-4 py-2.5 text-right text-xs">
+          {r.cost_usd > 0 ? (
+            <span className="text-amber-400 font-medium">${r.cost_usd.toFixed(4)}</span>
+          ) : (
+            <span className="text-[var(--text-secondary)]">—</span>
+          )}
+        </td>
         <td className="px-4 py-2.5 text-center">
           {expanded ? (
             <ChevronUp className="w-3.5 h-3.5 text-[var(--text-secondary)]" />
@@ -834,13 +928,16 @@ function RecordRow({
       </tr>
       {expanded && (
         <tr className="bg-[var(--bg-tertiary)]/20">
-          <td colSpan={10} className="px-4 py-3">
+          <td colSpan={11} className="px-4 py-3">
             <div className="space-y-2 text-xs">
               <div>
                 <span className="text-[var(--text-secondary)]">Session:</span>{' '}
                 <span className="font-mono">{r.session_key || '—'}</span>
               </div>
-              {r.user_message && (
+              {r.model_role === 'claude_code' && (
+                <ClaudeCodeMeta record={r} />
+              )}
+              {r.user_message && r.model_role !== 'claude_code' && (
                 <div>
                   <p className="text-[var(--text-secondary)] mb-1">用户输入:</p>
                   <CopyablePre className="bg-[var(--bg-primary)] rounded-lg p-3 text-xs whitespace-pre-wrap break-all max-h-40 overflow-y-auto">

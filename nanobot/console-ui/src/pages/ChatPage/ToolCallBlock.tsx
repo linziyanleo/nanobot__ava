@@ -29,6 +29,35 @@ const MEDIA_TOOLS: Record<string, { icon: typeof Image; label: string; color: st
   transcribe: { icon: Mic, label: 'Voice Transcription', color: 'text-green-400' },
 }
 
+interface ClaudeCodeResult {
+  status: string
+  turns: number
+  duration: string
+  cost: string
+  session: string
+  body: string
+}
+
+function parseClaudeCodeResult(text: string): ClaudeCodeResult | null {
+  const statusMatch = text.match(/\[Claude Code (\w+)\]/)
+  if (!statusMatch) return null
+
+  const metaMatch = text.match(/Turns:\s*(\d+)\s*\|\s*Duration:\s*(\d+)ms\s*\|\s*Cost:\s*\$([0-9.]+)/)
+  const sessionMatch = text.match(/Session:\s*([a-f0-9-]+)/)
+
+  const headerEnd = text.indexOf('\n\n')
+  const body = headerEnd >= 0 ? text.slice(headerEnd + 2).trim() : ''
+
+  return {
+    status: statusMatch[1],
+    turns: metaMatch ? parseInt(metaMatch[1]) : 0,
+    duration: metaMatch ? `${(parseInt(metaMatch[2]) / 1000).toFixed(1)}s` : '?',
+    cost: metaMatch ? `$${metaMatch[3]}` : '?',
+    session: sessionMatch ? sessionMatch[1] : '',
+    body,
+  }
+}
+
 export function ToolCallBlock({ tc, isLoading }: ToolCallBlockProps) {
   const [expanded, setExpanded] = useState(false)
 
@@ -83,6 +112,132 @@ export function ToolCallBlock({ tc, isLoading }: ToolCallBlockProps) {
   }, [fnName, prompt, regexImageUrls.length, resultText, tc.result])
 
   const mediaImageUrls = regexImageUrls.length > 0 ? regexImageUrls : apiImageUrls
+
+  if (fnName === 'claude_code') {
+    const prompt = (parsedArgs.prompt || '') as string
+    const mode = (parsedArgs.mode || 'standard') as string
+    const projectPath = (parsedArgs.project_path || '') as string
+    const sessionArg = (parsedArgs.session_id || '') as string
+    const ccResult = resultText ? parseClaudeCodeResult(resultText) : null
+    const isSuccess = ccResult?.status === 'SUCCESS'
+
+    return (
+      <div className={cn(
+        'my-1.5 rounded-lg border text-xs overflow-hidden',
+        isSuccess ? 'border-cyan-500/30 bg-cyan-500/5' : 'border-[var(--border)] bg-[var(--bg-primary)]/50',
+      )}>
+        <button
+          onClick={() => setExpanded(!expanded)}
+          className="flex items-center gap-1.5 w-full px-3 py-2 text-left hover:bg-[var(--bg-tertiary)]/30 transition-colors"
+        >
+          {isLoading ? (
+            <Loader2 className="w-3.5 h-3.5 shrink-0 animate-spin text-cyan-400" />
+          ) : expanded ? (
+            <ChevronDown className="w-3 h-3 shrink-0 text-[var(--text-secondary)]" />
+          ) : (
+            <ChevronRight className="w-3 h-3 shrink-0 text-[var(--text-secondary)]" />
+          )}
+          <span className="text-base shrink-0">💻</span>
+          <span className="font-medium text-cyan-400">Claude Code</span>
+          <span className={cn(
+            'px-1.5 py-0.5 rounded text-[10px] font-medium ml-1',
+            mode === 'fast' ? 'bg-amber-500/15 text-amber-400'
+              : mode === 'readonly' ? 'bg-blue-500/15 text-blue-400'
+              : 'bg-emerald-500/15 text-emerald-400',
+          )}>
+            {mode}
+          </span>
+          {ccResult && (
+            <span className="flex items-center gap-2 ml-2 text-[var(--text-secondary)]">
+              <span>{ccResult.turns} turns</span>
+              <span>{ccResult.duration}</span>
+              <span className="text-amber-400">{ccResult.cost}</span>
+            </span>
+          )}
+          {!expanded && prompt && (
+            <span className="text-[var(--text-secondary)] truncate ml-2">— {prompt.slice(0, 60)}{prompt.length > 60 ? '...' : ''}</span>
+          )}
+        </button>
+
+        {expanded && (
+          <div className="px-3 pb-3 space-y-2 border-t border-[var(--border)]">
+            {/* Metadata bar */}
+            {ccResult && (
+              <div className="flex flex-wrap gap-3 pt-2 text-[10px]">
+                <div className={cn(
+                  'px-2 py-1 rounded-md font-medium',
+                  isSuccess ? 'bg-emerald-500/15 text-emerald-400' : 'bg-red-500/15 text-red-400',
+                )}>
+                  {ccResult.status}
+                </div>
+                <div className="flex items-center gap-1 text-[var(--text-secondary)]">
+                  <span>Turns:</span>
+                  <span className="text-[var(--text-primary)] font-medium">{ccResult.turns}</span>
+                </div>
+                <div className="flex items-center gap-1 text-[var(--text-secondary)]">
+                  <span>Duration:</span>
+                  <span className="text-[var(--text-primary)] font-medium">{ccResult.duration}</span>
+                </div>
+                <div className="flex items-center gap-1 text-[var(--text-secondary)]">
+                  <span>Cost:</span>
+                  <span className="text-amber-400 font-medium">{ccResult.cost}</span>
+                </div>
+                {ccResult.session && (
+                  <div className="flex items-center gap-1 text-[var(--text-secondary)]">
+                    <span>Session:</span>
+                    <span className="font-mono text-[9px]">{ccResult.session.slice(0, 8)}...</span>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Prompt */}
+            <div className="pt-1">
+              <div className="text-[var(--text-secondary)] mb-0.5 font-medium">Prompt</div>
+              <pre className="bg-[var(--bg-tertiary)] rounded p-2 overflow-x-auto whitespace-pre-wrap text-[var(--text-primary)] max-h-48 overflow-y-auto">
+                {prompt}
+              </pre>
+            </div>
+
+            {/* Config */}
+            {(projectPath || sessionArg) && (
+              <div className="flex flex-wrap gap-3 text-[10px] text-[var(--text-secondary)]">
+                {projectPath && <span>Project: <span className="font-mono text-[var(--text-primary)]">{projectPath}</span></span>}
+                {sessionArg && <span>Resume: <span className="font-mono text-[var(--text-primary)]">{sessionArg.slice(0, 8)}...</span></span>}
+              </div>
+            )}
+
+            {/* Result */}
+            {ccResult?.body && (
+              <div>
+                <div className="text-[var(--text-secondary)] mb-0.5 font-medium">Result</div>
+                <pre className={cn(
+                  'rounded p-2 overflow-x-auto whitespace-pre-wrap max-h-80 overflow-y-auto',
+                  'bg-[var(--bg-tertiary)] text-[var(--text-primary)]',
+                )}>
+                  {ccResult.body}
+                </pre>
+              </div>
+            )}
+            {!ccResult && resultText && (
+              <div>
+                <div className="text-[var(--text-secondary)] mb-0.5 font-medium">Raw Output</div>
+                <pre className="bg-[var(--bg-tertiary)] rounded p-2 overflow-x-auto whitespace-pre-wrap text-[var(--text-primary)] max-h-64 overflow-y-auto">
+                  {resultText}
+                </pre>
+              </div>
+            )}
+            {isLoading && !resultText && (
+              <div className="flex items-center gap-1.5 text-cyan-400 py-1">
+                <Loader2 className="w-3 h-3 animate-spin" />
+                <span>Claude Code is working...</span>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+    )
+  }
 
   if (mediaTool) {
     const ToolIcon = mediaTool.icon
