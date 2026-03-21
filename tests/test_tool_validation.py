@@ -337,3 +337,13 @@ def test_cast_params_single_value_not_auto_wrapped_to_array() -> None:
     assert result["items"] == 5  # Not wrapped to [5]
     result = tool.cast_params({"items": "text"})
     assert result["items"] == "text"  # Not wrapped to ["text"]
+def test_validate_nullable_flag_accepts_none() -> None:
+    """OpenAI-normalized nullable params should still accept None locally."""
+    tool = CastTestTool(
+        {
+            "type": "object",
+            "properties": {"name": {"type": "string", "nullable": True}},
+        }
+    )
+    errors = tool.validate_params({"name": None})
+    assert errors == []
