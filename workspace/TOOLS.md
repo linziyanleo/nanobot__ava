@@ -167,7 +167,7 @@ image_gen(prompt="把背景改成蓝色海洋", reference_image="/Users/me/.nano
 
 ### claude_code
 
-调用 Claude Code CLI 执行代码任务：修改代码、添加功能、修复 bug、重构、分析代码库。
+调用 Claude Code CLI 执行代码任务。**默认异步执行**，任务在后台运行，完成后通知。
 
 ```
 claude_code(prompt: str, project_path: str = None, mode: str = "standard", session_id: str = None) -> str
@@ -175,37 +175,59 @@ claude_code(prompt: str, project_path: str = None, mode: str = "standard", sessi
 
 **Parameters:**
 
-- `prompt` (str, required): 交给 Claude Code 的任务描述。应该清晰、具体，包含足够上下文。
+- `prompt` (str, required): 任务描述。应该清晰、具体，包含文件路径、预期行为、约束条件。
 - `project_path` (str, optional): 目标项目目录的绝对路径。省略则使用默认项目路径。
 - `mode` (str, optional): 执行模式
-  - `fast`: 最多 5 轮对话，120s 超时。适合简单任务（查看文件、小修改、快速问答）
-  - `standard` (默认): 最多 15 轮对话，600s 超时。适合复杂任务（多文件修改、功能开发、调试）
-  - `readonly`: 只读分析，不修改文件。适合代码审查、架构分析、问题定位
-- `session_id` (str, optional): 恢复之前的 Claude Code 会话，用于上下文延续
+  - `fast`: **异步**，最多 5 轮，120s 超时。适合简单任务
+  - `standard` (默认): **异步**，最多 15 轮，600s 超时。适合复杂任务
+  - `readonly`: **异步**，只读分析，不修改文件
+  - `sync`: **同步**，阻塞等待结果返回（向后兼容）
+- `session_id` (str, optional): 恢复之前的 Claude Code 会话
+
+**异步 vs 同步模式：**
+
+| 模式 | 行为 | 适用场景 |
+|------|------|----------|
+| `fast/standard/readonly` | 异步，立即返回 task_id，完成后通知 | 复杂任务、多文件修改、长时间执行 |
+| `sync` | 同步，阻塞等待结果 | 需要立即获取结果、简单查询 |
 
 **什么时候用 claude_code vs 直接改：**
 
 | 场景 | 选择 | 原因 |
 |------|------|------|
-| 用户发的消息很简短（"改一下 xxx"、"加个 yyy 功能"） | `claude_code` | 你无法直接操作项目文件，让 Claude Code 执行 |
+| 用户发的消息很简短（“改一下 xxx”、“加个 yyy 功能”） | `claude_code` | 你无法直接操作项目文件，让 Claude Code 执行 |
 | 多文件修改、复杂功能开发 | `claude_code(mode="standard")` | Claude Code 有完整的文件读写能力 |
-| 只看代码不改（"帮我看看 xxx 有没有问题"） | `claude_code(mode="readonly")` | 安全的只读分析 |
+| 只看代码不改（“帮我看看 xxx 有没有问题”） | `claude_code(mode="readonly")` | 安全的只读分析 |
 | 简单的一行修改或快速查看 | `claude_code(mode="fast")` | 快进快出 |
-| 修改 workspace 下的 nanobot 配置文件（HEARTBEAT.md、memory 等） | 直接用 `edit_file` / `write_file` | 这些是你自己的 workspace 文件 |
+| 修改 workspace 下的 nanobot 配置文件 | 直接用 `edit_file` / `write_file` | 这些是你自己的 workspace 文件 |
 | 用户只是聊天、问问题、不涉及代码变更 | 不用 `claude_code` | 直接回答 |
+
+**提示词最佳实践：**
+
+- 包含具体文件路径：`在 src/api/auth.py 中...`
+- 明确预期行为：`添加 JWT token 过期刷新逻辑，过期时自动刷新`
+- 设定约束条件：`不要修改现有 API 签名`、`保持向后兼容`
+- 复杂任务分步：先分析再实现，或拆分为多个小任务
 
 **示例:**
 
 ```
+# 异步执行（默认）- 任务在后台运行，完成后通知
 claude_code(prompt="在 src/api/auth.py 中添加 JWT token 过期刷新逻辑", mode="standard")
 claude_code(prompt="分析 nanobot/agent/loop.py 的架构设计，给出改进建议", mode="readonly")
 claude_code(prompt="修复 login 页面的样式错位问题", project_path="/Users/me/myproject", mode="fast")
+
+# 同步执行 - 阻塞等待结果
+claude_code(prompt="查看 src/config.py 的内容", mode="sync")
+
+# 恢复会话
 claude_code(prompt="继续上次的任务，完成剩余的测试用例", session_id="a8e7f343-xxxx")
 ```
 
 **Notes:**
 
-- 返回结构化结果：状态（SUCCESS/ERROR）、Turns、Duration、Cost、结果文本
+- 异步模式返回任务启动确认（包含 task_id），完成后通过消息总线通知
+- 同步模式返回结构化结果：状态（SUCCESS/ERROR）、Turns、Duration、Cost、结果文本
 - Token 消耗自动记录到 token_stats（provider=claude-code-cli, model_role=claude_code）
 - 需要 npx 在 PATH 中（Node.js 环境）
 - 配置项在 `~/.nanobot/config.json` 的 `tools.claudeCode` 段
