@@ -154,6 +154,11 @@ class AgentLoop:
             restrict_config_file=restrict_config_file,
             in_loop_truncation=self._in_loop_truncation,
             token_stats=self._token_stats,
+            # Claude Code config (will be set later if available)
+            claude_code_model="claude-sonnet-4-20250514",
+            claude_code_max_turns=15,
+            claude_code_allowed_tools="Read,Edit,Bash,Glob,Grep",
+            claude_code_timeout=600,
         )
 
         self._running = False
@@ -210,6 +215,14 @@ class AgentLoop:
             except Exception:
                 from nanobot.config.schema import ClaudeCodeConfig
                 _cc_cfg = ClaudeCodeConfig()
+            # Update SubagentManager with Claude Code config
+            self.subagents._cc_model = _cc_cfg.model
+            self.subagents._cc_max_turns = _cc_cfg.max_turns
+            self.subagents._cc_allowed_tools = _cc_cfg.allowed_tools
+            self.subagents._cc_timeout = _cc_cfg.timeout
+            self.subagents._cc_api_key = _cc_cfg.api_key
+            self.subagents._cc_base_url = _cc_cfg.base_url
+            # Register ClaudeCodeTool with SubagentManager reference
             self.tools.register(ClaudeCodeTool(
                 workspace=self.workspace,
                 token_stats=self._token_stats,
@@ -218,6 +231,7 @@ class AgentLoop:
                 max_turns=_cc_cfg.max_turns,
                 allowed_tools=_cc_cfg.allowed_tools,
                 timeout=_cc_cfg.timeout,
+                subagent_manager=self.subagents,
             ))
         else:
             logger.debug("ClaudeCodeTool not registered: npx not found")
@@ -246,7 +260,7 @@ class AgentLoop:
 
     def _set_tool_context(self, channel: str, chat_id: str, message_id: str | None = None) -> None:
         """Update context for all tools that need routing info."""
-        for name in ("message", "spawn", "cron", "send_sticker"):
+        for name in ("message", "spawn", "cron", "send_sticker", "claude_code"):
             if tool := self.tools.get(name):
                 if hasattr(tool, "set_context"):
                     tool.set_context(channel, chat_id, *([message_id] if name == "message" else []))

@@ -5,17 +5,23 @@ import json
 import os
 import shutil
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from loguru import logger
 
 from nanobot.agent.tools.base import Tool
 
+if TYPE_CHECKING:
+    from nanobot.agent.subagent import SubagentManager
+
 _MAX_OUTPUT_CHARS = 16000
 
 
 class ClaudeCodeTool(Tool):
-    """Run Claude Code CLI to modify code, add features, fix bugs, or analyze a codebase."""
+    """Run Claude Code CLI to modify code, add features, fix bugs, or analyze a codebase.
+    
+    Supports both synchronous (blocking) and asynchronous (background) execution modes.
+    """
 
     def __init__(
         self,
@@ -26,6 +32,7 @@ class ClaudeCodeTool(Tool):
         max_turns: int = 15,
         allowed_tools: str = "Read,Edit,Bash,Glob,Grep",
         timeout: int = 600,
+        subagent_manager: "SubagentManager | None" = None,
     ) -> None:
         self._workspace = workspace
         self._token_stats = token_stats
@@ -34,6 +41,17 @@ class ClaudeCodeTool(Tool):
         self._max_turns = max_turns
         self._allowed_tools = allowed_tools
         self._timeout = timeout
+        self._subagent_manager = subagent_manager
+        # Context for async result routing
+        self._channel = "cli"
+        self._chat_id = "direct"
+        self._session_key = "cli:direct"
+
+    def set_context(self, channel: str, chat_id: str) -> None:
+        """Set the origin context for async task result routing."""
+        self._channel = channel
+        self._chat_id = chat_id
+        self._session_key = f"{channel}:{chat_id}"
 
     @property
     def name(self) -> str:
@@ -43,11 +61,12 @@ class ClaudeCodeTool(Tool):
     def description(self) -> str:
         return (
             "Run Claude Code CLI to execute code tasks: modify code, add features, "
-            "fix bugs, refactor, or analyze a codebase. Claude Code runs in the "
-            "specified project directory with full file access. "
-            "Use mode='fast' for simple tasks (max 5 turns), "
-            "'standard' for complex tasks (max 15 turns), "
-            "'readonly' for analysis without modifications."
+            "fix bugs, refactor, or analyze a codebase. Default is async execution "
+            "(task runs in background, notifies when complete). "
+            "Use mode='fast' for simple tasks (async, max 5 turns), "
+            "'standard' for complex tasks (async, max 15 turns), "
+            "'readonly' for analysis (async), "
+            "'sync' for synchronous blocking execution (backward compatible)."
         )
 
     @property
@@ -57,7 +76,7 @@ class ClaudeCodeTool(Tool):
             "properties": {
                 "prompt": {
                     "type": "string",
-                    "description": "The task prompt for Claude Code",
+                    "description": "The task prompt for Claude Code. Be specific: include file paths, expected behavior, and constraints.",
                 },
                 "project_path": {
                     "type": "string",
@@ -65,8 +84,13 @@ class ClaudeCodeTool(Tool):
                 },
                 "mode": {
                     "type": "string",
-                    "enum": ["fast", "standard", "readonly"],
-                    "description": "fast: max 5 turns; standard: max 15 turns; readonly: analysis only",
+                    "enum": ["fast", "standard", "readonly", "sync"],
+                    "description": (
+                        "fast: async, max 5 turns, 120s timeout; "
+                        "standard: async, max 15 turns (default); "
+                        "readonly: async, analysis only; "
+                        "sync: synchronous blocking execution"
+                    ),
                 },
                 "session_id": {
                     "type": "string",
@@ -84,18 +108,45 @@ class ClaudeCodeTool(Tool):
         session_id: str | None = None,
         **kwargs: Any,
     ) -> str:
-        npx = shutil.which("npx")
-        if not npx:
-            return "Error: npx not found in PATH. Claude Code CLI requires Node.js."
-
         project = self._resolve_project(project_path)
         if not Path(project).is_dir():
             return f"Error: Project directory does not exist: {project}"
 
-        cmd = self._build_command(prompt, project, mode, session_id)
-        timeout = 120 if mode == "fast" else self._timeout
+        # Sync mode: original blocking behavior
+        if mode == "sync":
+            return await self._execute_sync(prompt, project, session_id)
 
-        logger.info("claude_code: mode={}, project={}", mode, project)
+        # Async mode: delegate to SubagentManager
+        if not self._subagent_manager:
+            logger.warning("claude_code: SubagentManager not available, falling back to sync")
+            return await self._execute_sync(prompt, project, session_id)
+
+        return await self._subagent_manager.spawn_claude_code(
+            prompt=prompt,
+            project_path=project,
+            mode=mode,
+            session_id=session_id,
+            origin_channel=self._channel,
+            origin_chat_id=self._chat_id,
+            session_key=self._session_key,
+            timeout=120 if mode == "fast" else self._timeout,
+        )
+
+    async def _execute_sync(
+        self,
+        prompt: str,
+        project: str,
+        session_id: str | None = None,
+    ) -> str:
+        """Execute Claude Code synchronously (blocking)."""
+        claude_bin = shutil.which("claude")
+        if not claude_bin:
+            return "Error: claude not found in PATH. Install Claude Code CLI globally: npm install -g @anthropic-ai/claude-code"
+
+        cmd = self._build_command(prompt, project, "standard", session_id)
+        timeout = self._timeout
+
+        logger.info("claude_code (sync): project={}", project)
         stdout, stderr = await self._run_subprocess(cmd, project, timeout)
 
         if stderr and not stdout:
@@ -107,7 +158,13 @@ class ClaudeCodeTool(Tool):
             return f"Claude Code returned non-JSON output:\n{raw}"
 
         self._record_stats(parsed, prompt)
-        return self._format_output(parsed, mode)
+        return self._format_output(parsed, "sync")
+
+    async def cancel(self, task_id: str) -> str:
+        """Cancel a running Claude Code task."""
+        if not self._subagent_manager:
+            return "Error: SubagentManager not available."
+        return await self._subagent_manager.cancel_claude_code(task_id)
 
     def _resolve_project(self, project_path: str | None) -> str:
         if project_path:
@@ -125,7 +182,7 @@ class ClaudeCodeTool(Tool):
         allowed = "View,Read,Glob,Grep" if mode == "readonly" else self._allowed_tools
 
         cmd = [
-            "npx", "@anthropic-ai/claude-code",
+            "claude",
             "-p", prompt,
             "--output-format", "json",
             "--model", self._model,
@@ -145,6 +202,13 @@ class ClaudeCodeTool(Tool):
         timeout: int,
     ) -> tuple[str, str]:
         env = os.environ.copy()
+        # Inject Claude Code auth from nanobot config
+        if self.cc_config.api_key:
+            env["ANTHROPIC_API_KEY"] = self.cc_config.api_key
+            logger.debug("claude_code: injected ANTHROPIC_API_KEY from config")
+        if self.cc_config.base_url:
+            env["ANTHROPIC_BASE_URL"] = self.cc_config.base_url
+            logger.debug("claude_code: injected ANTHROPIC_BASE_URL from config")
         try:
             process = await asyncio.create_subprocess_exec(
                 *cmd,

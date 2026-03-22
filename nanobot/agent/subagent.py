@@ -2,6 +2,8 @@
 
 import asyncio
 import json
+import os
+import shutil
 import uuid
 from pathlib import Path
 from typing import Any
@@ -16,6 +18,8 @@ from nanobot.bus.events import InboundMessage
 from nanobot.bus.queue import MessageBus
 from nanobot.config.schema import ExecToolConfig, InLoopTruncationConfig
 from nanobot.providers.base import LLMProvider
+
+_CLAUDE_CODE_MAX_OUTPUT_CHARS = 16000
 
 
 class SubagentManager:
@@ -38,6 +42,13 @@ class SubagentManager:
         restrict_config_file: bool = True,
         in_loop_truncation: "InLoopTruncationConfig | None" = None,
         token_stats: Any | None = None,
+        # Claude Code config
+        claude_code_model: str = "claude-sonnet-4-20250514",
+        claude_code_max_turns: int = 15,
+        claude_code_allowed_tools: str = "Read,Edit,Bash,Glob,Grep",
+        claude_code_timeout: int = 600,
+        claude_code_api_key: str = "",
+        claude_code_base_url: str = "",
     ):
         from nanobot.config.schema import ExecToolConfig, InLoopTruncationConfig as _ILT
         self.provider = provider
@@ -57,6 +68,13 @@ class SubagentManager:
         self._token_stats = token_stats
         self._running_tasks: dict[str, asyncio.Task[None]] = {}
         self._session_tasks: dict[str, set[str]] = {}  # session_key -> {task_id, ...}
+        # Claude Code config
+        self._cc_model = claude_code_model
+        self._cc_max_turns = claude_code_max_turns
+        self._cc_allowed_tools = claude_code_allowed_tools
+        self._cc_timeout = claude_code_timeout
+        self._cc_api_key = claude_code_api_key
+        self._cc_base_url = claude_code_base_url
 
     def _get_model_for_tier(self, tier: str) -> str:
         """Return model name for the given tier."""
@@ -309,3 +327,311 @@ Stay focused on the assigned task. Your final response will be reported back to 
     def get_running_count(self) -> int:
         """Return the number of currently running subagents."""
         return len(self._running_tasks)
+
+    # =========================================================================
+    # Claude Code Async Execution
+    # =========================================================================
+
+    async def spawn_claude_code(
+        self,
+        prompt: str,
+        project_path: str,
+        mode: str = "standard",
+        session_id: str | None = None,
+        origin_channel: str = "cli",
+        origin_chat_id: str = "direct",
+        session_key: str | None = None,
+        label: str | None = None,
+        timeout: int | None = None,
+        announce_model_tier: str | None = None,
+    ) -> str:
+        """Spawn a Claude Code task in the background."""
+        claude_bin = shutil.which("claude")
+        if not claude_bin:
+            return "Error: claude not found in PATH. Install Claude Code CLI globally: npm install -g @anthropic-ai/claude-code"
+
+        if not Path(project_path).is_dir():
+            return f"Error: Project directory does not exist: {project_path}"
+
+        task_id = f"cc_{uuid.uuid4().hex[:6]}"
+        display_label = label or f"claude_code:{prompt[:25]}..."
+        origin = {"channel": origin_channel, "chat_id": origin_chat_id}
+        effective_timeout = timeout or (120 if mode == "fast" else self._cc_timeout)
+
+        bg_task = asyncio.create_task(
+            self._run_claude_code_task(
+                task_id, prompt, project_path, mode, session_id, origin,
+                effective_timeout, announce_model_tier,
+            )
+        )
+        self._running_tasks[task_id] = bg_task
+        if session_key:
+            self._session_tasks.setdefault(session_key, set()).add(task_id)
+
+        def _cleanup(_: asyncio.Task) -> None:
+            self._running_tasks.pop(task_id, None)
+            if session_key and (ids := self._session_tasks.get(session_key)):
+                ids.discard(task_id)
+                if not ids:
+                    del self._session_tasks[session_key]
+
+        bg_task.add_done_callback(_cleanup)
+
+        logger.info("Spawned claude_code [{}]: mode={}, project={}", task_id, mode, project_path)
+        return (
+            f"Claude Code task [{display_label}] started (id: {task_id}). "
+            f"I'll notify you when it completes."
+        )
+
+    async def _run_claude_code_task(
+        self,
+        task_id: str,
+        prompt: str,
+        project_path: str,
+        mode: str,
+        session_id: str | None,
+        origin: dict[str, str],
+        timeout: int,
+        announce_model_tier: str | None,
+    ) -> None:
+        """Execute Claude Code CLI and announce the result."""
+        label = f"claude_code:{prompt[:25]}"
+        logger.info("claude_code [{}] starting: mode={}", task_id, mode)
+
+        try:
+            cmd = self._build_claude_code_command(prompt, project_path, mode, session_id)
+            stdout, stderr = await self._run_claude_code_subprocess(cmd, project_path, timeout)
+
+            if stderr and not stdout:
+                error_text = f"Claude Code failed.\n{stderr[:2000]}"
+                logger.error("claude_code [{}] failed: {}", task_id, stderr[:500])
+                await self._announce_result(
+                    task_id, label, prompt, error_text, origin, "error",
+                    announce_model_tier=announce_model_tier,
+                )
+                return
+
+            parsed = self._parse_claude_code_result(stdout)
+            if parsed.get("_parse_error"):
+                raw = stdout[:_CLAUDE_CODE_MAX_OUTPUT_CHARS] if stdout else "(no output)"
+                error_text = f"Claude Code returned non-JSON output:\n{raw}"
+                await self._announce_result(
+                    task_id, label, prompt, error_text, origin, "error",
+                    announce_model_tier=announce_model_tier,
+                )
+                return
+
+            self._record_claude_code_stats(parsed, prompt)
+            result_text = self._format_claude_code_output(parsed, mode)
+
+            logger.info("claude_code [{}] completed successfully", task_id)
+            await self._announce_result(
+                task_id, label, prompt, result_text, origin, "ok",
+                announce_model_tier=announce_model_tier,
+            )
+
+        except asyncio.CancelledError:
+            logger.info("claude_code [{}] was cancelled", task_id)
+            await self._announce_result(
+                task_id, label, prompt, "Task was cancelled.", origin, "error",
+                announce_model_tier=announce_model_tier,
+            )
+            raise
+        except Exception as e:
+            error_msg = f"Error: {str(e)}"
+            logger.error("claude_code [{}] failed with exception: {}", task_id, e)
+            await self._announce_result(
+                task_id, label, prompt, error_msg, origin, "error",
+                announce_model_tier=announce_model_tier,
+            )
+
+    def _build_claude_code_command(
+        self,
+        prompt: str,
+        project: str,
+        mode: str,
+        session_id: str | None,
+    ) -> list[str]:
+        """Build the claude CLI command."""
+        max_turns = 5 if mode == "fast" else self._cc_max_turns
+        allowed = "View,Read,Glob,Grep" if mode == "readonly" else self._cc_allowed_tools
+
+        cmd = [
+            "claude",
+            "-p", prompt,
+            "--output-format", "json",
+            "--model", self._cc_model,
+            "--max-turns", str(max_turns),
+            "--allowedTools", allowed,
+        ]
+
+        if session_id:
+            cmd.extend(["--resume", session_id])
+
+        return cmd
+
+    async def _run_claude_code_subprocess(
+        self,
+        cmd: list[str],
+        cwd: str,
+        timeout: int,
+    ) -> tuple[str, str]:
+        """Run Claude Code CLI as subprocess."""
+        env = os.environ.copy()
+        # Inject Claude Code auth from nanobot config
+        if self._cc_api_key:
+            env["ANTHROPIC_API_KEY"] = self._cc_api_key
+        if self._cc_base_url:
+            env["ANTHROPIC_BASE_URL"] = self._cc_base_url
+        try:
+            process = await asyncio.create_subprocess_exec(
+                *cmd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+                cwd=cwd,
+                env=env,
+            )
+            try:
+                stdout_bytes, stderr_bytes = await asyncio.wait_for(
+                    process.communicate(),
+                    timeout=timeout,
+                )
+            except asyncio.TimeoutError:
+                process.kill()
+                try:
+                    await asyncio.wait_for(process.wait(), timeout=5.0)
+                except asyncio.TimeoutError:
+                    pass
+                return "", f"Claude Code timed out after {timeout}s"
+        except Exception as e:
+            return "", f"Failed to start Claude Code: {e}"
+
+        stdout = stdout_bytes.decode("utf-8", errors="replace") if stdout_bytes else ""
+        stderr = stderr_bytes.decode("utf-8", errors="replace") if stderr_bytes else ""
+        return stdout, stderr
+
+    def _parse_claude_code_result(self, stdout: str) -> dict[str, Any]:
+        """Parse the JSON output from Claude Code CLI."""
+        stdout = stdout.strip()
+        if not stdout:
+            return {"_parse_error": True}
+
+        for line in reversed(stdout.splitlines()):
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                data = json.loads(line)
+                if isinstance(data, dict):
+                    return data
+            except json.JSONDecodeError:
+                continue
+
+        return {"_parse_error": True}
+
+    def _record_claude_code_stats(self, parsed: dict[str, Any], prompt: str = "") -> None:
+        """Record Claude Code token usage to token_stats."""
+        if not self._token_stats:
+            return
+
+        usage = parsed.get("usage", {})
+        cost = parsed.get("total_cost_usd", 0.0)
+        duration_ms = parsed.get("duration_ms", 0)
+        num_turns = parsed.get("num_turns", 0)
+        session_id = parsed.get("session_id", "")
+        result_text = parsed.get("result", "")
+        is_error = parsed.get("is_error", False)
+        stop_reason = parsed.get("stop_reason", "")
+
+        input_tokens = usage.get("input_tokens", 0)
+        output_tokens = usage.get("output_tokens", 0)
+        cache_read = usage.get("cache_read_input_tokens", 0)
+        cache_creation = usage.get("cache_creation_input_tokens", 0)
+        total_input = input_tokens + cache_read + cache_creation
+
+        model_usage = parsed.get("modelUsage", {})
+        model_name = self._cc_model
+        if model_usage:
+            model_name = next(iter(model_usage), self._cc_model)
+
+        finish = "error" if is_error else stop_reason or "end_turn"
+
+        user_msg = (
+            f"[claude_code] session={session_id} turns={num_turns} "
+            f"duration={duration_ms}ms\n\n--- Prompt ---\n{prompt}"
+        )
+
+        self._token_stats.record(
+            model=model_name,
+            provider="claude-code-cli",
+            usage={
+                "prompt_tokens": total_input,
+                "completion_tokens": output_tokens,
+                "total_tokens": total_input + output_tokens,
+                "cache_creation_input_tokens": cache_creation,
+                "prompt_tokens_details": {"cached_tokens": cache_read},
+            },
+            user_message=user_msg,
+            output_content=result_text[:4000] if result_text else "",
+            finish_reason=finish,
+            model_role="claude_code",
+            cost_usd=cost,
+        )
+
+        logger.info(
+            "claude_code stats: model={} input={} output={} cache_read={} cache_create={} cost=${:.6f} turns={} duration={}ms",
+            model_name, input_tokens, output_tokens, cache_read, cache_creation,
+            cost, num_turns, duration_ms,
+        )
+
+    def _format_claude_code_output(self, parsed: dict[str, Any], mode: str) -> str:
+        """Format Claude Code result for display."""
+        is_error = parsed.get("is_error", False)
+        result_text = parsed.get("result", "")
+        subtype = parsed.get("subtype", "")
+        num_turns = parsed.get("num_turns", 0)
+        duration_ms = parsed.get("duration_ms", 0)
+        cost = parsed.get("total_cost_usd", 0.0)
+        session_id = parsed.get("session_id", "")
+
+        status = "ERROR" if is_error else subtype.upper() or "SUCCESS"
+
+        parts = [
+            f"[Claude Code {status}]",
+            f"Turns: {num_turns} | Duration: {duration_ms}ms | Cost: ${cost:.4f}",
+        ]
+
+        if session_id:
+            parts.append(f"Session: {session_id}")
+
+        parts.append("")
+
+        if result_text:
+            if len(result_text) > _CLAUDE_CODE_MAX_OUTPUT_CHARS:
+                result_text = result_text[:_CLAUDE_CODE_MAX_OUTPUT_CHARS] + "\n... (truncated)"
+            parts.append(result_text)
+        else:
+            parts.append("(no result text)")
+
+        return "\n".join(parts)
+
+    async def cancel_claude_code(self, task_id: str) -> str:
+        """Cancel a specific Claude Code task by task_id."""
+        if not task_id.startswith("cc_"):
+            return f"Error: '{task_id}' is not a Claude Code task ID."
+
+        task = self._running_tasks.get(task_id)
+        if not task:
+            return f"Error: Claude Code task '{task_id}' not found or already completed."
+
+        if task.done():
+            return f"Claude Code task '{task_id}' has already completed."
+
+        task.cancel()
+        try:
+            await asyncio.wait_for(asyncio.shield(task), timeout=5.0)
+        except (asyncio.CancelledError, asyncio.TimeoutError):
+            pass
+
+        logger.info("claude_code [{}] cancelled by user", task_id)
+        return f"Claude Code task '{task_id}' has been cancelled."
