@@ -119,7 +119,7 @@ def create_console_app(
     app.include_router(token_routes.router)
     app.include_router(skills_routes.router)
 
-    static_dir = Path(__file__).parent.parent / "console-ui" / "dist"
+    static_dir = Path(__file__).parent.parent.parent / "console-ui" / "dist"
     if static_dir.exists():
         app.mount("/assets", StaticFiles(directory=str(static_dir / "assets")), name="static-assets")
 
@@ -292,7 +292,7 @@ def create_console_app_standalone(
 
     # --- End chat proxy -------------------------------------------------
 
-    static_dir = Path(__file__).parent.parent / "console-ui" / "dist"
+    static_dir = Path(__file__).parent.parent.parent / "console-ui" / "dist"
     if static_dir.exists():
         app.mount("/assets", StaticFiles(directory=str(static_dir / "assets")), name="static-assets")
 

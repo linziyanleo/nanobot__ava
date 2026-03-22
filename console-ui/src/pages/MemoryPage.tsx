@@ -473,7 +473,7 @@ function DiaryTab() {
   const hasChanges = editing !== content?.content;
 
   return (
-    <div className="flex gap-4 h-[calc(100vh-14rem)]">
+    <div className="flex-1 flex gap-4 min-h-0">
       <div className="w-48 shrink-0 bg-[var(--bg-secondary)] border border-[var(--border)] rounded-xl overflow-hidden">
         <div className="px-4 py-3 border-b border-[var(--border)]">
           <h3 className="text-sm font-semibold flex items-center gap-2">
@@ -1022,9 +1022,7 @@ export default function MemoryPage() {
       )}
       {activeTab === 'diary' && <DiaryTab />}
       {activeTab === 'images' && (
-        <div className="flex-1 flex flex-col min-h-0 bg-[var(--bg-secondary)] border border-[var(--border)] rounded-xl p-4 overflow-hidden">
           <GeneratedImagesTab />
-        </div>
       )}
     </div>
   );

@@ -110,7 +110,7 @@ def _run_console_server(
         # Dev mode: Vite dev server gets the main port (c_port) for HMR,
         # uvicorn API server runs on c_port+1, Vite proxies /api to it.
         api_port = c_port + 1
-        console_ui_dir = Path(__file__).parent.parent / "console-ui"
+        console_ui_dir = Path(__file__).parent.parent.parent / "console-ui"
         if not (console_ui_dir / "node_modules").exists():
             subprocess.check_call(["npm", "install"], cwd=str(console_ui_dir))
         vite_env = {**os.environ, "NANOBOT_CONSOLE_PORT": str(api_port)}
