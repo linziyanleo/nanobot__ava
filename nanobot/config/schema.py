@@ -394,6 +394,8 @@ class ClaudeCodeConfig(Base):
     max_turns: int = 15
     allowed_tools: str = "Read,Edit,Bash,Glob,Grep"
     timeout: int = 600
+    api_key: str = ""  # ANTHROPIC_API_KEY for Claude Code subprocess
+    base_url: str = ""  # ANTHROPIC_BASE_URL for Claude Code subprocess
 
 
 class ToolsConfig(Base):
