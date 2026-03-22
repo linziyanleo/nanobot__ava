@@ -927,7 +927,7 @@ function RecordRow({
         </td>
       </tr>
       {expanded && (
-        <tr className="bg-[var(--bg-tertiary)]/20">
+        <tr className="bg-[var(--bg-tertiary)]/20 border-b border-[var(--border)]/50">
           <td colSpan={11} className="px-4 py-3">
             <div className="space-y-2 text-xs">
               <div>

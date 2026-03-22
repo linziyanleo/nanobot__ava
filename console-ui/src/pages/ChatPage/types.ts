@@ -30,6 +30,7 @@ export interface RawMessage {
   tool_call_id?: string
   name?: string
   reasoning_content?: string
+  metadata?: Record<string, unknown>
 }
 
 export interface ToolCallWithResult {

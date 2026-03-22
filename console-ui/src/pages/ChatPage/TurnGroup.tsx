@@ -3,6 +3,7 @@ import { Loader2, Clock, Info } from 'lucide-react'
 import type { TurnGroup as TurnGroupType, TurnTokenStats } from './types'
 import { MessageBubble } from './MessageBubble'
 import { ToolCallBlock } from './ToolCallBlock'
+import { SubagentResultBlock, isSubagentMessage } from './SubagentResultBlock'
 import { TokenInfoPopover } from './TokenInfoPopover'
 import { formatTimestamp, calcDuration, getContentText, formatTokenCount } from './utils'
 
@@ -42,7 +43,13 @@ export function TurnGroupComponent({ turn, tokenStats, sessionKey }: TurnGroupPr
   return (
     <div className="space-y-2">
       {/* User message */}
-      <MessageBubble message={turn.userMessage} isUser />
+      {(turn.userMessage.metadata?.subagent_announce === true || isSubagentMessage(turn.userMessage.content))
+        ? <SubagentResultBlock
+            content={typeof turn.userMessage.content === 'string' ? turn.userMessage.content : ''}
+            metadata={turn.userMessage.metadata}
+          />
+        : <MessageBubble message={turn.userMessage} isUser />
+      }
 
       {/* Intermediate assistant messages with content before tool calls */}
       {intermediateAssistants.map((msg, i) => (

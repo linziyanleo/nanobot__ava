@@ -6,6 +6,7 @@ import LoginPage from './pages/LoginPage'
 import DashboardPage from './pages/DashboardPage'
 import ConfigPage from './pages/ConfigPage'
 import MemoryPage from './pages/MemoryPage'
+import MediaPage from './pages/MediaPage'
 import PersonaPage from './pages/PersonaPage'
 import SkillsPage from './pages/SkillsPage'
 import ChatPage from './pages/ChatPage'
@@ -43,6 +44,7 @@ export default function App() {
           <Route index element={<DashboardPage />} />
           <Route path="config" element={<ConfigPage />} />
           <Route path="memory" element={<MemoryPage />} />
+          <Route path="media" element={<MediaPage />} />
           <Route path="persona" element={<PersonaPage />} />
           <Route path="skills" element={<SkillsPage />} />
           <Route path="chat" element={<ChatPage />} />
@@ -52,7 +54,6 @@ export default function App() {
           <Route path="users" element={<ProtectedRoute adminOnly><UsersPage /></ProtectedRoute>} />
           {/* Legacy routes redirect */}
           <Route path="files" element={<Navigate to="/memory" replace />} />
-          <Route path="media" element={<Navigate to="/memory" replace />} />
           <Route path="audit" element={<Navigate to="/users" replace />} />
         </Route>
       </Routes>

@@ -208,14 +208,14 @@ export function ToolCallBlock({ tc, isLoading }: ToolCallBlockProps) {
             )}
 
             {/* Result */}
-            {ccResult?.body && (
+            {ccResult && (
               <div>
                 <div className="text-[var(--text-secondary)] mb-0.5 font-medium">Result</div>
                 <pre className={cn(
                   'rounded p-2 overflow-x-auto whitespace-pre-wrap max-h-80 overflow-y-auto',
                   'bg-[var(--bg-tertiary)] text-[var(--text-primary)]',
                 )}>
-                  {ccResult.body}
+                  {ccResult.body || '(no output)'}
                 </pre>
               </div>
             )}
