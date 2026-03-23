@@ -5,6 +5,7 @@ import json
 import os
 import shutil
 from pathlib import Path
+from types import SimpleNamespace
 from typing import TYPE_CHECKING, Any
 
 from loguru import logger
@@ -33,6 +34,7 @@ class ClaudeCodeTool(Tool):
         allowed_tools: str = "Read,Edit,Bash,Glob,Grep",
         timeout: int = 600,
         subagent_manager: "SubagentManager | None" = None,
+        cc_config: Any | None = None,
     ) -> None:
         self._workspace = workspace
         self._token_stats = token_stats
@@ -42,6 +44,8 @@ class ClaudeCodeTool(Tool):
         self._allowed_tools = allowed_tools
         self._timeout = timeout
         self._subagent_manager = subagent_manager
+        # Keep sync mode compatible even when config is not injected by caller.
+        self.cc_config = cc_config or SimpleNamespace(api_key="", base_url="")
         # Context for async result routing
         self._channel = "cli"
         self._chat_id = "direct"

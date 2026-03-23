@@ -233,6 +233,7 @@ class AgentLoop:
                 allowed_tools=_cc_cfg.allowed_tools,
                 timeout=_cc_cfg.timeout,
                 subagent_manager=self.subagents,
+                cc_config=_cc_cfg,
             ))
         else:
             logger.debug("ClaudeCodeTool not registered: npx not found")
