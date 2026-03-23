@@ -22,7 +22,7 @@ SILENT=false
 MAX_LOG_LINES=500
 
 # 环境变量
-export PATH="/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+export PATH="/Users/fanghu/.local/bin:/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
 export HOME="${HOME:-/Users/$(whoami)}"
 export NANOBOT_HOME="$HOME/.nanobot"
 

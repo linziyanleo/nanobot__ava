@@ -346,16 +346,20 @@ Stay focused on the assigned task. Your final response will be reported back to 
         announce_model_tier: str | None = None,
     ) -> str:
         """Spawn a Claude Code task in the background."""
-        claude_bin = shutil.which("claude")
-        if not claude_bin:
-            return "Error: claude not found in PATH. Install Claude Code CLI globally: npm install -g @anthropic-ai/claude-code"
-
-        if not Path(project_path).is_dir():
-            return f"Error: Project directory does not exist: {project_path}"
-
         task_id = f"cc_{uuid.uuid4().hex[:6]}"
         display_label = label or f"claude_code:{prompt[:25]}..."
         origin = {"channel": origin_channel, "chat_id": origin_chat_id}
+
+        claude_bin = shutil.which("claude")
+        if not claude_bin:
+            error_msg = "Error: claude not found in PATH. Install Claude Code CLI globally: npm install -g @anthropic-ai/claude-code"
+            await self._announce_result(task_id, display_label, prompt, error_msg, origin, "error")
+            return error_msg
+
+        if not Path(project_path).is_dir():
+            error_msg = f"Error: Project directory does not exist: {project_path}"
+            await self._announce_result(task_id, display_label, prompt, error_msg, origin, "error")
+            return error_msg
         effective_timeout = timeout or (120 if mode == "fast" else self._cc_timeout)
 
         bg_task = asyncio.create_task(
