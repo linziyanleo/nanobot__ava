@@ -24,6 +24,7 @@ function parseSubagentContent(content: string): SubagentResult | null {
   return { label, status, task, result }
 }
 
+// eslint-disable-next-line react-refresh/only-export-components
 export function isSubagentMessage(content: string | null | unknown[]): boolean {
   if (typeof content !== 'string') return false
   return content.startsWith("[Subagent '")
@@ -34,7 +35,7 @@ interface SubagentResultBlockProps {
   metadata?: Record<string, unknown>
 }
 
-export function SubagentResultBlock({ content, metadata: _metadata }: SubagentResultBlockProps) {
+export function SubagentResultBlock({ content }: SubagentResultBlockProps) {
   const [taskExpanded, setTaskExpanded] = useState(true)
   const [resultExpanded, setResultExpanded] = useState(false)
 

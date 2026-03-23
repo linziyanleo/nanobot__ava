@@ -243,6 +243,18 @@ export default function MediaPage() {
                 onClick={() => setSelected(record)}
                 className="group cursor-pointer bg-[var(--bg-secondary)] border border-[var(--border)] rounded-xl overflow-hidden hover:border-[var(--accent)] transition-all duration-200 relative"
               >
+                {record.output_images.length > 0 ? (
+                  <img
+                    src={imageUrl(record.output_images[0])}
+                    alt={record.prompt}
+                    className="absolute inset-0 w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
+                    loading="lazy"
+                  />
+                ) : (
+                  <div className="absolute inset-0 flex items-center justify-center bg-[var(--bg-tertiary)]">
+                    <AlertCircle className="w-8 h-8 text-[var(--danger)] opacity-50" />
+                  </div>
+                )}
                 {canEdit() && (
                   <button
                     onClick={e => handleDelete(record, e)}
@@ -253,36 +265,27 @@ export default function MediaPage() {
                     <Trash2 className="w-3.5 h-3.5" />
                   </button>
                 )}
-                <div className="aspect-square bg-[var(--bg-tertiary)] relative overflow-hidden">
-                  {record.output_images.length > 0 ? (
-                    <img
-                      src={imageUrl(record.output_images[0])}
-                      alt={record.prompt}
-                      className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
-                      loading="lazy"
-                    />
-                  ) : (
-                    <div className="w-full h-full flex items-center justify-center">
-                      <AlertCircle className="w-8 h-8 text-[var(--danger)] opacity-50" />
-                    </div>
-                  )}
-                  {record.reference_image && (
-                    <div
-                      className="absolute top-2 right-2 bg-[var(--accent)] text-white rounded-full p-1"
-                      title="编辑模式"
-                    >
-                      <Pencil className="w-3 h-3" />
-                    </div>
-                  )}
-                  {record.status === 'error' && (
-                    <div className="absolute inset-0 bg-black/50 flex items-center justify-center">
-                      <span className="text-xs text-[var(--danger)] font-medium px-2 py-1 bg-black/60 rounded">失败</span>
-                    </div>
-                  )}
+                {record.reference_image && (
+                  <div
+                    className="absolute top-2 right-2 bg-[var(--accent)] text-white rounded-full p-1 z-10"
+                    title="编辑模式"
+                  >
+                    <Pencil className="w-3 h-3" />
+                  </div>
+                )}
+                {record.status === 'error' && (
+                  <div className="absolute inset-0 bg-black/50 flex items-center justify-center">
+                    <span className="text-xs text-[var(--danger)] font-medium px-2 py-1 bg-black/60 rounded">失败</span>
+                  </div>
+                )}
+                <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/70 to-transparent px-3 py-2 z-10">
+                  <p className="text-[10px] text-white/80">
+                    {new Date(record.timestamp).toLocaleString()}
+                  </p>
                 </div>
-                <div className="p-3">
-                  <p className="text-xs text-[var(--text-primary)] line-clamp-2 leading-relaxed">{record.prompt}</p>
-                  <p className="text-[10px] text-[var(--text-secondary)] mt-1.5">
+                <div className="absolute bottom-0 left-0 right-0 bg-black/75 backdrop-blur-sm px-3 py-2.5 z-20 translate-y-full group-hover:translate-y-0 transition-transform duration-300">
+                  <p className="text-xs text-white line-clamp-3 leading-relaxed">{record.prompt}</p>
+                  <p className="text-[10px] text-white/60 mt-1">
                     {new Date(record.timestamp).toLocaleString()}
                   </p>
                 </div>

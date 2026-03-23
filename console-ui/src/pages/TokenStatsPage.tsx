@@ -67,8 +67,10 @@ interface RecordsResponse {
 
 const PIE_COLORS = ['#3b82f6', '#8b5cf6'];
 
-function fmtTooltip(v: number | undefined): string {
-  return formatTokens(v ?? 0);
+function fmtTooltip(v: number | string | ReadonlyArray<number | string> | undefined): string {
+  const raw = Array.isArray(v) ? v[0] : v;
+  const numeric = typeof raw === 'number' ? raw : Number(raw);
+  return formatTokens(Number.isFinite(numeric) ? numeric : 0);
 }
 
 function formatTokens(n: number): string {
@@ -267,8 +269,10 @@ export default function TokenStatsPage() {
 
   // Initial load
   useEffect(() => {
-    loadSummary();
-    loadRecords(0);
+    queueMicrotask(() => {
+      void loadSummary();
+      void loadRecords(0);
+    });
   }, [loadSummary, loadRecords]);
 
   // When URL params change (navigation from other page), sync state and reload
@@ -282,18 +286,20 @@ export default function TokenStatsPage() {
     const m = searchParams.get('model') || '';
     const p = searchParams.get('provider') || '';
     const ts = searchParams.get('turn_seq') || '';
-    setFilterSessionKey(sk);
-    setFilterModel(m);
-    setFilterProvider(p);
-    setFilterTurnSeq(ts);
-    filtersRef.current = {
-      ...filtersRef.current,
-      filterSessionKey: sk,
-      filterModel: m,
-      filterProvider: p,
-      filterTurnSeq: ts,
-    };
-    loadRecords(0);
+    queueMicrotask(() => {
+      setFilterSessionKey(sk);
+      setFilterModel(m);
+      setFilterProvider(p);
+      setFilterTurnSeq(ts);
+      filtersRef.current = {
+        ...filtersRef.current,
+        filterSessionKey: sk,
+        filterModel: m,
+        filterProvider: p,
+        filterTurnSeq: ts,
+      };
+      void loadRecords(0);
+    });
   }, [searchParams, loadRecords]);
 
   const handleSearch = () => {
