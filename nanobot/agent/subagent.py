@@ -4,7 +4,10 @@ import asyncio
 import json
 import os
 import shutil
+import time
 import uuid
+from dataclasses import dataclass, field
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -20,6 +23,40 @@ from nanobot.config.schema import ExecToolConfig, InLoopTruncationConfig
 from nanobot.providers.base import LLMProvider
 
 _CLAUDE_CODE_MAX_OUTPUT_CHARS = 16000
+_CLAUDE_CODE_CONTEXT_LIMIT_EST = 200000
+
+
+@dataclass
+class ClaudeCodeTaskState:
+    """Runtime state snapshot for a Claude Code background task."""
+
+    task_id: str
+    session_key: str
+    prompt_preview: str
+    project_path: str
+    mode: str
+    status: str = "queued"
+    phase: str = "queued"
+    last_event: str = "queued"
+    started_at: str = ""
+    updated_at: str = ""
+    started_monotonic: float = 0.0
+    updated_monotonic: float = 0.0
+    elapsed_ms: int = 0
+    last_tool_name: str = ""
+    last_tool_args_preview: str = ""
+    todo_items: list[dict[str, str]] = field(default_factory=list)
+    session_id: str = ""
+    num_turns: int = 0
+    duration_ms: int = 0
+    cost_usd: float = 0.0
+    usage_input_tokens: int = 0
+    usage_output_tokens: int = 0
+    context_used_est: int | None = None
+    context_remaining_est: int | None = None
+    error_message: str = ""
+    _active_tool_name: str = ""
+    _active_tool_json: str = ""
 
 
 class SubagentManager:
@@ -68,6 +105,7 @@ class SubagentManager:
         self._token_stats = token_stats
         self._running_tasks: dict[str, asyncio.Task[None]] = {}
         self._session_tasks: dict[str, set[str]] = {}  # session_key -> {task_id, ...}
+        self._claude_code_states: dict[str, ClaudeCodeTaskState] = {}
         # Claude Code config
         self._cc_model = claude_code_model
         self._cc_max_turns = claude_code_max_turns
@@ -330,6 +368,262 @@ You possess native multimodal perception. Tools like 'read_file' or 'web_fetch' 
         """Return the number of currently running subagents."""
         return len(self._running_tasks)
 
+    @staticmethod
+    def _now_ts() -> str:
+        return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+    @staticmethod
+    def _phase_from_tool(tool_name: str) -> str:
+        mapping = {
+            "Read": "planning",
+            "View": "planning",
+            "Glob": "planning",
+            "Grep": "planning",
+            "TodoWrite": "planning",
+            "Edit": "editing",
+            "Write": "editing",
+            "Bash": "testing",
+        }
+        return mapping.get(tool_name, "running")
+
+    @staticmethod
+    def _ensure_todowrite_allowed(allowed: str) -> str:
+        tokens = [t.strip() for t in allowed.replace(",", " ").split() if t.strip()]
+        if "TodoWrite" not in tokens:
+            tokens.append("TodoWrite")
+        return ",".join(tokens)
+
+    def _create_claude_code_state(
+        self,
+        *,
+        task_id: str,
+        session_key: str,
+        prompt: str,
+        project_path: str,
+        mode: str,
+    ) -> None:
+        now_mono = time.monotonic()
+        prompt_preview = prompt if len(prompt) <= 200 else f"{prompt[:200]}..."
+        prompt_est = max(len(prompt) // 4, 1)
+        state = ClaudeCodeTaskState(
+            task_id=task_id,
+            session_key=session_key,
+            prompt_preview=prompt_preview,
+            project_path=project_path,
+            mode=mode,
+            started_at=self._now_ts(),
+            updated_at=self._now_ts(),
+            started_monotonic=now_mono,
+            updated_monotonic=now_mono,
+            context_used_est=prompt_est,
+            context_remaining_est=self._estimate_context_remaining(prompt_est),
+        )
+        self._claude_code_states[task_id] = state
+
+    def _touch_claude_code_state(self, state: ClaudeCodeTaskState) -> None:
+        now_mono = time.monotonic()
+        state.updated_monotonic = now_mono
+        state.updated_at = self._now_ts()
+        state.elapsed_ms = int((now_mono - state.started_monotonic) * 1000)
+
+    def _set_claude_code_state(self, task_id: str, **updates: Any) -> None:
+        state = self._claude_code_states.get(task_id)
+        if not state:
+            return
+        for key, value in updates.items():
+            if hasattr(state, key):
+                setattr(state, key, value)
+        self._touch_claude_code_state(state)
+
+    @staticmethod
+    def _summarize_todo_items(items: list[dict[str, str]]) -> dict[str, int]:
+        summary = {"total": len(items), "pending": 0, "in_progress": 0, "completed": 0, "cancelled": 0}
+        for item in items:
+            status = str(item.get("status", "")).strip()
+            if status in summary:
+                summary[status] += 1
+        return summary
+
+    def _update_todos_from_payload(self, task_id: str, payload: dict[str, Any]) -> None:
+        todos = payload.get("todos")
+        if not isinstance(todos, list):
+            return
+        normalized: list[dict[str, str]] = []
+        for item in todos:
+            if not isinstance(item, dict):
+                continue
+            content = str(item.get("content", "")).strip()
+            status = str(item.get("status", "")).strip() or "pending"
+            if not content:
+                continue
+            normalized.append({"content": content, "status": status})
+        if not normalized:
+            return
+        self._set_claude_code_state(task_id, todo_items=normalized, last_event="todo_updated")
+
+    def _try_update_todos_from_partial_json(self, task_id: str, partial: str) -> None:
+        state = self._claude_code_states.get(task_id)
+        if not state:
+            return
+        if len(partial) > 500:
+            state.last_tool_args_preview = partial[-500:]
+        else:
+            state.last_tool_args_preview = partial
+        try:
+            payload = json.loads(partial)
+        except json.JSONDecodeError:
+            self._touch_claude_code_state(state)
+            return
+        if isinstance(payload, dict):
+            self._update_todos_from_payload(task_id, payload)
+
+    def _update_usage_estimate(self, task_id: str, usage: dict[str, Any]) -> None:
+        if not isinstance(usage, dict):
+            return
+        input_tokens = int(usage.get("input_tokens", 0) or 0)
+        output_tokens = int(usage.get("output_tokens", 0) or 0)
+        cache_read = int(usage.get("cache_read_input_tokens", 0) or 0)
+        cache_creation = int(usage.get("cache_creation_input_tokens", 0) or 0)
+        used = input_tokens + output_tokens + cache_read + cache_creation
+        self._set_claude_code_state(
+            task_id,
+            usage_input_tokens=input_tokens + cache_read + cache_creation,
+            usage_output_tokens=output_tokens,
+            context_used_est=used,
+            context_remaining_est=self._estimate_context_remaining(used),
+        )
+
+    def _apply_claude_stream_event(self, task_id: str, event: dict[str, Any]) -> None:
+        state = self._claude_code_states.get(task_id)
+        if not state:
+            return
+
+        event_type = str(event.get("type", ""))
+        if event_type == "stream_event":
+            se = event.get("event", {})
+            se_type = str(se.get("type", ""))
+
+            if se_type == "content_block_start":
+                cb = se.get("content_block", {})
+                if cb.get("type") == "tool_use":
+                    tool_name = str(cb.get("name", ""))
+                    state._active_tool_name = tool_name
+                    state._active_tool_json = ""
+                    state.last_tool_name = tool_name
+                    state.phase = self._phase_from_tool(tool_name)
+                    state.last_event = f"tool_start:{tool_name}"
+                    tool_input = cb.get("input")
+                    if isinstance(tool_input, dict):
+                        preview = json.dumps(tool_input, ensure_ascii=False)
+                        state.last_tool_args_preview = preview[:500]
+                        if tool_name == "TodoWrite":
+                            self._update_todos_from_payload(task_id, tool_input)
+                    self._touch_claude_code_state(state)
+                    return
+
+            if se_type == "content_block_delta" and state._active_tool_name:
+                delta = se.get("delta", {})
+                if delta.get("type") == "input_json_delta":
+                    part = str(delta.get("partial_json", ""))
+                    state._active_tool_json += part
+                    if state._active_tool_name == "TodoWrite":
+                        self._try_update_todos_from_partial_json(task_id, state._active_tool_json)
+                    else:
+                        state.last_tool_args_preview = state._active_tool_json[-500:]
+                        self._touch_claude_code_state(state)
+                    return
+
+            if se_type == "content_block_stop":
+                if state._active_tool_name == "TodoWrite" and state._active_tool_json:
+                    self._try_update_todos_from_partial_json(task_id, state._active_tool_json)
+                if state._active_tool_name:
+                    state.last_event = f"tool_stop:{state._active_tool_name}"
+                state._active_tool_name = ""
+                state._active_tool_json = ""
+                self._touch_claude_code_state(state)
+                return
+
+            if se_type == "message_stop":
+                state.last_event = "message_stop"
+                self._touch_claude_code_state(state)
+                return
+
+        if event_type == "assistant":
+            message = event.get("message", {})
+            if isinstance(message, dict):
+                self._update_usage_estimate(task_id, message.get("usage", {}))
+            state.last_event = "assistant_message"
+            self._touch_claude_code_state(state)
+            return
+
+        if event_type == "result":
+            self._update_usage_estimate(task_id, event.get("usage", {}))
+            self._set_claude_code_state(
+                task_id,
+                session_id=str(event.get("session_id", "") or state.session_id),
+                num_turns=int(event.get("num_turns", 0) or 0),
+                duration_ms=int(event.get("duration_ms", 0) or 0),
+                cost_usd=float(event.get("total_cost_usd", 0.0) or 0.0),
+                last_event="result",
+            )
+            return
+
+        self._touch_claude_code_state(state)
+
+    def _estimate_context_remaining(self, used_tokens: int | None) -> int | None:
+        if used_tokens is None:
+            return None
+        return max(_CLAUDE_CODE_CONTEXT_LIMIT_EST - used_tokens, 0)
+
+    def get_claude_code_status(
+        self,
+        task_id: str | None = None,
+        session_key: str | None = None,
+        verbose: bool = False,
+    ) -> dict[str, Any]:
+        """Return tracked Claude Code task states."""
+        tasks = list(self._claude_code_states.values())
+        if task_id:
+            tasks = [t for t in tasks if t.task_id == task_id]
+        elif session_key:
+            tasks = [t for t in tasks if t.session_key == session_key]
+
+        tasks.sort(key=lambda t: t.updated_monotonic, reverse=True)
+        running_states = {"queued", "running", "blocked"}
+        running = sum(1 for t in tasks if t.status in running_states)
+        items: list[dict[str, Any]] = []
+        for state in tasks:
+            item: dict[str, Any] = {
+                "task_id": state.task_id,
+                "status": state.status,
+                "phase": state.phase,
+                "mode": state.mode,
+                "elapsed_ms": state.elapsed_ms,
+                "updated_at": state.updated_at,
+                "last_event": state.last_event,
+                "last_tool_name": state.last_tool_name,
+                "todo_summary": self._summarize_todo_items(state.todo_items),
+                "context_used_est": state.context_used_est,
+                "context_remaining_est": state.context_remaining_est,
+                "error_message": state.error_message,
+            }
+            if verbose:
+                item["prompt_preview"] = state.prompt_preview
+                item["project_path"] = state.project_path
+                item["todo_items"] = state.todo_items
+                item["session_id"] = state.session_id
+                item["num_turns"] = state.num_turns
+                item["duration_ms"] = state.duration_ms
+                item["cost_usd"] = state.cost_usd
+                item["last_tool_args_preview"] = state.last_tool_args_preview
+            items.append(item)
+
+        return {
+            "total": len(tasks),
+            "running": running,
+            "tasks": items,
+        }
+
     # =========================================================================
     # Claude Code Async Execution
     # =========================================================================
@@ -351,15 +645,25 @@ You possess native multimodal perception. Tools like 'read_file' or 'web_fetch' 
         task_id = f"cc_{uuid.uuid4().hex[:6]}"
         display_label = label or f"claude_code:{prompt[:25]}..."
         origin = {"channel": origin_channel, "chat_id": origin_chat_id}
+        effective_session_key = session_key or f"{origin_channel}:{origin_chat_id}"
+        self._create_claude_code_state(
+            task_id=task_id,
+            session_key=effective_session_key,
+            prompt=prompt,
+            project_path=project_path,
+            mode=mode,
+        )
 
         claude_bin = shutil.which("claude")
         if not claude_bin:
             error_msg = "Error: claude not found in PATH. Install Claude Code CLI globally: npm install -g @anthropic-ai/claude-code"
+            self._set_claude_code_state(task_id, status="error", phase="error", error_message=error_msg, last_event="spawn_error")
             await self._announce_result(task_id, display_label, prompt, error_msg, origin, "error")
             return error_msg
 
         if not Path(project_path).is_dir():
             error_msg = f"Error: Project directory does not exist: {project_path}"
+            self._set_claude_code_state(task_id, status="error", phase="error", error_message=error_msg, last_event="spawn_error")
             await self._announce_result(task_id, display_label, prompt, error_msg, origin, "error")
             return error_msg
         effective_timeout = timeout or (120 if mode == "fast" else self._cc_timeout)
@@ -371,15 +675,16 @@ You possess native multimodal perception. Tools like 'read_file' or 'web_fetch' 
             )
         )
         self._running_tasks[task_id] = bg_task
-        if session_key:
-            self._session_tasks.setdefault(session_key, set()).add(task_id)
+        if effective_session_key:
+            self._session_tasks.setdefault(effective_session_key, set()).add(task_id)
+        self._set_claude_code_state(task_id, last_event="spawned")
 
         def _cleanup(_: asyncio.Task) -> None:
             self._running_tasks.pop(task_id, None)
-            if session_key and (ids := self._session_tasks.get(session_key)):
+            if effective_session_key and (ids := self._session_tasks.get(effective_session_key)):
                 ids.discard(task_id)
                 if not ids:
-                    del self._session_tasks[session_key]
+                    del self._session_tasks[effective_session_key]
 
         bg_task.add_done_callback(_cleanup)
 
@@ -403,24 +708,41 @@ You possess native multimodal perception. Tools like 'read_file' or 'web_fetch' 
         """Execute Claude Code CLI and announce the result."""
         label = f"claude_code:{prompt[:25]}"
         logger.info("claude_code [{}] starting: mode={}", task_id, mode)
+        self._set_claude_code_state(task_id, status="running", phase="bootstrapping", last_event="process_start")
 
         try:
             cmd = self._build_claude_code_command(prompt, project_path, mode, session_id)
-            stdout, stderr = await self._run_claude_code_subprocess(cmd, project_path, timeout)
+            stdout, stderr, stream_result = await self._run_claude_code_subprocess_stream(
+                cmd, project_path, timeout, task_id
+            )
 
             if stderr and not stdout:
                 error_text = f"Claude Code failed.\n{stderr[:2000]}"
                 logger.error("claude_code [{}] failed: {}", task_id, stderr[:500])
+                self._set_claude_code_state(
+                    task_id,
+                    status="error",
+                    phase="error",
+                    error_message=error_text[:500],
+                    last_event="process_error",
+                )
                 await self._announce_result(
                     task_id, label, prompt, error_text, origin, "error",
                     announce_model_tier=announce_model_tier,
                 )
                 return
 
-            parsed = self._parse_claude_code_result(stdout)
+            parsed = stream_result or self._parse_claude_code_result(stdout)
             if parsed.get("_parse_error"):
                 raw = stdout[:_CLAUDE_CODE_MAX_OUTPUT_CHARS] if stdout else "(no output)"
                 error_text = f"Claude Code returned non-JSON output:\n{raw}"
+                self._set_claude_code_state(
+                    task_id,
+                    status="error",
+                    phase="error",
+                    error_message="non-json output",
+                    last_event="parse_error",
+                )
                 await self._announce_result(
                     task_id, label, prompt, error_text, origin, "error",
                     announce_model_tier=announce_model_tier,
@@ -429,15 +751,40 @@ You possess native multimodal perception. Tools like 'read_file' or 'web_fetch' 
 
             self._record_claude_code_stats(parsed, prompt)
             result_text = self._format_claude_code_output(parsed, mode)
+            usage = parsed.get("usage", {})
+            if isinstance(usage, dict):
+                self._update_usage_estimate(task_id, usage)
+            is_error = bool(parsed.get("is_error", False))
+            cc_status = "error" if is_error else "done"
+            cc_phase = "error" if is_error else "done"
+            cc_error = parsed.get("result", "") if is_error else ""
+            self._set_claude_code_state(
+                task_id,
+                status=cc_status,
+                phase=cc_phase,
+                error_message=(str(cc_error)[:500] if cc_error else ""),
+                last_event="completed",
+                session_id=str(parsed.get("session_id", "") or ""),
+                num_turns=int(parsed.get("num_turns", 0) or 0),
+                duration_ms=int(parsed.get("duration_ms", 0) or 0),
+                cost_usd=float(parsed.get("total_cost_usd", 0.0) or 0.0),
+            )
 
             logger.info("claude_code [{}] completed successfully", task_id)
             await self._announce_result(
-                task_id, label, prompt, result_text, origin, "ok",
+                task_id, label, prompt, result_text, origin, ("error" if is_error else "ok"),
                 announce_model_tier=announce_model_tier,
             )
 
         except asyncio.CancelledError:
             logger.info("claude_code [{}] was cancelled", task_id)
+            self._set_claude_code_state(
+                task_id,
+                status="cancelled",
+                phase="cancelled",
+                error_message="Task was cancelled.",
+                last_event="cancelled",
+            )
             await self._announce_result(
                 task_id, label, prompt, "Task was cancelled.", origin, "error",
                 announce_model_tier=announce_model_tier,
@@ -446,6 +793,13 @@ You possess native multimodal perception. Tools like 'read_file' or 'web_fetch' 
         except Exception as e:
             error_msg = f"Error: {str(e)}"
             logger.error("claude_code [{}] failed with exception: {}", task_id, e)
+            self._set_claude_code_state(
+                task_id,
+                status="error",
+                phase="error",
+                error_message=error_msg[:500],
+                last_event="exception",
+            )
             await self._announce_result(
                 task_id, label, prompt, error_msg, origin, "error",
                 announce_model_tier=announce_model_tier,
@@ -460,35 +814,42 @@ You possess native multimodal perception. Tools like 'read_file' or 'web_fetch' 
     ) -> list[str]:
         """Build the claude CLI command."""
         max_turns = 5 if mode == "fast" else self._cc_max_turns
-        allowed = "View,Read,Glob,Grep" if mode == "readonly" else self._cc_allowed_tools
+        allowed = "View,Read,Glob,Grep" if mode == "readonly" else self._ensure_todowrite_allowed(self._cc_allowed_tools)
 
         cmd = [
             "claude",
             "-p", prompt,
-            "--output-format", "json",
+            "--output-format", "stream-json",
             "--model", self._cc_model,
             "--max-turns", str(max_turns),
             "--allowedTools", allowed,
         ]
+
+        if mode != "readonly":
+            cmd.extend(["--include-partial-messages", "--verbose"])
 
         if session_id:
             cmd.extend(["--resume", session_id])
 
         return cmd
 
-    async def _run_claude_code_subprocess(
+    async def _run_claude_code_subprocess_stream(
         self,
         cmd: list[str],
         cwd: str,
         timeout: int,
-    ) -> tuple[str, str]:
-        """Run Claude Code CLI as subprocess."""
+        task_id: str,
+    ) -> tuple[str, str, dict[str, Any] | None]:
+        """Run Claude Code CLI as streaming subprocess."""
         env = os.environ.copy()
         # Inject Claude Code auth from nanobot config
         if self._cc_api_key:
             env["ANTHROPIC_API_KEY"] = self._cc_api_key
         if self._cc_base_url:
             env["ANTHROPIC_BASE_URL"] = self._cc_base_url
+        stdout_lines: list[str] = []
+        stderr_lines: list[str] = []
+        final_result: dict[str, Any] | None = None
         try:
             process = await asyncio.create_subprocess_exec(
                 *cmd,
@@ -497,24 +858,60 @@ You possess native multimodal perception. Tools like 'read_file' or 'web_fetch' 
                 cwd=cwd,
                 env=env,
             )
-            try:
-                stdout_bytes, stderr_bytes = await asyncio.wait_for(
-                    process.communicate(),
-                    timeout=timeout,
-                )
-            except asyncio.TimeoutError:
-                process.kill()
-                try:
-                    await asyncio.wait_for(process.wait(), timeout=5.0)
-                except asyncio.TimeoutError:
-                    pass
-                return "", f"Claude Code timed out after {timeout}s"
         except Exception as e:
-            return "", f"Failed to start Claude Code: {e}"
+            return "", f"Failed to start Claude Code: {e}", None
 
-        stdout = stdout_bytes.decode("utf-8", errors="replace") if stdout_bytes else ""
-        stderr = stderr_bytes.decode("utf-8", errors="replace") if stderr_bytes else ""
-        return stdout, stderr
+        async def _consume_stdout() -> None:
+            nonlocal final_result
+            if not process.stdout:
+                return
+            while True:
+                line = await process.stdout.readline()
+                if not line:
+                    break
+                text = line.decode("utf-8", errors="replace")
+                stdout_lines.append(text)
+                stripped = text.strip()
+                if not stripped:
+                    continue
+                try:
+                    event = json.loads(stripped)
+                except json.JSONDecodeError:
+                    continue
+                if isinstance(event, dict):
+                    self._apply_claude_stream_event(task_id, event)
+                    if event.get("type") == "result":
+                        final_result = event
+
+        async def _consume_stderr() -> None:
+            if not process.stderr:
+                return
+            while True:
+                line = await process.stderr.readline()
+                if not line:
+                    break
+                stderr_lines.append(line.decode("utf-8", errors="replace"))
+
+        try:
+            await asyncio.wait_for(
+                asyncio.gather(_consume_stdout(), _consume_stderr(), process.wait()),
+                timeout=timeout,
+            )
+        except asyncio.TimeoutError:
+            process.kill()
+            try:
+                await asyncio.wait_for(process.wait(), timeout=5.0)
+            except asyncio.TimeoutError:
+                pass
+            return "".join(stdout_lines), f"Claude Code timed out after {timeout}s", final_result
+
+        stdout = "".join(stdout_lines)
+        stderr = "".join(stderr_lines)
+        if not final_result:
+            parsed = self._parse_claude_code_result(stdout)
+            if not parsed.get("_parse_error"):
+                final_result = parsed
+        return stdout, stderr, final_result
 
     def _parse_claude_code_result(self, stdout: str) -> dict[str, Any]:
         """Parse the JSON output from Claude Code CLI."""
@@ -522,6 +919,7 @@ You possess native multimodal perception. Tools like 'read_file' or 'web_fetch' 
         if not stdout:
             return {"_parse_error": True}
 
+        candidate: dict[str, Any] | None = None
         for line in reversed(stdout.splitlines()):
             line = line.strip()
             if not line:
@@ -529,9 +927,23 @@ You possess native multimodal perception. Tools like 'read_file' or 'web_fetch' 
             try:
                 data = json.loads(line)
                 if isinstance(data, dict):
-                    return data
+                    if data.get("type") == "result":
+                        return data
+                    if "result" in data or "is_error" in data:
+                        candidate = data
+                        continue
+                    if not candidate:
+                        candidate = data
             except json.JSONDecodeError:
                 continue
+
+        if candidate:
+            if candidate.get("type") == "stream_event":
+                return {"_parse_error": True}
+            if "result" not in candidate and "is_error" not in candidate:
+                # Non-final stream event/object; treat as parse failure for caller fallback.
+                return {"_parse_error": True}
+            return candidate
 
         return {"_parse_error": True}
 
@@ -639,5 +1051,12 @@ You possess native multimodal perception. Tools like 'read_file' or 'web_fetch' 
         except (asyncio.CancelledError, asyncio.TimeoutError):
             pass
 
+        self._set_claude_code_state(
+            task_id,
+            status="cancelled",
+            phase="cancelled",
+            error_message="Cancelled by user.",
+            last_event="cancelled_by_user",
+        )
         logger.info("claude_code [{}] cancelled by user", task_id)
         return f"Claude Code task '{task_id}' has been cancelled."

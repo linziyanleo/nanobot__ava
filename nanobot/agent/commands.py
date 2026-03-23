@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import time
 from dataclasses import dataclass
 from datetime import datetime
@@ -193,8 +194,6 @@ def register_builtin_commands(registry: CommandRegistry, agent: AgentLoop) -> No
         return f"⏹ Stopped {total} task(s)." if total else "No active task to stop."
 
     async def _cmd_status(msg: InboundMessage, _agent: AgentLoop) -> str:
-        import json as _json
-
         uptime_s = time.monotonic() - _boot_time
         hours, remainder = divmod(int(uptime_s), 3600)
         minutes, seconds = divmod(remainder, 60)
@@ -246,7 +245,7 @@ def register_builtin_commands(registry: CommandRegistry, agent: AgentLoop) -> No
                         if isinstance(c, dict):
                             total += len(c.get("text", ""))
                 for tc in m.get("tool_calls", []):
-                    total += len(_json.dumps(tc, ensure_ascii=False))
+                    total += len(json.dumps(tc, ensure_ascii=False))
             return total
 
         sys_prompt = simulated_messages[0].get("content", "") if simulated_messages else ""
@@ -257,7 +256,7 @@ def register_builtin_commands(registry: CommandRegistry, agent: AgentLoop) -> No
         history_est = history_chars // 4
 
         tool_defs = _agent.tools.get_definitions()
-        tool_chars = sum(len(_json.dumps(t, ensure_ascii=False)) for t in tool_defs)
+        tool_chars = sum(len(json.dumps(t, ensure_ascii=False)) for t in tool_defs)
         tool_est = tool_chars // 4
 
         total_context_est = sys_est + history_est + tool_est
@@ -268,6 +267,25 @@ def register_builtin_commands(registry: CommandRegistry, agent: AgentLoop) -> No
             jobs = _agent.cron_service.list_jobs(include_disabled=True)
             enabled = sum(1 for j in jobs if j.enabled)
             cron_info = f"\n📋 Cron: {enabled} active / {len(jobs)} total"
+
+        cc_snapshot = _agent.subagents.get_claude_code_status(session_key=msg.session_key, verbose=False)
+        cc_info = "\n🤖 Claude Code: 0 running / 0 tracked"
+        if cc_snapshot["total"] > 0:
+            latest = cc_snapshot["tasks"][0]
+            todo = latest.get("todo_summary", {})
+            todo_text = ""
+            if todo.get("total", 0):
+                todo_text = (
+                    f" | TODO {todo.get('in_progress', 0)} in-progress/"
+                    f"{todo.get('pending', 0)} pending/{todo.get('completed', 0)} done"
+                )
+            ctx_left = latest.get("context_remaining_est")
+            ctx_text = f" | Ctx~{ctx_left:,}" if isinstance(ctx_left, int) else ""
+            cc_info = (
+                f"\n🤖 Claude Code: {cc_snapshot['running']} running / {cc_snapshot['total']} tracked\n"
+                f"   └ Latest: {latest['task_id']} {latest['status']} "
+                f"({latest['phase']}, {latest['elapsed_ms']}ms){todo_text}{ctx_text}"
+            )
 
         compression_label = "on" if _agent._compression_enabled else "off"
 
@@ -285,10 +303,69 @@ def register_builtin_commands(registry: CommandRegistry, agent: AgentLoop) -> No
             f"   ├ Tool defs: ~{tool_est:,} tk ({len(tool_defs)} tools)\n"
             f"   └ Total: ~{total_context_est:,} tk"
             f"{cron_info}"
+            f"{cc_info}"
         )
+
+    async def _cmd_cc_status(msg: InboundMessage, _agent: AgentLoop) -> str:
+        parts = msg.content.strip().split()
+        task_id: str | None = None
+        verbose = False
+        for token in parts[1:]:
+            low = token.lower()
+            if low in {"-v", "--verbose", "verbose"}:
+                verbose = True
+            elif task_id is None:
+                task_id = token
+
+        snapshot = _agent.subagents.get_claude_code_status(
+            task_id=task_id,
+            session_key=None if task_id else msg.session_key,
+            verbose=verbose,
+        )
+        if task_id and snapshot["total"] == 0:
+            return f"Claude Code task '{task_id}' not found."
+        if snapshot["total"] == 0:
+            return "🤖 Claude Code tasks: none"
+
+        lines = [
+            f"🤖 Claude Code Status: {snapshot['running']} running / {snapshot['total']} tracked",
+        ]
+        visible = snapshot["tasks"] if (verbose or task_id) else snapshot["tasks"][:5]
+        for item in visible:
+            todo = item.get("todo_summary", {})
+            todo_text = ""
+            if todo.get("total", 0):
+                todo_text = (
+                    f" | todo {todo.get('in_progress', 0)} in-progress/"
+                    f"{todo.get('pending', 0)} pending/{todo.get('completed', 0)} done"
+                )
+            ctx_left = item.get("context_remaining_est")
+            ctx_text = f" | ctx~{ctx_left:,}" if isinstance(ctx_left, int) else ""
+            lines.append(
+                f"- {item['task_id']} {item['status']} phase={item['phase']} "
+                f"elapsed={item['elapsed_ms']}ms{todo_text}{ctx_text}"
+            )
+            if item.get("last_tool_name"):
+                lines.append(f"  last tool: {item['last_tool_name']}")
+            if item.get("error_message"):
+                lines.append(f"  error: {str(item['error_message'])[:200]}")
+            if verbose and item.get("prompt_preview"):
+                lines.append(f"  prompt: {item['prompt_preview']}")
+            if verbose and item.get("todo_items"):
+                for todo_item in item["todo_items"][:8]:
+                    lines.append(
+                        f"  - [{todo_item.get('status', 'pending')}] "
+                        f"{todo_item.get('content', '')}"
+                    )
+
+        if not (verbose or task_id) and snapshot["total"] > len(visible):
+            lines.append(f"... {snapshot['total'] - len(visible)} more tasks (use /cc_status --verbose)")
+
+        return "\n".join(lines)
 
     registry.register("help", "Show available commands", _cmd_help)
     registry.register("start", "Start the bot", _cmd_start)
     registry.register("new", "Start a new conversation", _cmd_new)
     registry.register("stop", "Stop the current task", _cmd_stop, pre_dispatch=True)
     registry.register("status", "Show bot status", _cmd_status)
+    registry.register("cc_status", "Show Claude Code task status", _cmd_cc_status)

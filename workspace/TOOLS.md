@@ -227,6 +227,9 @@ claude_code(prompt="继续上次的任务，完成剩余的测试用例", sessio
 **Notes:**
 
 - 异步模式返回任务启动确认（包含 task_id），完成后通过消息总线通知
+- 异步任务会持续更新内存态运行状态：`status/phase/TODO/context_remaining_est/error`
+- 可随时通过 `/cc_status` 查询当前会话的 Claude Code 任务状态（支持 `/cc_status <task_id>` 定位单任务）
+- `/status` 会显示 Claude Code 状态摘要（running 数、最新任务状态、TODO 概览、上下文剩余估算）
 - 同步模式返回结构化结果：状态（SUCCESS/ERROR）、Turns、Duration、Cost、结果文本
 - Token 消耗自动记录到 token_stats（provider=claude-code-cli, model_role=claude_code）
 - 需要 npx 在 PATH 中（Node.js 环境）
