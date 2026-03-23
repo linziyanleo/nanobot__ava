@@ -101,11 +101,8 @@ async def test_print_interactive_progress_line_pauses_spinner_before_printing():
     spinner.start.side_effect = lambda: order.append("start")
     spinner.stop.side_effect = lambda: order.append("stop")
 
-    async def fake_print(_text: str) -> None:
-        order.append("print")
-
     with patch.object(commands.console, "status", return_value=spinner), \
-         patch("nanobot.cli.commands._print_interactive_line", side_effect=fake_print):
+         patch.object(commands.console, "print", side_effect=lambda *_args, **_kwargs: order.append("print")):
         thinking = commands._ThinkingSpinner(enabled=True)
         with thinking:
             await commands._print_interactive_progress_line("tool running", thinking)

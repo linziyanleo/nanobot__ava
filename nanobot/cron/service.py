@@ -246,6 +246,9 @@ class CronService:
     
     async def _on_timer(self) -> None:
         """Handle timer tick - run due jobs."""
+        # Reload store each tick so external changes (e.g. disable from another process)
+        # are respected by the running service.
+        self._store = None
         self._load_store()
         if not self._store:
             return
