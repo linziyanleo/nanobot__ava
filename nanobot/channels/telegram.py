@@ -3,9 +3,12 @@
 from __future__ import annotations
 
 import asyncio
+import ipaddress
 import re
+import socket
 import time
 import unicodedata
+from urllib.parse import urlparse
 
 from loguru import logger
 from telegram import BotCommand, ReplyParameters, Update
@@ -19,10 +22,48 @@ from nanobot.channels.base import BaseChannel
 from nanobot.channels.batcher import MessageBatcher
 from nanobot.config.paths import get_media_dir
 from nanobot.config.schema import TelegramConfig
-from nanobot.security.network import validate_url_target
 from nanobot.utils.helpers import split_message
 
 TELEGRAM_MAX_MESSAGE_LEN = 4000  # Telegram message character limit
+
+
+def validate_url_target(url: str) -> tuple[bool, str]:
+    """Best-effort URL safety check for remote Telegram media."""
+    try:
+        parsed = urlparse(url)
+    except Exception as exc:
+        return False, f"invalid url: {exc}"
+
+    if parsed.scheme not in {"http", "https"}:
+        return False, f"unsupported scheme: {parsed.scheme or 'none'}"
+    if not parsed.hostname:
+        return False, "missing hostname"
+
+    host = parsed.hostname
+    if host in {"localhost", "127.0.0.1", "::1"}:
+        return False, "localhost is not allowed"
+
+    try:
+        addrs = {info[4][0] for info in socket.getaddrinfo(host, None)}
+    except Exception as exc:
+        return False, f"dns resolve failed: {exc}"
+
+    for addr in addrs:
+        try:
+            ip = ipaddress.ip_address(addr)
+        except ValueError:
+            continue
+        if (
+            ip.is_private
+            or ip.is_loopback
+            or ip.is_link_local
+            or ip.is_reserved
+            or ip.is_multicast
+            or ip.is_unspecified
+        ):
+            return False, f"blocked private/internal address {addr}"
+
+    return True, ""
 
 
 def _strip_md(s: str) -> str:
