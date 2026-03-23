@@ -156,6 +156,7 @@ class TokenStatsCollector:
         start_time: str | None = None,
         end_time: str | None = None,
         turn_seq: int | None = None,
+        model_role: str | None = None,
     ) -> tuple[str, list]:
         """Build SQL WHERE clause and params from optional filters."""
         clauses: list[str] = []
@@ -178,6 +179,21 @@ class TokenStatsCollector:
         if turn_seq is not None:
             clauses.append("turn_seq = ?")
             params.append(turn_seq)
+        if model_role:
+            if model_role == "claude_code":
+                # claude_code: model_role=claude_code OR provider=claude-code-cli
+                clauses.append("(model_role = ? OR provider = ?)")
+                params.append("claude_code")
+                params.append("claude-code-cli")
+            elif model_role == "chat":
+                # main chat: model_role=chat OR model_role=main OR model_role=default
+                clauses.append("(model_role = ? OR model_role = ? OR model_role = ?)")
+                params.append("chat")
+                params.append("main")
+                params.append("default")
+            else:
+                clauses.append("model_role = ?")
+                params.append(model_role)
         where = (" WHERE " + " AND ".join(clauses)) if clauses else ""
         return where, params
 
@@ -191,9 +207,10 @@ class TokenStatsCollector:
         start_time: str | None = None,
         end_time: str | None = None,
         turn_seq: int | None = None,
+        model_role: str | None = None,
     ) -> list[dict[str, Any]]:
         if self._use_db:
-            where, params = self._build_filter(session_key, model, provider, start_time, end_time, turn_seq)
+            where, params = self._build_filter(session_key, model, provider, start_time, end_time, turn_seq, model_role)
             rows = self._db.fetchall(
                 f"SELECT * FROM token_usage{where} ORDER BY timestamp DESC LIMIT ? OFFSET ?",
                 (*params, limit, offset),
@@ -215,6 +232,13 @@ class TokenStatsCollector:
                 filtered = [r for r in filtered if getattr(r, "timestamp", "") <= end_time]
             if turn_seq is not None:
                 filtered = [r for r in filtered if getattr(r, "turn_seq", None) == turn_seq]
+            if model_role:
+                if model_role == "claude_code":
+                    filtered = [r for r in filtered if getattr(r, "model_role", "") == "claude_code" or getattr(r, "provider", "") == "claude-code-cli"]
+                elif model_role == "chat":
+                    filtered = [r for r in filtered if getattr(r, "model_role", "") in ("chat", "main", "default")]
+                else:
+                    filtered = [r for r in filtered if getattr(r, "model_role", "") == model_role]
             reversed_records = list(reversed(filtered))
             sliced = reversed_records[offset: offset + limit]
             return [asdict(r) for r in sliced]
@@ -227,9 +251,10 @@ class TokenStatsCollector:
         start_time: str | None = None,
         end_time: str | None = None,
         turn_seq: int | None = None,
+        model_role: str | None = None,
     ) -> int:
         if self._use_db:
-            where, params = self._build_filter(session_key, model, provider, start_time, end_time, turn_seq)
+            where, params = self._build_filter(session_key, model, provider, start_time, end_time, turn_seq, model_role)
             row = self._db.fetchone(f"SELECT COUNT(*) as cnt FROM token_usage{where}", tuple(params))
             return row["cnt"] if row else 0
 
@@ -248,6 +273,13 @@ class TokenStatsCollector:
                 filtered = [r for r in filtered if getattr(r, "timestamp", "") <= end_time]
             if turn_seq is not None:
                 filtered = [r for r in filtered if getattr(r, "turn_seq", None) == turn_seq]
+            if model_role:
+                if model_role == "claude_code":
+                    filtered = [r for r in filtered if getattr(r, "model_role", "") == "claude_code" or getattr(r, "provider", "") == "claude-code-cli"]
+                elif model_role == "chat":
+                    filtered = [r for r in filtered if getattr(r, "model_role", "") in ("chat", "main", "default")]
+                else:
+                    filtered = [r for r in filtered if getattr(r, "model_role", "") == model_role]
             return len(filtered)
 
     def get_summary(self) -> dict[str, Any]:

@@ -174,6 +174,17 @@ function getPresetRange(preset: TimePreset): { start?: string; end?: string } {
   return {};
 }
 
+type ModelRoleFilter = 'all' | 'claude_code' | 'chat' | 'mini' | 'voice' | 'vision';
+
+const MODEL_ROLE_FILTER_OPTIONS: { value: ModelRoleFilter; label: string; icon: string }[] = [
+  { value: 'all', label: '全部', icon: '📊' },
+  { value: 'claude_code', label: 'Claude Code', icon: '💻' },
+  { value: 'chat', label: '主模型', icon: '🤖' },
+  { value: 'mini', label: 'Mini', icon: '⚡' },
+  { value: 'voice', label: 'Voice', icon: '🎙️' },
+  { value: 'vision', label: 'Vision', icon: '👁️' },
+];
+
 function buildFilterStr(
   sk: string,
   model: string,
@@ -182,12 +193,14 @@ function buildFilterStr(
   preset: TimePreset,
   cStart: string,
   cEnd: string,
+  modelRole: ModelRoleFilter,
 ): string {
   const params = new URLSearchParams();
   if (sk) params.set('session_key', sk);
   if (model) params.set('model', model);
   if (provider) params.set('provider', provider);
   if (turnSeq) params.set('turn_seq', turnSeq);
+  if (modelRole && modelRole !== 'all') params.set('model_role', modelRole);
   if (preset === 'custom') {
     if (cStart) params.set('start_time', new Date(cStart).toISOString());
     if (cEnd) params.set('end_time', new Date(cEnd + 'T23:59:59').toISOString());
@@ -215,6 +228,7 @@ export default function TokenStatsPage() {
   const [filterModel, setFilterModel] = useState(searchParams.get('model') || '');
   const [filterProvider, setFilterProvider] = useState(searchParams.get('provider') || '');
   const [filterTurnSeq, setFilterTurnSeq] = useState(searchParams.get('turn_seq') || '');
+  const [filterModelRole, setFilterModelRole] = useState<ModelRoleFilter>('all');
   const [timePreset, setTimePreset] = useState<TimePreset>('all');
   const [customStart, setCustomStart] = useState('');
   const [customEnd, setCustomEnd] = useState('');
@@ -224,13 +238,32 @@ export default function TokenStatsPage() {
     filterModel,
     filterProvider,
     filterTurnSeq,
+    filterModelRole,
     timePreset,
     customStart,
     customEnd,
   });
   useEffect(() => {
-    filtersRef.current = { filterSessionKey, filterModel, filterProvider, filterTurnSeq, timePreset, customStart, customEnd };
-  }, [filterSessionKey, filterModel, filterProvider, filterTurnSeq, timePreset, customStart, customEnd]);
+    filtersRef.current = {
+      filterSessionKey,
+      filterModel,
+      filterProvider,
+      filterTurnSeq,
+      filterModelRole,
+      timePreset,
+      customStart,
+      customEnd,
+    };
+  }, [
+    filterSessionKey,
+    filterModel,
+    filterProvider,
+    filterTurnSeq,
+    filterModelRole,
+    timePreset,
+    customStart,
+    customEnd,
+  ]);
 
   const loadSummary = useCallback(async () => {
     try {
@@ -253,6 +286,7 @@ export default function TokenStatsPage() {
         f.timePreset,
         f.customStart,
         f.customEnd,
+        f.filterModelRole,
       );
       const sep = filterStr ? '&' : '';
       const r = await api<RecordsResponse>(
@@ -317,6 +351,7 @@ export default function TokenStatsPage() {
     setFilterModel('');
     setFilterProvider('');
     setFilterTurnSeq('');
+    setFilterModelRole('all');
     setTimePreset('all');
     setCustomStart('');
     setCustomEnd('');
@@ -326,6 +361,7 @@ export default function TokenStatsPage() {
       filterModel: '',
       filterProvider: '',
       filterTurnSeq: '',
+      filterModelRole: 'all',
       timePreset: 'all',
       customStart: '',
       customEnd: '',
@@ -333,7 +369,13 @@ export default function TokenStatsPage() {
     loadRecords(0);
   };
 
-  const hasFilters = filterSessionKey || filterModel || filterProvider || filterTurnSeq || timePreset !== 'all';
+  const hasFilters =
+    filterSessionKey ||
+    filterModel ||
+    filterProvider ||
+    filterTurnSeq ||
+    filterModelRole !== 'all' ||
+    timePreset !== 'all';
 
   const handleReset = async () => {
     if (!confirm('确认清空所有 Token 统计数据？')) return;
@@ -474,12 +516,42 @@ export default function TokenStatsPage() {
               />
             </div>
             <div>
+              <label className="text-[10px] text-[var(--text-secondary)] mb-1 block">功能角色</label>
+              <div className="flex bg-[var(--bg-primary)] rounded-lg border border-[var(--border)] p-0.5">
+                {MODEL_ROLE_FILTER_OPTIONS.map(opt => (
+                  <button
+                    key={opt.value}
+                    onClick={() => {
+                      setFilterModelRole(opt.value);
+                      filtersRef.current = { ...filtersRef.current, filterModelRole: opt.value };
+                      loadRecords(0);
+                    }}
+                    title={opt.label}
+                    className={`px-1.5 py-1 rounded-md text-[10px] font-medium transition-colors flex items-center gap-0.5 ${
+                      filterModelRole === opt.value
+                        ? 'bg-[var(--accent)] text-white'
+                        : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
+                    }`}
+                  >
+                    <span>{opt.icon}</span>
+                    {opt.value === 'all' && <span>全部</span>}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div>
               <label className="text-[10px] text-[var(--text-secondary)] mb-1 block">时间范围</label>
               <div className="flex bg-[var(--bg-primary)] rounded-lg border border-[var(--border)] p-0.5">
                 {(['all', 'today', '7d', '30d', 'custom'] as TimePreset[]).map(p => (
                   <button
                     key={p}
-                    onClick={() => setTimePreset(p)}
+                    onClick={() => {
+                      setTimePreset(p);
+                      if (p !== 'custom') {
+                        filtersRef.current = { ...filtersRef.current, timePreset: p };
+                        loadRecords(0);
+                      }
+                    }}
                     className={`px-1 py-1 rounded-md text-[10px] font-medium transition-colors ${
                       timePreset === p
                         ? 'bg-[var(--accent)] text-white'
@@ -528,14 +600,14 @@ export default function TokenStatsPage() {
               >
                 <Search className="w-3 h-3" />
               </button>
-              {hasFilters && (
-                <button
-                  onClick={handleClearFilters}
-                  className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-[var(--bg-tertiary)] text-[var(--text-secondary)] text-xs hover:text-[var(--text-primary)]"
-                >
-                  <X className="w-3 h-3" />
-                </button>
-              )}
+              <button
+                onClick={handleClearFilters}
+                className={`flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-[var(--bg-tertiary)] text-[var(--text-secondary)] text-xs hover:text-[var(--text-primary)] ${
+                  hasFilters ? 'visible' : 'invisible'
+                }`}
+              >
+                <X className="w-3 h-3" />
+              </button>
             </div>
           </div>
         </div>
@@ -545,12 +617,25 @@ export default function TokenStatsPage() {
         /* ============ Records View ============ */
         <div className="bg-[var(--bg-secondary)] border border-[var(--border)] rounded-xl overflow-hidden">
           <div className="overflow-x-auto">
-            <table className="w-full text-sm">
+            <table className="w-full text-sm table-fixed">
+              <colgroup>
+                <col className="w-[120px]" />
+                <col />
+                <col className="w-[60px]" />
+                <col className="w-[100px]" />
+                <col className="w-[85px]" />
+                <col className="w-[90px]" />
+                <col className="w-[120px]" />
+                <col className="w-[100px]" />
+                <col className="w-[80px]" />
+                <col className="w-[85px]" />
+                <col className="w-[50px]" />
+              </colgroup>
               <thead>
                 <tr className="border-b border-[var(--border)] text-[var(--text-secondary)] text-xs">
                   <th className="text-left px-4 py-3 font-medium">时间</th>
                   <th className="text-left px-4 py-3 font-medium">模型</th>
-                  <th className="text-center px-4 py-3 font-medium">功能</th>
+                  <th className="text-left px-4 py-3 font-medium">功能</th>
                   <th className="text-left px-4 py-3 font-medium">提供者</th>
                   <th className="text-right px-4 py-3 font-medium">Prompt</th>
                   <th className="text-right px-4 py-3 font-medium">Completion</th>
@@ -558,7 +643,7 @@ export default function TokenStatsPage() {
                   <th className="text-center px-4 py-3 font-medium">类型</th>
                   <th className="text-right px-4 py-3 font-medium">Total</th>
                   <th className="text-right px-4 py-3 font-medium">Cost</th>
-                  <th className="text-center px-4 py-3 font-medium w-10"></th>
+                  <th className="text-center px-4 py-3 font-medium"></th>
                 </tr>
               </thead>
               <tbody>
@@ -893,7 +978,9 @@ function RecordRow({
         <td className="px-4 py-2.5 text-xs text-[var(--text-secondary)] whitespace-nowrap">
           {formatTime(r.timestamp)}
         </td>
-        <td className="px-4 py-2.5 font-mono text-xs">{shortModel(r.model)}</td>
+        <td className="px-4 py-2.5 font-mono text-xs truncate" title={r.model}>
+          {shortModel(r.model)}
+        </td>
         <td className="px-4 py-2.5 text-center">
           <ModelRoleIcon role={r.model_role || 'default'} />
         </td>
@@ -934,15 +1021,13 @@ function RecordRow({
       </tr>
       {expanded && (
         <tr className="bg-[var(--bg-tertiary)]/20 border-b border-[var(--border)]/50">
-          <td colSpan={11} className="px-4 py-3">
-            <div className="space-y-2 text-xs">
+          <td colSpan={11} className="px-4 py-3 overflow-hidden">
+            <div className="space-y-2 text-xs min-w-0">
               <div>
                 <span className="text-[var(--text-secondary)]">Session:</span>{' '}
                 <span className="font-mono">{r.session_key || '—'}</span>
               </div>
-              {r.model_role === 'claude_code' && (
-                <ClaudeCodeMeta record={r} />
-              )}
+              {r.model_role === 'claude_code' && <ClaudeCodeMeta record={r} />}
               {r.user_message && r.model_role !== 'claude_code' && (
                 <div>
                   <p className="text-[var(--text-secondary)] mb-1">用户输入:</p>

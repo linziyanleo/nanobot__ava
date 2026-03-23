@@ -37,11 +37,12 @@ async def get_token_records(
     start_time: str | None = Query(None, description="Filter: timestamp >= ISO string"),
     end_time: str | None = Query(None, description="Filter: timestamp <= ISO string"),
     turn_seq: int | None = Query(None, description="Filter by turn sequence number"),
+    model_role: str | None = Query(None, description="Filter by model role (e.g. claude_code, chat, mini, voice, vision)"),
     user: UserInfo = Depends(auth.require_role("admin", "editor", "viewer")),
 ):
     """Individual LLM call records (newest first), with optional filters."""
     collector = _get_collector()
-    filt = dict(session_key=session_key, model=model, provider=provider, start_time=start_time, end_time=end_time, turn_seq=turn_seq)
+    filt = dict(session_key=session_key, model=model, provider=provider, start_time=start_time, end_time=end_time, turn_seq=turn_seq, model_role=model_role)
     return {
         "records": collector.get_records(limit=limit, offset=offset, **filt),
         "total": collector.get_total_count(**filt),
