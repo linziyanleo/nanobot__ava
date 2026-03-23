@@ -112,3 +112,48 @@ async def test_openrouter_autodetect_by_key_prefix() -> None:
     assert call_kwargs.get("custom_llm_provider") == "openrouter", (
         "Auto-detected OpenRouter (by sk-or- prefix) should still inject custom_llm_provider"
     )
+
+
+@pytest.mark.asyncio
+async def test_anthropic_terminal_assistant_message_is_rewritten_to_user() -> None:
+    """Anthropic-compatible payloads must not end with plain assistant prefill."""
+    mock_acompletion = AsyncMock(return_value=_fake_response())
+
+    with patch("nanobot.providers.litellm_provider.acompletion", mock_acompletion):
+        provider = LiteLLMProvider(
+            api_key="sk-ant-test-key",
+            default_model="anthropic/claude-sonnet-4-5",
+        )
+        await provider.chat(
+            messages=[
+                {"role": "system", "content": "sys"},
+                {"role": "assistant", "content": "subagent result"},
+            ],
+            model="anthropic/claude-sonnet-4-5",
+        )
+
+    sent_messages = mock_acompletion.call_args.kwargs["messages"]
+    assert sent_messages[-1]["role"] == "user"
+    assert sent_messages[-1]["content"] == "subagent result"
+
+
+@pytest.mark.asyncio
+async def test_non_anthropic_terminal_assistant_message_is_unchanged() -> None:
+    """Only Anthropic-compatible models need terminal role rewrite."""
+    mock_acompletion = AsyncMock(return_value=_fake_response())
+
+    with patch("nanobot.providers.litellm_provider.acompletion", mock_acompletion):
+        provider = LiteLLMProvider(
+            api_key="sk-openai-test-key",
+            default_model="gpt-4o-mini",
+        )
+        await provider.chat(
+            messages=[
+                {"role": "system", "content": "sys"},
+                {"role": "assistant", "content": "prefill"},
+            ],
+            model="gpt-4o-mini",
+        )
+
+    sent_messages = mock_acompletion.call_args.kwargs["messages"]
+    assert sent_messages[-1]["role"] == "assistant"

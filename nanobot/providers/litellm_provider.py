@@ -240,6 +240,33 @@ class LiteLLMProvider(LLMProvider):
         return frozenset()
 
     @staticmethod
+    def _normalize_terminal_role_for_anthropic(
+        messages: list[dict[str, Any]],
+        original_model: str,
+        resolved_model: str,
+    ) -> list[dict[str, Any]]:
+        """Anthropic rejects assistant-prefill for some models.
+
+        Keep normal tool-call flows intact, but when the final message is a plain
+        assistant message, rewrite it to user-role for compatibility.
+        """
+        spec = find_by_model(original_model) or find_by_model(resolved_model)
+        is_anthropic = (
+            (spec and spec.name == "anthropic")
+            or "claude" in original_model.lower()
+            or resolved_model.startswith("anthropic/")
+        )
+        if not is_anthropic or not messages:
+            return messages
+
+        last = messages[-1]
+        if last.get("role") == "assistant" and not last.get("tool_calls"):
+            patched = list(messages)
+            patched[-1] = {**last, "role": "user"}
+            return patched
+        return messages
+
+    @staticmethod
     def _normalize_tool_call_id(tool_call_id: Any) -> Any:
         """Normalize tool_call_id to a provider-safe 9-char alphanumeric form."""
         if not isinstance(tool_call_id, str):
@@ -312,9 +339,19 @@ class LiteLLMProvider(LLMProvider):
         # LiteLLM to reject the request with "max_tokens must be at least 1".
         max_tokens = max(1, max_tokens)
 
+        sanitized_messages = self._sanitize_messages(
+            self._sanitize_empty_content(messages),
+            extra_keys=extra_msg_keys,
+        )
+        sanitized_messages = self._normalize_terminal_role_for_anthropic(
+            sanitized_messages,
+            original_model,
+            model,
+        )
+
         kwargs: dict[str, Any] = {
             "model": model,
-            "messages": self._sanitize_messages(self._sanitize_empty_content(messages), extra_keys=extra_msg_keys),
+            "messages": sanitized_messages,
             "max_tokens": max_tokens,
             "temperature": temperature,
         }
