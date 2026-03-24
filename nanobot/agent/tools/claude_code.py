@@ -301,7 +301,7 @@ class ClaudeCodeTool(Tool):
                 "prompt_tokens_details": {"cached_tokens": cache_read},
             },
             user_message=user_msg,
-            output_content=result_text[:4000] if result_text else "",
+            output_content=result_text[:16000] if result_text else "",
             finish_reason=finish,
             model_role="claude_code",
             cost_usd=cost,

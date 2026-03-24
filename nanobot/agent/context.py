@@ -149,6 +149,8 @@ Reply directly with text for conversations. Only use the 'message' tool to send 
             cc_status = _read_active_tasks()
             if cc_status:
                 lines += ["", "[CC_TASKS]", cc_status, "[/CC_TASKS]"]
+            else:
+                lines += ["", "[CC_TASKS]", "（当前没有活跃的 Claude Code 任务）", "[/CC_TASKS]"]
         except ImportError:
             pass  # subagent module not available
         except Exception:
