@@ -92,9 +92,26 @@ def _run_console_server(
 
     vite_proc: subprocess.Popen | None = None
 
-    def _cleanup_console_pid(*_args):
-        if vite_proc and vite_proc.poll() is None:
+    def _cleanup_vite_proc() -> None:
+        """Safely terminate and wait for Vite process to prevent resource leaks."""
+        nonlocal vite_proc
+        if vite_proc is None:
+            return
+        if vite_proc.poll() is None:
             vite_proc.terminate()
+            try:
+                # Wait up to 5 seconds for graceful shutdown
+                vite_proc.wait(timeout=5.0)
+            except subprocess.TimeoutExpired:
+                # Force kill if terminate didn't work
+                vite_proc.kill()
+                try:
+                    vite_proc.wait(timeout=2.0)
+                except subprocess.TimeoutExpired:
+                    pass  # Process is stubborn, nothing more we can do
+
+    def _cleanup_console_pid(*_args):
+        _cleanup_vite_proc()
         try:
             pid_path.unlink(missing_ok=True)
         except Exception:
@@ -120,7 +137,7 @@ def _run_console_server(
             cwd=str(console_ui_dir),
             env=vite_env,
         )
-        atexit.register(lambda: vite_proc.terminate() if vite_proc.poll() is None else None)
+        atexit.register(_cleanup_vite_proc)
     else:
         api_port = c_port
 
@@ -828,6 +845,8 @@ def gateway(
             cron.stop()
             agent.stop()
             await channels.stop_all()
+            # Clean up Console process if it was started by this gateway
+            _stop_console_process(quiet=True)
 
     asyncio.run(run())
 
@@ -969,14 +988,33 @@ def _stop_console_process(quiet: bool = False) -> bool:
     try:
         os.kill(pid, signal.SIGTERM)
         import time
+        # Wait up to 5 seconds for graceful shutdown
         for _ in range(10):
             time.sleep(0.5)
             try:
                 os.kill(pid, 0)
             except ProcessLookupError:
+                # Process has exited
+                if not quiet:
+                    console.print(f"[green]✓[/green] Console process stopped (PID: {pid})")
                 break
-        if not quiet:
-            console.print(f"[green]✓[/green] Console process stopped (PID: {pid})")
+        else:
+            # Process still running after SIGTERM timeout, force kill
+            try:
+                os.kill(pid, signal.SIGKILL)
+                # Wait for process to actually terminate
+                for _ in range(4):
+                    time.sleep(0.5)
+                    try:
+                        os.kill(pid, 0)
+                    except ProcessLookupError:
+                        break
+                if not quiet:
+                    console.print(f"[yellow]Console process force killed (PID: {pid})[/yellow]")
+            except ProcessLookupError:
+                # Process exited between check and kill
+                if not quiet:
+                    console.print(f"[green]✓[/green] Console process stopped (PID: {pid})")
     except (ProcessLookupError, ValueError, PermissionError):
         pass
     try:
