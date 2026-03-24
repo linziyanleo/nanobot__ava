@@ -58,6 +58,7 @@ class MemoryStore:
     def __init__(self, workspace: Path):
         self.memory_dir = ensure_dir(workspace / "memory")
         self.memory_file = self.memory_dir / "MEMORY.md"
+        self.self_memory_file = self.memory_dir / "SELF_MEMORY.md"
         self.history_file = self.memory_dir / "HISTORY.md"
 
     def read_long_term(self) -> str:
@@ -231,10 +232,17 @@ person={person_name or "unmapped"}
                 person_update = json.dumps(person_update, ensure_ascii=False)
             person_update = self._apply_stability_rules(person_update, scope="person")
 
+            self_update = args.get("self_memory_update", "")
+            if not isinstance(self_update, str):
+                self_update = json.dumps(self_update, ensure_ascii=False)
+            self_update = self._apply_stability_rules(self_update, scope="self")
+
             if entry:
                 self.append_history(entry)
             if update != current_memory:
                 self.write_long_term(update)
+            if self_update:
+                self.self_memory_file.write_text(self_update, encoding="utf-8")
 
             # Sync to person-level memory if categorized store is available
             if categorized_store is not None:
