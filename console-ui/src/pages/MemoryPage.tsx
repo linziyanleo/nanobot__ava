@@ -11,10 +11,12 @@ import {
   Globe,
   User,
   Check,
+  ChevronLeft,
 } from 'lucide-react';
 import { api } from '../api/client';
 import { useAuth } from '../stores/auth';
 import { cn } from '../lib/utils';
+import { useResponsiveMode } from '../hooks/useResponsiveMode';
 import yaml from 'js-yaml';
 
 // ── Types ──────────────────────────────────────────────────────────────────
@@ -69,7 +71,7 @@ function parseHistoryEntries(
 
 type MemoryScope = { type: 'global' } | { type: 'person'; key: string; displayName: string };
 
-function ScopeMenu({
+function ScopeTabs({
   persons,
   scope,
   onSelect,
@@ -79,47 +81,34 @@ function ScopeMenu({
   onSelect: (scope: MemoryScope) => void;
 }) {
   return (
-    <div className="w-48 shrink-0 bg-[var(--bg-secondary)] border border-[var(--border)] rounded-xl overflow-hidden">
-      <div className="px-4 py-3 border-b border-[var(--border)]">
-        <h3 className="text-sm font-semibold">记忆范围</h3>
-      </div>
-      <div className="overflow-y-auto max-h-[calc(100vh-16rem)]">
-        {/* Global */}
+    <div className="flex items-center gap-1 overflow-x-auto scrollbar-none px-1" style={{ WebkitOverflowScrolling: 'touch' }}>
+      <button
+        onClick={() => onSelect({ type: 'global' })}
+        className={cn(
+          'flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium whitespace-nowrap transition-colors shrink-0',
+          scope.type === 'global'
+            ? 'bg-[var(--accent)] text-white'
+            : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)]',
+        )}
+      >
+        <Globe className="w-3.5 h-3.5" />
+        全局记忆
+      </button>
+      {persons.map(p => (
         <button
-          onClick={() => onSelect({ type: 'global' })}
+          key={p.key}
+          onClick={() => onSelect({ type: 'person', key: p.key, displayName: p.displayName })}
           className={cn(
-            'w-full flex items-center gap-2 px-4 py-2.5 text-left text-sm transition-colors',
-            scope.type === 'global'
+            'flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium whitespace-nowrap transition-colors shrink-0',
+            scope.type === 'person' && scope.key === p.key
               ? 'bg-[var(--accent)] text-white'
               : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)]',
           )}
         >
-          <Globe className="w-4 h-4" />
-          全局记忆
+          <User className="w-3.5 h-3.5" />
+          {p.displayName}
         </button>
-
-        {/* Persons */}
-        {persons.length > 0 && (
-          <div className="px-3 py-2 text-xs text-[var(--text-secondary)] font-medium uppercase tracking-wide">
-            Person 记忆
-          </div>
-        )}
-        {persons.map(p => (
-          <button
-            key={p.key}
-            onClick={() => onSelect({ type: 'person', key: p.key, displayName: p.displayName })}
-            className={cn(
-              'w-full flex items-center gap-2 px-4 py-2.5 text-left text-sm transition-colors',
-              scope.type === 'person' && scope.key === p.key
-                ? 'bg-[var(--accent)] text-white'
-                : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)]',
-            )}
-          >
-            <User className="w-4 h-4" />
-            {p.displayName}
-          </button>
-        ))}
-      </div>
+      ))}
     </div>
   );
 }
@@ -378,7 +367,7 @@ function MemoryContent({ scope }: { scope: MemoryScope }) {
 
 // ── Diary Tab ──────────────────────────────────────────────────────────────
 
-function DiaryTab() {
+function DiaryTab({ isMobile }: { isMobile?: boolean }) {
   const [diaries, setDiaries] = useState<DiaryEntry[]>([]);
   const [selected, setSelected] = useState<string | null>(null);
   const [content, setContent] = useState<FileData | null>(null);
@@ -440,79 +429,109 @@ function DiaryTab() {
 
   const hasChanges = editing !== content?.content;
 
-  return (
-    <div className="flex-1 flex gap-4 min-h-0">
-      <div className="w-48 shrink-0 bg-[var(--bg-secondary)] border border-[var(--border)] rounded-xl overflow-hidden">
-        <div className="px-4 py-3 border-b border-[var(--border)]">
-          <h3 className="text-sm font-semibold flex items-center gap-2">
-            <Calendar className="w-4 h-4 text-[var(--accent)]" />
-            日记列表
-          </h3>
-        </div>
-        <div className="overflow-y-auto max-h-[calc(100%-3rem)]">
-          {diaries.map(d => (
-            <button
-              key={d.date}
-              onClick={() => setSelected(d.date)}
-              className={cn(
-                'w-full px-4 py-2.5 text-left text-sm transition-colors',
-                selected === d.date
-                  ? 'bg-[var(--accent)] text-white'
-                  : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)]',
-              )}
-            >
-              {d.date}
-            </button>
-          ))}
-          {diaries.length === 0 && (
-            <div className="px-4 py-8 text-center text-[var(--text-secondary)] text-sm">暂无日记</div>
-          )}
-        </div>
-      </div>
+  const [showDiaryList, setShowDiaryList] = useState(!isMobile || !selected);
 
-      <div className="flex-1 bg-[var(--bg-secondary)] border border-[var(--border)] rounded-xl overflow-hidden flex flex-col">
-        <div className="flex items-center justify-between px-5 py-3 border-b border-[var(--border)]">
-          <h3 className="text-sm font-semibold">{selected ? `${selected} 日记` : '选择日期'}</h3>
-          {canEdit() && content && (
+  const diaryListPanel = (
+    <div className={cn('bg-[var(--bg-secondary)] border border-[var(--border)] rounded-xl overflow-hidden', isMobile ? 'flex-1' : 'w-48 shrink-0')}>
+      <div className="px-4 py-3 border-b border-[var(--border)]">
+        <h3 className="text-sm font-semibold flex items-center gap-2">
+          <Calendar className="w-4 h-4 text-[var(--accent)]" />
+          日记列表
+        </h3>
+      </div>
+      <div className="overflow-y-auto max-h-[calc(100%-3rem)]">
+        {diaries.map(d => (
+          <button
+            key={d.date}
+            onClick={() => {
+              setSelected(d.date);
+              if (isMobile) setShowDiaryList(false);
+            }}
+            className={cn(
+              'w-full px-4 py-2.5 text-left text-sm transition-colors',
+              selected === d.date
+                ? 'bg-[var(--accent)] text-white'
+                : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)]',
+            )}
+          >
+            {d.date}
+          </button>
+        ))}
+        {diaries.length === 0 && (
+          <div className="px-4 py-8 text-center text-[var(--text-secondary)] text-sm">暂无日记</div>
+        )}
+      </div>
+    </div>
+  );
+
+  const editorPanel = (
+    <div className="flex-1 bg-[var(--bg-secondary)] border border-[var(--border)] rounded-xl overflow-hidden flex flex-col">
+      <div className="flex items-center justify-between px-5 py-3 border-b border-[var(--border)]">
+        <div className="flex items-center gap-2">
+          {isMobile && (
             <button
-              onClick={saveFile}
-              disabled={!hasChanges || saving}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[var(--accent)] hover:bg-[var(--accent-hover)] text-white text-xs font-medium disabled:opacity-40"
+              onClick={() => setShowDiaryList(true)}
+              className="p-1 rounded text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
             >
-              <Save className="w-3.5 h-3.5" /> {saving ? '保存中...' : '保存'}
+              <ChevronLeft className="w-4 h-4" />
             </button>
           )}
+          <h3 className="text-sm font-semibold">{selected ? `${selected} 日记` : '选择日期'}</h3>
         </div>
-        {message && (
-          <div
-            className={`mx-4 mt-3 p-2 rounded-lg text-xs ${message.type === 'success' ? 'bg-[var(--success)]/10 text-[var(--success)]' : 'bg-[var(--danger)]/10 text-[var(--danger)]'}`}
+        {canEdit() && content && (
+          <button
+            onClick={saveFile}
+            disabled={!hasChanges || saving}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[var(--accent)] hover:bg-[var(--accent-hover)] text-white text-xs font-medium disabled:opacity-40"
           >
-            {message.text}
+            <Save className="w-3.5 h-3.5" /> {saving ? '保存中...' : '保存'}
+          </button>
+        )}
+      </div>
+      {message && (
+        <div
+          className={`mx-4 mt-3 p-2 rounded-lg text-xs ${message.type === 'success' ? 'bg-[var(--success)]/10 text-[var(--success)]' : 'bg-[var(--danger)]/10 text-[var(--danger)]'}`}
+        >
+          {message.text}
+        </div>
+      )}
+      <div className="flex-1">
+        {content ? (
+          <Editor
+            height="100%"
+            language="markdown"
+            theme="vs-dark"
+            value={editing}
+            onChange={v => setEditing(v || '')}
+            options={{
+              minimap: { enabled: false },
+              fontSize: 13,
+              readOnly: !canEdit(),
+              wordWrap: 'on',
+              scrollBeyondLastLine: false,
+            }}
+          />
+        ) : (
+          <div className="h-full flex items-center justify-center text-[var(--text-secondary)]">
+            {selected ? '加载中...' : '请选择日期查看日记'}
           </div>
         )}
-        <div className="flex-1">
-          {content ? (
-            <Editor
-              height="100%"
-              language="markdown"
-              theme="vs-dark"
-              value={editing}
-              onChange={v => setEditing(v || '')}
-              options={{
-                minimap: { enabled: false },
-                fontSize: 13,
-                readOnly: !canEdit(),
-                wordWrap: 'on',
-                scrollBeyondLastLine: false,
-              }}
-            />
-          ) : (
-            <div className="h-full flex items-center justify-center text-[var(--text-secondary)]">
-              {selected ? '加载中...' : '请选择日期查看日记'}
-            </div>
-          )}
-        </div>
       </div>
+    </div>
+  );
+
+  if (isMobile) {
+    return (
+      <div className="flex-1 flex flex-col min-h-0">
+        {showDiaryList ? diaryListPanel : editorPanel}
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex-1 flex gap-4 min-h-0">
+      {diaryListPanel}
+      {editorPanel}
     </div>
   );
 }
@@ -530,6 +549,7 @@ export default function MemoryPage() {
   const [activeTab, setActiveTab] = useState<TabId>('memory');
   const [persons, setPersons] = useState<Person[]>([]);
   const [scope, setScope] = useState<MemoryScope>({ type: 'global' });
+  const { isMobile } = useResponsiveMode();
 
   // Load persons from identity_map.yaml
   useEffect(() => {
@@ -578,14 +598,16 @@ export default function MemoryPage() {
 
       {/* Tab Content */}
       {activeTab === 'memory' && (
-        <div className="flex-1 flex gap-4 min-h-0">
-          <ScopeMenu persons={persons} scope={scope} onSelect={setScope} />
+        <div className="flex-1 flex flex-col min-h-0">
+          <div className="mb-3">
+            <ScopeTabs persons={persons} scope={scope} onSelect={setScope} />
+          </div>
           <div className="flex-1 bg-[var(--bg-secondary)] border border-[var(--border)] rounded-xl overflow-hidden flex flex-col min-h-0">
             <MemoryContent scope={scope} />
           </div>
         </div>
       )}
-      {activeTab === 'diary' && <DiaryTab />}
+      {activeTab === 'diary' && <DiaryTab isMobile={isMobile} />}
     </div>
   );
 }
