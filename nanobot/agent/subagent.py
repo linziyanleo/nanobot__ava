@@ -1,9 +1,11 @@
 """Subagent manager for background task execution."""
 
 import asyncio
+import fcntl
 import json
 import os
 import shutil
+import sqlite3
 import time
 import uuid
 from dataclasses import dataclass, field
@@ -25,6 +27,143 @@ from nanobot.providers.base import LLMProvider
 _CLAUDE_CODE_MAX_OUTPUT_CHARS = 16000
 _CLAUDE_CODE_CONTEXT_LIMIT_EST = 200000
 
+# Task persistence directory (for CC tasks, subagents, and other background tasks)
+_TASKS_DIR = Path.home() / ".nanobot" / "tasks"
+_ACTIVE_TASKS_FILE = _TASKS_DIR / "active_tasks.txt"
+_HISTORY_TASKS_DB = _TASKS_DIR / "history_tasks.db"
+
+
+def _ensure_tasks_dir() -> None:
+    """Ensure the tasks directory exists."""
+    _TASKS_DIR.mkdir(parents=True, exist_ok=True)
+
+
+def _init_history_db() -> None:
+    """Initialize the history.db SQLite database if it doesn't exist."""
+    _ensure_tasks_dir()
+    if _HISTORY_TASKS_DB.exists():
+        return
+    conn = sqlite3.connect(str(_HISTORY_TASKS_DB))
+    try:
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS tasks (
+                task_id     TEXT PRIMARY KEY,
+                status      TEXT,
+                turns       INTEGER,
+                prompt      TEXT,
+                last_file   TEXT,
+                last_stdout TEXT,
+                started_at  TEXT,
+                ended_at    TEXT,
+                duration_s  INTEGER,
+                error       TEXT
+            )
+        """)
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def _read_active_tasks() -> str:
+    """Read the active.txt file content. Returns empty string if file doesn't exist."""
+    if not _ACTIVE_TASKS_FILE.exists():
+        return ""
+    try:
+        return _ACTIVE_TASKS_FILE.read_text(encoding="utf-8").strip()
+    except Exception:
+        return ""
+
+
+def _write_active_tasks_line(
+    task_id: str,
+    status: str,
+    turns: int,
+    last_file: str,
+    last_stdout: str,
+    start_time: str,
+) -> None:
+    """Write or update a task line in active_tasks.txt with file locking."""
+    _ensure_tasks_dir()
+    short_id = task_id[:6] if len(task_id) > 6 else task_id
+    # Truncate last_file to just filename, last_stdout to 40 chars
+    if last_file:
+        last_file = Path(last_file).name
+        if len(last_file) > 20:
+            last_file = last_file[:17] + "..."
+    if len(last_stdout) > 40:
+        last_stdout = last_stdout[:37] + "..."
+    # Format: {task_id[:6]} {status} t={turns:02d} last={file}...{stdout}  start={HH:MM}
+    line = f"{short_id} {status:7} t={turns:02d} last={last_file}...{last_stdout}  start={start_time}"
+    
+    try:
+        with open(_ACTIVE_TASKS_FILE, "a+") as f:
+            fcntl.flock(f.fileno(), fcntl.LOCK_EX)
+            try:
+                f.seek(0)
+                lines = f.readlines()
+                # Filter out existing line for this task
+                new_lines = [l for l in lines if not l.startswith(short_id)]
+                new_lines.append(line + "\n")
+                f.seek(0)
+                f.truncate()
+                f.writelines(new_lines)
+            finally:
+                fcntl.flock(f.fileno(), fcntl.LOCK_UN)
+    except Exception as e:
+        logger.warning("Failed to write cc active line: {}", e)
+
+
+def _remove_active_tasks_line(task_id: str) -> None:
+    """Remove a task line from active.txt with file locking."""
+    if not _ACTIVE_TASKS_FILE.exists():
+        return
+    short_id = task_id[:6] if len(task_id) > 6 else task_id
+    try:
+        with open(_ACTIVE_TASKS_FILE, "r+") as f:
+            fcntl.flock(f.fileno(), fcntl.LOCK_EX)
+            try:
+                lines = f.readlines()
+                new_lines = [l for l in lines if not l.startswith(short_id)]
+                f.seek(0)
+                f.truncate()
+                f.writelines(new_lines)
+            finally:
+                fcntl.flock(f.fileno(), fcntl.LOCK_UN)
+    except Exception as e:
+        logger.warning("Failed to remove cc active line: {}", e)
+
+
+def _archive_task(
+    task_id: str,
+    status: str,
+    turns: int,
+    prompt: str,
+    last_file: str,
+    last_stdout: str,
+    started_at: str,
+    ended_at: str,
+    duration_s: int,
+    error: str = "",
+) -> None:
+    """Archive a completed task to history.db."""
+    _init_history_db()
+    try:
+        conn = sqlite3.connect(str(_HISTORY_TASKS_DB))
+        try:
+            conn.execute(
+                """
+                INSERT OR REPLACE INTO tasks
+                (task_id, status, turns, prompt, last_file, last_stdout, started_at, ended_at, duration_s, error)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (task_id, status, turns, prompt, last_file, last_stdout[:40], started_at, ended_at, duration_s, error[:80]),
+            )
+            conn.commit()
+        finally:
+            conn.close()
+    except Exception as e:
+        logger.warning("Failed to archive cc task: {}", e)
+
 
 @dataclass
 class ClaudeCodeTaskState:
@@ -35,16 +174,20 @@ class ClaudeCodeTaskState:
     prompt_preview: str
     project_path: str
     mode: str
+    full_prompt: str = ""  # For archiving to history.db
     status: str = "queued"
     phase: str = "queued"
     last_event: str = "queued"
     started_at: str = ""
+    started_at_hhmm: str = ""  # HH:MM format for active.txt
     updated_at: str = ""
     started_monotonic: float = 0.0
     updated_monotonic: float = 0.0
     elapsed_ms: int = 0
     last_tool_name: str = ""
     last_tool_args_preview: str = ""
+    last_file_path: str = ""  # Last operated file path for persistence
+    last_stdout_preview: str = ""  # Last stdout text for persistence
     todo_items: list[dict[str, str]] = field(default_factory=list)
     session_id: str = ""
     num_turns: int = 0
@@ -403,22 +546,35 @@ You possess native multimodal perception. Tools like 'read_file' or 'web_fetch' 
         mode: str,
     ) -> None:
         now_mono = time.monotonic()
+        now_dt = datetime.now()
         prompt_preview = prompt if len(prompt) <= 200 else f"{prompt[:200]}..."
         prompt_est = max(len(prompt) // 4, 1)
+        start_hhmm = now_dt.strftime("%H:%M")
         state = ClaudeCodeTaskState(
             task_id=task_id,
             session_key=session_key,
             prompt_preview=prompt_preview,
             project_path=project_path,
             mode=mode,
-            started_at=self._now_ts(),
-            updated_at=self._now_ts(),
+            full_prompt=prompt,
+            started_at=now_dt.strftime("%Y-%m-%d %H:%M:%S"),
+            started_at_hhmm=start_hhmm,
+            updated_at=now_dt.strftime("%Y-%m-%d %H:%M:%S"),
             started_monotonic=now_mono,
             updated_monotonic=now_mono,
             context_used_est=prompt_est,
             context_remaining_est=self._estimate_context_remaining(prompt_est),
         )
         self._claude_code_states[task_id] = state
+        # Write to active.txt
+        _write_active_tasks_line(
+            task_id=task_id,
+            status="RUNNING",
+            turns=0,
+            last_file="",
+            last_stdout="",
+            start_time=start_hhmm,
+        )
 
     def _touch_claude_code_state(self, state: ClaudeCodeTaskState) -> None:
         now_mono = time.monotonic()
@@ -516,6 +672,11 @@ You possess native multimodal perception. Tools like 'read_file' or 'web_fetch' 
                     if isinstance(tool_input, dict):
                         preview = json.dumps(tool_input, ensure_ascii=False)
                         state.last_tool_args_preview = preview[:500]
+                        # Extract file path for persistence
+                        if "path" in tool_input:
+                            state.last_file_path = str(tool_input.get("path", ""))
+                        elif "file_path" in tool_input:
+                            state.last_file_path = str(tool_input.get("file_path", ""))
                         if tool_name == "TodoWrite":
                             self._update_todos_from_payload(task_id, tool_input)
                     self._touch_claude_code_state(state)
@@ -532,10 +693,28 @@ You possess native multimodal perception. Tools like 'read_file' or 'web_fetch' 
                         state.last_tool_args_preview = state._active_tool_json[-500:]
                         self._touch_claude_code_state(state)
                     return
+                # Capture text_delta for last_stdout_preview
+                if delta.get("type") == "text_delta":
+                    text = str(delta.get("text", ""))
+                    if text:
+                        # Rolling update, keep last 40 chars
+                        state.last_stdout_preview = (state.last_stdout_preview + text)[-40:]
+                    return
 
             if se_type == "content_block_stop":
                 if state._active_tool_name == "TodoWrite" and state._active_tool_json:
                     self._try_update_todos_from_partial_json(task_id, state._active_tool_json)
+                # Try to extract file path from completed tool JSON
+                if state._active_tool_name and state._active_tool_json:
+                    try:
+                        tool_payload = json.loads(state._active_tool_json)
+                        if isinstance(tool_payload, dict):
+                            if "path" in tool_payload:
+                                state.last_file_path = str(tool_payload.get("path", ""))
+                            elif "file_path" in tool_payload:
+                                state.last_file_path = str(tool_payload.get("file_path", ""))
+                    except json.JSONDecodeError:
+                        pass
                 if state._active_tool_name:
                     state.last_event = f"tool_stop:{state._active_tool_name}"
                 state._active_tool_name = ""
@@ -545,7 +724,17 @@ You possess native multimodal perception. Tools like 'read_file' or 'web_fetch' 
 
             if se_type == "message_stop":
                 state.last_event = "message_stop"
+                state.num_turns += 1  # Increment turn count
                 self._touch_claude_code_state(state)
+                # Update active.txt with per-turn progress
+                _write_active_tasks_line(
+                    task_id=task_id,
+                    status="RUNNING",
+                    turns=state.num_turns,
+                    last_file=state.last_file_path,
+                    last_stdout=state.last_stdout_preview,
+                    start_time=state.started_at_hhmm,
+                )
                 return
 
         if event_type == "assistant":
@@ -561,7 +750,7 @@ You possess native multimodal perception. Tools like 'read_file' or 'web_fetch' 
             self._set_claude_code_state(
                 task_id,
                 session_id=str(event.get("session_id", "") or state.session_id),
-                num_turns=int(event.get("num_turns", 0) or 0),
+                num_turns=max(state.num_turns, int(event.get("num_turns", 0) or 0)),
                 duration_ms=int(event.get("duration_ms", 0) or 0),
                 cost_usd=float(event.get("total_cost_usd", 0.0) or 0.0),
                 last_event="result",
@@ -710,6 +899,8 @@ You possess native multimodal perception. Tools like 'read_file' or 'web_fetch' 
         logger.info("claude_code [{}] starting: mode={}", task_id, mode)
         self._set_claude_code_state(task_id, status="running", phase="bootstrapping", last_event="process_start")
 
+        final_status = "error"  # Default for archiving
+        final_error = ""
         try:
             cmd = self._build_claude_code_command(prompt, project_path, mode, session_id)
             stdout, stderr, stream_result = await self._run_claude_code_subprocess_stream(
@@ -726,6 +917,7 @@ You possess native multimodal perception. Tools like 'read_file' or 'web_fetch' 
                     error_message=error_text[:500],
                     last_event="process_error",
                 )
+                final_error = error_text[:80]
                 await self._announce_result(
                     task_id, label, prompt, error_text, origin, "error",
                     announce_model_tier=announce_model_tier,
@@ -743,6 +935,7 @@ You possess native multimodal perception. Tools like 'read_file' or 'web_fetch' 
                     error_message="non-json output",
                     last_event="parse_error",
                 )
+                final_error = "non-json output"
                 await self._announce_result(
                     task_id, label, prompt, error_text, origin, "error",
                     announce_model_tier=announce_model_tier,
@@ -769,6 +962,8 @@ You possess native multimodal perception. Tools like 'read_file' or 'web_fetch' 
                 duration_ms=int(parsed.get("duration_ms", 0) or 0),
                 cost_usd=float(parsed.get("total_cost_usd", 0.0) or 0.0),
             )
+            final_status = "ERROR" if is_error else "DONE"
+            final_error = str(cc_error)[:80] if is_error else ""
 
             logger.info("claude_code [{}] completed successfully", task_id)
             await self._announce_result(
@@ -785,11 +980,28 @@ You possess native multimodal perception. Tools like 'read_file' or 'web_fetch' 
                 error_message="Task was cancelled.",
                 last_event="cancelled",
             )
+            final_status = "CANCELLED"
+            final_error = "Task was cancelled."
             await self._announce_result(
                 task_id, label, prompt, "Task was cancelled.", origin, "error",
                 announce_model_tier=announce_model_tier,
             )
             raise
+        except asyncio.TimeoutError:
+            logger.info("claude_code [{}] timed out", task_id)
+            self._set_claude_code_state(
+                task_id,
+                status="timeout",
+                phase="timeout",
+                error_message=f"Task timed out after {timeout}s",
+                last_event="timeout",
+            )
+            final_status = "TIMEOUT"
+            final_error = f"Timed out after {timeout}s"
+            await self._announce_result(
+                task_id, label, prompt, f"Task timed out after {timeout}s.", origin, "error",
+                announce_model_tier=announce_model_tier,
+            )
         except Exception as e:
             error_msg = f"Error: {str(e)}"
             logger.error("claude_code [{}] failed with exception: {}", task_id, e)
@@ -800,10 +1012,31 @@ You possess native multimodal perception. Tools like 'read_file' or 'web_fetch' 
                 error_message=error_msg[:500],
                 last_event="exception",
             )
+            final_status = "ERROR"
+            final_error = str(e)[:80]
             await self._announce_result(
                 task_id, label, prompt, error_msg, origin, "error",
                 announce_model_tier=announce_model_tier,
             )
+        finally:
+            # Archive to history.db and remove from active.txt
+            state = self._claude_code_states.get(task_id)
+            if state:
+                ended_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                duration_s = int((time.monotonic() - state.started_monotonic))
+                _archive_task(
+                    task_id=task_id,
+                    status=final_status,
+                    turns=state.num_turns,
+                    prompt=state.full_prompt,
+                    last_file=state.last_file_path,
+                    last_stdout=state.last_stdout_preview,
+                    started_at=state.started_at,
+                    ended_at=ended_at,
+                    duration_s=duration_s,
+                    error=final_error,
+                )
+            _remove_active_tasks_line(task_id)
 
     def _build_claude_code_command(
         self,

@@ -142,6 +142,18 @@ Reply directly with text for conversations. Only use the 'message' tool to send 
         lines = [f"Current Time: {now} ({tz})"]
         if channel and chat_id:
             lines += [f"Channel: {channel}", f"Chat ID: {chat_id}"]
+        
+        # Inject CC task status if any active tasks exist
+        try:
+            from nanobot.agent.subagent import _read_active_tasks
+            cc_status = _read_active_tasks()
+            if cc_status:
+                lines += ["", "[CC_TASKS]", cc_status, "[/CC_TASKS]"]
+        except ImportError:
+            pass  # subagent module not available
+        except Exception:
+            pass  # Silently ignore any read errors
+        
         return ContextBuilder._RUNTIME_CONTEXT_TAG + "\n" + "\n".join(lines)
 
     def _load_bootstrap_files(self) -> str:

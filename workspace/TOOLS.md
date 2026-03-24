@@ -235,6 +235,13 @@ claude_code(prompt="继续上次的任务，完成剩余的测试用例", sessio
 - 需要 npx 在 PATH 中（Node.js 环境）
 - 配置项在 `~/.nanobot/config.json` 的 `tools.claudeCode` 段
 
+**CC 任务状态（自动注入）**：
+
+- 活跃任务状态自动出现在 Runtime Context 的 `[CC_TASKS]` 块中
+- 格式：`{task_id[:6]} {status} t={turns} last={file}…{stdout}  start={HH:MM}`
+- 历史任务归档在 `~/.nanobot/tasks/history_tasks.db`，可通过 `exec sqlite3` 按需查询
+- Diana 无需主动读文件，直接从上下文读取即可
+
 ---
 
 ## Communication
