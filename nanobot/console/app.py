@@ -233,7 +233,8 @@ def create_console_app_standalone(
             target = f"{target}?{request.url.query}"
         body = await request.body()
         try:
-            async with httpx.AsyncClient(timeout=60.0) as client:
+            # trust_env=False to ignore system proxy settings (e.g. Clash on port 7897)
+            async with httpx.AsyncClient(timeout=60.0, trust_env=False) as client:
                 resp = await client.request(
                     method=request.method,
                     url=target,
