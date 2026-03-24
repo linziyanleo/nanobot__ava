@@ -1,33 +1,13 @@
 import { useState, useCallback, type ReactNode } from 'react';
 import { NavLink } from 'react-router-dom';
 import {
-  LayoutDashboard,
-  Settings,
-  Brain,
-  Image,
-  UserCog,
-  Puzzle,
-  MessageSquare,
-  BarChart3,
   Bot,
   PanelLeftClose,
-  Timer,
   User,
 } from 'lucide-react';
 import { useAuth } from '../../stores/auth';
 import { cn } from '../../lib/utils';
-
-const navItems = [
-  { to: '/', icon: LayoutDashboard, label: '控制台' },
-  { to: '/config', icon: Settings, label: '配置' },
-  { to: '/tasks', icon: Timer, label: '定时任务' },
-  { to: '/memory', icon: Brain, label: '记忆' },
-  { to: '/media', icon: Image, label: '生成图片' },
-  { to: '/persona', icon: UserCog, label: '人设' },
-  { to: '/skills', icon: Puzzle, label: '技能 & 工具' },
-  { to: '/chat', icon: MessageSquare, label: '聊天' },
-  { to: '/tokens', icon: BarChart3, label: 'Token 统计' },
-];
+import { navItems } from './navItems';
 
 const STORAGE_KEY = 'nanobot-sidebar-collapsed';
 

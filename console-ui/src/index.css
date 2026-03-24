@@ -1,5 +1,26 @@
 @import "tailwindcss";
 
+/* Mobile viewport height support */
+@supports (height: 100dvh) {
+  .h-dvh { height: 100dvh; }
+}
+@supports not (height: 100dvh) {
+  .h-dvh { height: 100vh; }
+}
+
+/* Hide scrollbar utility */
+.scrollbar-none { -ms-overflow-style: none; scrollbar-width: none; }
+.scrollbar-none::-webkit-scrollbar { display: none; }
+
+/* Slide-in animation for mobile drawer */
+@keyframes slide-in-left {
+  from { transform: translateX(-100%); }
+  to { transform: translateX(0); }
+}
+.animate-slide-in-left {
+  animation: slide-in-left 0.2s ease-out;
+}
+
 :root {
   --bg-primary: #0f172a;
   --bg-secondary: #1e293b;
@@ -48,6 +69,17 @@ body {
 .markdown-body {
   line-height: 1.6;
   word-break: break-words;
+  min-width: 0;
+}
+
+.markdown-body pre,
+.markdown-body .react-syntax-highlighter {
+  overflow-x: auto;
+  max-width: 100%;
+}
+
+.markdown-body code {
+  word-break: break-all;
 }
 
 .markdown-body > *:first-child {
@@ -93,4 +125,12 @@ body {
   border: none;
   border-top: 1px solid var(--border);
   margin: 0.75em 0;
+}
+
+/* Mobile optimizations */
+@media (max-width: 767px) {
+  body {
+    -webkit-text-size-adjust: 100%;
+    overscroll-behavior-y: contain;
+  }
 }
