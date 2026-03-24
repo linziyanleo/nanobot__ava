@@ -77,7 +77,22 @@ Skills with available="false" need dependencies installed first - you can try in
 
 {skills_summary}""")
 
-        return "\n\n---\n\n".join(parts)
+        prompt = "\n\n---\n\n".join(parts)
+
+        # Append ACTIVE_TASKS block
+        try:
+            from nanobot.agent.subagent import _read_active_tasks
+            cc_status = _read_active_tasks()
+            if cc_status:
+                prompt += f"\n\n[ACTIVE_TASKS]\n{cc_status}\n[/ACTIVE_TASKS]"
+            else:
+                prompt += "\n\n[ACTIVE_TASKS]\n（当前没有活跃的后台任务）\n[/ACTIVE_TASKS]"
+        except ImportError:
+            pass
+        except Exception:
+            pass
+
+        return prompt
 
     def _get_identity(self) -> str:
         """Get the core identity section."""
@@ -142,19 +157,6 @@ Reply directly with text for conversations. Only use the 'message' tool to send 
         lines = [f"Current Time: {now} ({tz})"]
         if channel and chat_id:
             lines += [f"Channel: {channel}", f"Chat ID: {chat_id}"]
-        
-        # Inject CC task status if any active tasks exist
-        try:
-            from nanobot.agent.subagent import _read_active_tasks
-            cc_status = _read_active_tasks()
-            if cc_status:
-                lines += ["", "[CC_TASKS]", cc_status, "[/CC_TASKS]"]
-            else:
-                lines += ["", "[CC_TASKS]", "（当前没有活跃的 Claude Code 任务）", "[/CC_TASKS]"]
-        except ImportError:
-            pass  # subagent module not available
-        except Exception:
-            pass  # Silently ignore any read errors
         
         return ContextBuilder._RUNTIME_CONTEXT_TAG + "\n" + "\n".join(lines)
 
