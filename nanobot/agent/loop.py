@@ -510,6 +510,24 @@ class AgentLoop:
                     content="Sorry, I encountered an error.",
                 ))
 
+    async def _handle_stop(self, msg: InboundMessage) -> None:
+        """Cancel active tasks for the session that sent /stop."""
+        tasks = self._active_tasks.get(msg.session_key, [])
+        if not tasks:
+            await self.bus.publish_outbound(OutboundMessage(
+                channel=msg.channel, chat_id=msg.chat_id,
+                content="No active task to stop.",
+            ))
+            return
+        count = len(tasks)
+        for task in list(tasks):
+            task.cancel()
+        await asyncio.gather(*tasks, return_exceptions=True)
+        await self.bus.publish_outbound(OutboundMessage(
+            channel=msg.channel, chat_id=msg.chat_id,
+            content=f"Stopped {count} task{'s' if count != 1 else ''}.",
+        ))
+
     async def close_mcp(self) -> None:
         """Drain pending background archives, then close MCP connections."""
         if self._pending_archives:
