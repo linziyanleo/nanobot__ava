@@ -121,6 +121,7 @@ export default function ConfigPage() {
             config={parsed.agents.defaults}
             readOnly={readOnly}
             onChange={defaults => updateParsed(p => ({ ...p, agents: { ...p.agents, defaults } }))}
+            providers={parsed.providers}
           />
         )}
 

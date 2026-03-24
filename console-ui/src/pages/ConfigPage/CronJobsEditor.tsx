@@ -334,7 +334,7 @@ function JobCard({
   onChange: (j: CronJob) => void;
   onDelete: () => void;
 }) {
-  const [expanded, setExpanded] = useState(true);
+  const [expanded, setExpanded] = useState(false);
   const disabled = !job.enabled;
 
   const updateSchedule = (patch: Partial<CronSchedule>) => {
