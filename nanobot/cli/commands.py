@@ -444,77 +444,64 @@ def onboard():
 
 
 def _make_provider(config: Config):
-    """Create the appropriate LLM provider from config."""
-    from nanobot.providers.litellm_provider import LiteLLMProvider
-    from nanobot.providers.openai_codex_provider import OpenAICodexProvider
-    from nanobot.providers.custom_provider import CustomProvider
-    from nanobot.providers.azure_openai_provider import AzureOpenAIProvider
+    """Create the appropriate LLM provider from config.
+
+    Routing is driven by ``ProviderSpec.backend`` in the registry.
+    """
+    from nanobot.providers.registry import find_by_name
 
     model = config.agents.defaults.model
     provider_name = config.get_provider_name(model)
     p = config.get_provider(model)
+    spec = find_by_name(provider_name) if provider_name else None
+    backend = spec.backend if spec else "openai_compat"
 
-    # OpenAI Codex (OAuth)
-    if provider_name == "openai_codex" or model.startswith("openai-codex/"):
-        return OpenAICodexProvider(default_model=model, provider_name="openai_codex")
-
-    # Custom: direct OpenAI-compatible endpoint, bypasses LiteLLM
-    if provider_name == "custom":
-        return CustomProvider(
-            api_key=p.api_key if p else "no-key",
-            api_base=config.get_api_base(model) or "http://localhost:8000/v1",
-            default_model=model,
-            provider_name="custom",
-        )
-
-    # Azure OpenAI: direct Azure OpenAI endpoint with deployment name
-    if provider_name == "azure_openai":
+    # --- validation ---
+    if backend == "azure_openai":
         if not p or not p.api_key or not p.api_base:
             console.print("[red]Error: Azure OpenAI requires api_key and api_base.[/red]")
             console.print("Set them in ~/.nanobot/config.json under providers.azure_openai section")
             console.print("Use the model field to specify the deployment name.")
             raise typer.Exit(1)
+    elif backend == "openai_compat" and not model.startswith("bedrock/"):
+        needs_key = not (p and p.api_key)
+        exempt = spec and (spec.is_oauth or spec.is_local or spec.is_direct)
+        if needs_key and not exempt:
+            console.print("[red]Error: No API key configured.[/red]")
+            console.print("Set one in ~/.nanobot/config.json under providers section")
+            raise typer.Exit(1)
 
-        return AzureOpenAIProvider(
+    # --- instantiation by backend ---
+    if backend == "openai_codex":
+        from nanobot.providers.openai_codex_provider import OpenAICodexProvider
+        provider = OpenAICodexProvider(default_model=model)
+    elif backend == "azure_openai":
+        from nanobot.providers.azure_openai_provider import AzureOpenAIProvider
+        provider = AzureOpenAIProvider(
             api_key=p.api_key,
             api_base=p.api_base,
             default_model=model,
         )
+    elif backend == "anthropic":
+        from nanobot.providers.anthropic_provider import AnthropicProvider
+        provider = AnthropicProvider(
+            api_key=p.api_key if p else None,
+            api_base=config.get_api_base(model),
+            default_model=model,
+            extra_headers=p.extra_headers if p else None,
+            spec=spec,
+        )
+    else:
+        from nanobot.providers.openai_compat_provider import OpenAICompatProvider
+        provider = OpenAICompatProvider(
+            api_key=p.api_key if p else None,
+            api_base=config.get_api_base(model),
+            default_model=model,
+            extra_headers=p.extra_headers if p else None,
+            spec=spec,
+        )
 
-    from nanobot.providers.registry import find_by_name
-    spec = find_by_name(provider_name)
-    if not model.startswith("bedrock/") and not (p and p.api_key) and not (spec and spec.is_oauth):
-        console.print("[red]Error: No API key configured.[/red]")
-        console.print("Set one in ~/.nanobot/config.json under providers section")
-        raise typer.Exit(1)
-
-    # Collect cross-provider configs for mini/vision/voice/image_gen models
-    extra_model_configs: dict[str, tuple[str, str | None]] = {}
-    for alt_model in (
-        config.agents.defaults.mini_model,
-        config.agents.defaults.vision_model,
-        config.agents.defaults.voice_model,
-        config.agents.defaults.image_gen_model,
-    ):
-        if not alt_model:
-            continue
-        alt_provider_name = config.get_provider_name(alt_model)
-        if alt_provider_name and alt_provider_name != provider_name:
-            alt_p = config.get_provider(alt_model)
-            if alt_p and alt_p.api_key:
-                extra_model_configs[alt_provider_name] = (
-                    alt_p.api_key,
-                    config.get_api_base(alt_model),
-                )
-
-    return LiteLLMProvider(
-        api_key=p.api_key if p else None,
-        api_base=config.get_api_base(model),
-        default_model=model,
-        extra_headers=p.extra_headers if p else None,
-        provider_name=provider_name,
-        extra_model_configs=extra_model_configs or None,
-    )
+    return provider
 
 
 def _load_runtime_config(config: str | None = None, workspace: str | None = None) -> Config:
@@ -1828,11 +1815,20 @@ def _login_openai_codex() -> None:
 def _login_github_copilot() -> None:
     import asyncio
 
+    from openai import AsyncOpenAI
+
     console.print("[cyan]Starting GitHub Copilot device flow...[/cyan]\n")
 
     async def _trigger():
-        from litellm import acompletion
-        await acompletion(model="github_copilot/gpt-4o", messages=[{"role": "user", "content": "hi"}], max_tokens=1)
+        client = AsyncOpenAI(
+            api_key="dummy",
+            base_url="https://api.githubcopilot.com",
+        )
+        await client.chat.completions.create(
+            model="gpt-4o",
+            messages=[{"role": "user", "content": "hi"}],
+            max_tokens=1,
+        )
 
     try:
         asyncio.run(_trigger())

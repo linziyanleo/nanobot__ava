@@ -1,159 +1,122 @@
-"""Regression tests for PR #2026 — litellm_kwargs injection from ProviderSpec."""
+"""Tests for OpenAICompatProvider spec-driven behavior.
+
+Validates that:
+- OpenRouter (no strip) keeps model names intact.
+- AiHubMix (strip_model_prefix=True) strips provider prefixes.
+- Standard providers pass model names through as-is.
+"""
 
 from __future__ import annotations
 
 from types import SimpleNamespace
-from typing import Any
 from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from nanobot.providers.litellm_provider import LiteLLMProvider
+from nanobot.providers.openai_compat_provider import OpenAICompatProvider
+from nanobot.providers.registry import find_by_name
 
 
-def _fake_response(content: str = "ok") -> SimpleNamespace:
-    """Build a minimal acompletion-shaped response object."""
+def _fake_chat_response(content: str = "ok") -> SimpleNamespace:
+    """Build a minimal OpenAI chat completion response."""
     message = SimpleNamespace(
         content=content,
         tool_calls=None,
         reasoning_content=None,
-        thinking_blocks=None,
     )
     choice = SimpleNamespace(message=message, finish_reason="stop")
     usage = SimpleNamespace(prompt_tokens=10, completion_tokens=5, total_tokens=15)
     return SimpleNamespace(choices=[choice], usage=usage)
 
 
-@pytest.mark.skip(reason="Depends on upstream OpenRouter litellm_kwargs refactor not yet merged")
-@pytest.mark.asyncio
-async def test_openrouter_injects_litellm_kwargs() -> None:
-    """OpenRouter gateway must inject custom_llm_provider into acompletion call."""
-    mock_acompletion = AsyncMock(return_value=_fake_response())
+def test_openrouter_spec_is_gateway() -> None:
+    spec = find_by_name("openrouter")
+    assert spec is not None
+    assert spec.is_gateway is True
+    assert spec.default_api_base == "https://openrouter.ai/api/v1"
 
-    with patch("nanobot.providers.litellm_provider.acompletion", mock_acompletion):
-        provider = LiteLLMProvider(
+
+@pytest.mark.asyncio
+async def test_openrouter_keeps_model_name_intact() -> None:
+    """OpenRouter gateway keeps the full model name (gateway does its own routing)."""
+    mock_create = AsyncMock(return_value=_fake_chat_response())
+    spec = find_by_name("openrouter")
+
+    with patch("nanobot.providers.openai_compat_provider.AsyncOpenAI") as MockClient:
+        client_instance = MockClient.return_value
+        client_instance.chat.completions.create = mock_create
+
+        provider = OpenAICompatProvider(
             api_key="sk-or-test-key",
             api_base="https://openrouter.ai/api/v1",
             default_model="anthropic/claude-sonnet-4-5",
-            provider_name="openrouter",
+            spec=spec,
         )
         await provider.chat(
             messages=[{"role": "user", "content": "hello"}],
             model="anthropic/claude-sonnet-4-5",
         )
 
-    call_kwargs = mock_acompletion.call_args.kwargs
-    assert call_kwargs.get("custom_llm_provider") == "openrouter", (
-        "OpenRouter gateway should pass custom_llm_provider='openrouter' to acompletion"
-    )
+    call_kwargs = mock_create.call_args.kwargs
+    assert call_kwargs["model"] == "anthropic/claude-sonnet-4-5"
 
 
 @pytest.mark.asyncio
-async def test_non_gateway_provider_does_not_inject_litellm_kwargs() -> None:
-    """Standard (non-gateway) providers must NOT inject any litellm_kwargs."""
-    mock_acompletion = AsyncMock(return_value=_fake_response())
+async def test_aihubmix_strips_model_prefix() -> None:
+    """AiHubMix strips the provider prefix (strip_model_prefix=True)."""
+    mock_create = AsyncMock(return_value=_fake_chat_response())
+    spec = find_by_name("aihubmix")
 
-    with patch("nanobot.providers.litellm_provider.acompletion", mock_acompletion):
-        provider = LiteLLMProvider(
-            api_key="sk-ant-test-key",
-            default_model="claude-sonnet-4-5",
-        )
-        await provider.chat(
-            messages=[{"role": "user", "content": "hello"}],
-            model="claude-sonnet-4-5",
-        )
+    with patch("nanobot.providers.openai_compat_provider.AsyncOpenAI") as MockClient:
+        client_instance = MockClient.return_value
+        client_instance.chat.completions.create = mock_create
 
-    call_kwargs = mock_acompletion.call_args.kwargs
-    assert "custom_llm_provider" not in call_kwargs, (
-        "Standard Anthropic provider should NOT inject custom_llm_provider"
-    )
-
-
-@pytest.mark.asyncio
-async def test_gateway_without_litellm_kwargs_injects_nothing_extra() -> None:
-    """Gateways without litellm_kwargs (e.g. AiHubMix) must not add extra keys."""
-    mock_acompletion = AsyncMock(return_value=_fake_response())
-
-    with patch("nanobot.providers.litellm_provider.acompletion", mock_acompletion):
-        provider = LiteLLMProvider(
+        provider = OpenAICompatProvider(
             api_key="sk-aihub-test-key",
             api_base="https://aihubmix.com/v1",
             default_model="claude-sonnet-4-5",
-            provider_name="aihubmix",
-        )
-        await provider.chat(
-            messages=[{"role": "user", "content": "hello"}],
-            model="claude-sonnet-4-5",
-        )
-
-    call_kwargs = mock_acompletion.call_args.kwargs
-    assert "custom_llm_provider" not in call_kwargs, (
-        "AiHubMix gateway has no litellm_kwargs, should not add custom_llm_provider"
-    )
-
-
-@pytest.mark.skip(reason="Depends on upstream OpenRouter litellm_kwargs refactor not yet merged")
-@pytest.mark.asyncio
-async def test_openrouter_autodetect_by_key_prefix() -> None:
-    """OpenRouter should be auto-detected by sk-or- key prefix even without explicit provider_name."""
-    mock_acompletion = AsyncMock(return_value=_fake_response())
-
-    with patch("nanobot.providers.litellm_provider.acompletion", mock_acompletion):
-        provider = LiteLLMProvider(
-            api_key="sk-or-auto-detect-key",
-            default_model="anthropic/claude-sonnet-4-5",
+            spec=spec,
         )
         await provider.chat(
             messages=[{"role": "user", "content": "hello"}],
             model="anthropic/claude-sonnet-4-5",
         )
 
-    call_kwargs = mock_acompletion.call_args.kwargs
-    assert call_kwargs.get("custom_llm_provider") == "openrouter", (
-        "Auto-detected OpenRouter (by sk-or- prefix) should still inject custom_llm_provider"
-    )
+    call_kwargs = mock_create.call_args.kwargs
+    assert call_kwargs["model"] == "claude-sonnet-4-5"
 
 
 @pytest.mark.asyncio
-async def test_anthropic_terminal_assistant_message_is_rewritten_to_user() -> None:
-    """Anthropic-compatible payloads must not end with plain assistant prefill."""
-    mock_acompletion = AsyncMock(return_value=_fake_response())
+async def test_standard_provider_passes_model_through() -> None:
+    """Standard provider (e.g. deepseek) passes model name through as-is."""
+    mock_create = AsyncMock(return_value=_fake_chat_response())
+    spec = find_by_name("deepseek")
 
-    with patch("nanobot.providers.litellm_provider.acompletion", mock_acompletion):
-        provider = LiteLLMProvider(
-            api_key="sk-ant-test-key",
-            default_model="anthropic/claude-sonnet-4-5",
+    with patch("nanobot.providers.openai_compat_provider.AsyncOpenAI") as MockClient:
+        client_instance = MockClient.return_value
+        client_instance.chat.completions.create = mock_create
+
+        provider = OpenAICompatProvider(
+            api_key="sk-deepseek-test-key",
+            default_model="deepseek-chat",
+            spec=spec,
         )
         await provider.chat(
-            messages=[
-                {"role": "system", "content": "sys"},
-                {"role": "assistant", "content": "subagent result"},
-            ],
-            model="anthropic/claude-sonnet-4-5",
+            messages=[{"role": "user", "content": "hello"}],
+            model="deepseek-chat",
         )
 
-    sent_messages = mock_acompletion.call_args.kwargs["messages"]
-    assert sent_messages[-1]["role"] == "user"
-    assert sent_messages[-1]["content"] == "subagent result"
+    call_kwargs = mock_create.call_args.kwargs
+    assert call_kwargs["model"] == "deepseek-chat"
 
 
-@pytest.mark.asyncio
-async def test_non_anthropic_terminal_assistant_message_is_unchanged() -> None:
-    """Only Anthropic-compatible models need terminal role rewrite."""
-    mock_acompletion = AsyncMock(return_value=_fake_response())
-
-    with patch("nanobot.providers.litellm_provider.acompletion", mock_acompletion):
-        provider = LiteLLMProvider(
-            api_key="sk-openai-test-key",
-            default_model="gpt-4o-mini",
+def test_openai_model_passthrough() -> None:
+    """OpenAI models pass through unchanged."""
+    spec = find_by_name("openai")
+    with patch("nanobot.providers.openai_compat_provider.AsyncOpenAI"):
+        provider = OpenAICompatProvider(
+            api_key="sk-test-key",
+            default_model="gpt-4o",
+            spec=spec,
         )
-        await provider.chat(
-            messages=[
-                {"role": "system", "content": "sys"},
-                {"role": "assistant", "content": "prefill"},
-            ],
-            model="gpt-4o-mini",
-        )
-
-    sent_messages = mock_acompletion.call_args.kwargs["messages"]
-    assert sent_messages[-1]["role"] == "assistant"
+    assert provider.get_default_model() == "gpt-4o"
