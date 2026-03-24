@@ -4,9 +4,10 @@ import { Send } from 'lucide-react'
 interface ChatInputProps {
   onSend: (message: string) => void
   disabled: boolean
+  isMobile?: boolean
 }
 
-export function ChatInput({ onSend, disabled }: ChatInputProps) {
+export function ChatInput({ onSend, disabled, isMobile }: ChatInputProps) {
   const [input, setInput] = useState('')
 
   const handleSend = () => {
@@ -17,7 +18,7 @@ export function ChatInput({ onSend, disabled }: ChatInputProps) {
   }
 
   return (
-    <div className="p-4 border-t border-[var(--border)]">
+    <div className={`p-4 border-t border-[var(--border)] ${isMobile ? 'pb-3' : 'pb-[calc(1rem+env(safe-area-inset-bottom,0px))]'}`}>
       <div className="flex gap-2">
         <input
           type="text"

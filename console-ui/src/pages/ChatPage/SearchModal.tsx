@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from 'react'
+import { useState, useEffect, useRef, useCallback, type ReactElement } from 'react'
 import { Search, X, ArrowRight } from 'lucide-react'
 import type { TurnGroup } from './types'
 import { getContentText } from './utils'
@@ -28,10 +28,10 @@ interface SearchModalProps {
   onClose: () => void
 }
 
-function highlightSnippet(snippet: string, keyword: string): JSX.Element {
+function highlightSnippet(snippet: string, keyword: string): ReactElement {
   const lowerSnippet = snippet.toLowerCase()
   const lowerKeyword = keyword.toLowerCase()
-  const parts: JSX.Element[] = []
+  const parts: ReactElement[] = []
   let lastIndex = 0
 
   let idx = lowerSnippet.indexOf(lowerKeyword, lastIndex)
@@ -112,7 +112,7 @@ export function SearchModal({ turns, onClose }: SearchModalProps) {
   const [query, setQuery] = useState('')
   const [results, setResults] = useState<SearchResult[]>([])
   const inputRef = useRef<HTMLInputElement>(null)
-  const debounceRef = useRef<ReturnType<typeof setTimeout>>()
+  const debounceRef = useRef<ReturnType<typeof setTimeout>>(undefined)
 
   useEffect(() => {
     inputRef.current?.focus()

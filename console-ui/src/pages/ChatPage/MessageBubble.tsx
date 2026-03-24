@@ -4,6 +4,7 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { oneDark } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import { cn } from '../../lib/utils';
+import { useResponsiveMode } from '../../hooks/useResponsiveMode';
 import type { RawMessage, TurnTokenStats } from './types';
 import { getContentText, formatTimestamp, formatTokenCount } from './utils';
 import { TokenInfoPopover } from './TokenInfoPopover';
@@ -71,14 +72,17 @@ const MarkdownRenderer = React.memo(function MarkdownRenderer({ content }: { con
       const isInline = !match && !String(children).includes('\n');
       const codeString = String(children).replace(/\n$/, '');
       return isInline ? (
-        <code
-          className="px-1 py-0.5 rounded text-[0.85em] font-mono bg-black/20 text-[var(--accent)]"
-          {...props}
-        >
+        <code className="px-1 py-0.5 rounded text-[0.85em] font-mono bg-black/20 text-[var(--accent)]" {...props}>
           {children}
         </code>
       ) : (
-        <Suspense fallback={<pre className="p-3 rounded-lg bg-[#282c34] text-sm overflow-x-auto my-2"><code>{codeString}</code></pre>}>
+        <Suspense
+          fallback={
+            <pre className="p-3 rounded-lg bg-[#282c34] text-sm overflow-x-auto my-2">
+              <code>{codeString}</code>
+            </pre>
+          }
+        >
           <SyntaxHighlighter
             style={oneDark}
             language={match ? match[1] : 'text'}
@@ -87,6 +91,8 @@ const MarkdownRenderer = React.memo(function MarkdownRenderer({ content }: { con
               margin: '0.5em 0',
               borderRadius: '0.5rem',
               fontSize: '0.8rem',
+              overflowX: 'auto',
+              maxWidth: '100%',
             }}
           >
             {codeString}
@@ -149,19 +155,25 @@ export const MessageBubble = React.memo(function MessageBubble({ message, isUser
   const [copied, setCopied] = useState(false);
   const [reasoningExpanded, setReasoningExpanded] = useState(false);
   const [showTokenInfo, setShowTokenInfo] = useState(false);
+  const [showMobileTokenInfo, setShowMobileTokenInfo] = useState(false);
   const popoverRef = useRef<HTMLDivElement>(null);
+  const mobilePopoverRef = useRef<HTMLDivElement>(null);
+  const { isMobile } = useResponsiveMode();
   const text = getContentText(message.content);
   const reasoning = message.reasoning_content;
   useEffect(() => {
-    if (!showTokenInfo) return;
+    if (!showTokenInfo && !showMobileTokenInfo) return;
     const handler = (e: MouseEvent) => {
-      if (popoverRef.current && !popoverRef.current.contains(e.target as Node)) {
+      if (showTokenInfo && popoverRef.current && !popoverRef.current.contains(e.target as Node)) {
         setShowTokenInfo(false);
+      }
+      if (showMobileTokenInfo && mobilePopoverRef.current && !mobilePopoverRef.current.contains(e.target as Node)) {
+        setShowMobileTokenInfo(false);
       }
     };
     document.addEventListener('mousedown', handler);
     return () => document.removeEventListener('mousedown', handler);
-  }, [showTokenInfo]);
+  }, [showTokenInfo, showMobileTokenInfo]);
 
   if (!text && !reasoning) return null;
 
@@ -176,7 +188,7 @@ export const MessageBubble = React.memo(function MessageBubble({ message, isUser
 
   return (
     <div className={cn('flex group', isUser ? 'justify-end' : 'justify-start')}>
-      <div className="relative max-w-[80%]">
+      <div className="relative max-w-[80%] min-w-0">
         {/* Reasoning content (collapsible, shown above the main bubble for assistant) */}
         {!isUser && reasoning && (
           <div
@@ -209,21 +221,21 @@ export const MessageBubble = React.memo(function MessageBubble({ message, isUser
           <>
             <div
               className={cn(
-                'px-4 py-2.5 rounded-2xl text-sm leading-relaxed',
+                'rounded-2xl text-sm leading-relaxed overflow-hidden',
+                isMobile ? 'px-4 py-3' : 'px-4 py-2.5',
                 isUser
                   ? 'bg-[var(--accent)] text-white rounded-br-md'
                   : 'bg-[var(--bg-secondary)] text-[var(--text-primary)] rounded-bl-md border border-[var(--border)]',
               )}
             >
-              {displayText && (
-                isUser ? (
+              {displayText &&
+                (isUser ? (
                   <pre className="whitespace-pre-wrap font-[inherit] break-words">{displayText}</pre>
                 ) : (
                   <div className="markdown-body">
                     <MarkdownRenderer content={displayText} />
                   </div>
-                )
-              )}
+                ))}
               {mediaBlocks.map((block, i) => (
                 <MediaBlockIndicator key={i} block={block} />
               ))}
@@ -252,11 +264,41 @@ export const MessageBubble = React.memo(function MessageBubble({ message, isUser
                     <Info className="w-3 h-3" />
                     <span>{formatTokenCount(tokenStats.total_tokens)}</span>
                   </button>
-                  {showTokenInfo && <TokenInfoPopover stats={tokenStats} sessionKey={sessionKey} turnSeq={tokenStats.turn_seq ?? undefined} />}
+                  {showTokenInfo && (
+                    <TokenInfoPopover
+                      stats={tokenStats}
+                      sessionKey={sessionKey}
+                      turnSeq={tokenStats.turn_seq ?? undefined}
+                      isMobile={isMobile}
+                      onClose={() => setShowTokenInfo(false)}
+                    />
+                  )}
                 </div>
               )}
             </div>
           </>
+        )}
+
+        {/* Mobile-only token info button - positioned outside bubble on the right, vertically centered */}
+        {isMobile && tokenStats && !isUser && (
+          <div className="relative" ref={mobilePopoverRef}>
+            <button
+              onClick={() => setShowMobileTokenInfo(v => !v)}
+              className="absolute -right-8 -translate-y-full min-w-[44px] flex items-center justify-center text-[var(--text-secondary)] hover:text-[var(--accent)] active:text-[var(--accent)] transition-colors"
+              title="Token usage"
+            >
+              <ChevronRight className="w-4 h-4" />
+            </button>
+            {showMobileTokenInfo && (
+              <TokenInfoPopover
+                stats={tokenStats}
+                sessionKey={sessionKey}
+                turnSeq={tokenStats.turn_seq ?? undefined}
+                isMobile={true}
+                onClose={() => setShowMobileTokenInfo(false)}
+              />
+            )}
+          </div>
         )}
       </div>
     </div>

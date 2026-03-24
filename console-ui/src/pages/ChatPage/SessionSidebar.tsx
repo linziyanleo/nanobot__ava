@@ -42,7 +42,7 @@ export function SessionSidebar({
   const cancelRename = () => setEditingFilename(null)
 
   return (
-    <div className="w-64 shrink-0 bg-[var(--bg-secondary)] border-r border-[var(--border)] flex flex-col">
+    <div className="w-full h-full sm:w-64 shrink-0 bg-[var(--bg-secondary)] border-r border-[var(--border)] flex flex-col">
       <div className="p-2 border-b border-[var(--border)]">
         <button
           onClick={onCreateConsole}

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, useCallback } from 'react'
 import { api, wsUrl } from '../../api/client'
 import { useAuth } from '../../stores/auth'
+import { useResponsiveMode } from '../../hooks/useResponsiveMode'
 import type { SceneType, SessionMeta, RawMessage, TurnGroup } from './types'
 import { SCENE_ORDER } from './types'
 import { groupTurns } from './utils'
@@ -21,8 +22,10 @@ export default function ChatPage() {
   const [streaming, setStreaming] = useState('')
   const [thinkingStreaming, setThinkingStreaming] = useState('')
   const [sending, setSending] = useState(false)
+  const [mobileSessionOpen, setMobileSessionOpen] = useState(false)
   const wsRef = useRef<WebSocket | null>(null)
   const initializedRef = useRef(false)
+  const { isMobile } = useResponsiveMode()
   useAuth()
 
   const loadSessionMessagesWithMeta = useCallback(async (sessionKey: string, meta: SessionMeta | null, silent = false) => {
@@ -125,6 +128,7 @@ export default function ChatPage() {
     setStreaming('')
     setThinkingStreaming('')
     wsRef.current?.close()
+    setMobileSessionOpen(false)
 
     loadSessionMessages(key)
 
@@ -263,7 +267,7 @@ export default function ChatPage() {
   const filteredSessions = sessions.filter((s) => s.scene === activeScene)
 
   return (
-    <div className="-m-6 h-[calc(100vh)] flex flex-col overflow-hidden">
+    <div className={isMobile ? '-m-4 -mb-20 h-[calc(100dvh-4rem-env(safe-area-inset-bottom,0px))] flex flex-col overflow-hidden' : '-m-6 h-[calc(100vh)] flex flex-col overflow-hidden'}>
       {/* Top scene tabs bar */}
       <SceneTabs
         sessions={sessions}
@@ -281,15 +285,40 @@ export default function ChatPage() {
 
       {/* Main content: sidebar + message area */}
       <div className="flex-1 flex min-h-0 min-w-0">
-        <SessionSidebar
-          sessions={filteredSessions}
-          activeSession={activeSession}
-          isConsoleScene={isConsole}
-          onSessionSelect={handleSessionSelect}
-          onCreateConsole={handleCreateConsole}
-          onDeleteSession={handleDeleteSession}
-          onRenameSession={handleRenameSession}
-        />
+        {/* Desktop: inline sidebar. Mobile: overlay drawer */}
+        {isMobile ? (
+          mobileSessionOpen && (
+            <>
+              {/* Backdrop */}
+              <div
+                className="fixed inset-0 z-40 bg-black/50"
+                onClick={() => setMobileSessionOpen(false)}
+              />
+              {/* Drawer */}
+              <div className="fixed inset-y-0 left-0 z-50 w-72 animate-slide-in-left">
+                <SessionSidebar
+                  sessions={filteredSessions}
+                  activeSession={activeSession}
+                  isConsoleScene={isConsole}
+                  onSessionSelect={handleSessionSelect}
+                  onCreateConsole={handleCreateConsole}
+                  onDeleteSession={handleDeleteSession}
+                  onRenameSession={handleRenameSession}
+                />
+              </div>
+            </>
+          )
+        ) : (
+          <SessionSidebar
+            sessions={filteredSessions}
+            activeSession={activeSession}
+            isConsoleScene={isConsole}
+            onSessionSelect={handleSessionSelect}
+            onCreateConsole={handleCreateConsole}
+            onDeleteSession={handleDeleteSession}
+            onRenameSession={handleRenameSession}
+          />
+        )}
         <MessageArea
           session={currentMeta}
           turns={turns}
@@ -300,6 +329,8 @@ export default function ChatPage() {
           sending={sending}
           onSend={handleSend}
           onRefresh={handleRefresh}
+          isMobile={isMobile}
+          onToggleSessionPanel={() => setMobileSessionOpen(v => !v)}
         />
       </div>
     </div>

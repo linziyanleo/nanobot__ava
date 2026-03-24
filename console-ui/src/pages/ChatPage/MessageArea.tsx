@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, useCallback } from 'react'
-import { MessageSquare, Loader2, Brain, ChevronDown, ChevronRight, RefreshCw, Copy, Check, ArrowDown, Search } from 'lucide-react'
+import { MessageSquare, Loader2, Brain, ChevronDown, ChevronRight, RefreshCw, Copy, Check, ArrowDown, Search, Menu } from 'lucide-react'
 import type { SessionMeta, TurnGroup, TurnTokenStats } from './types';
 import { SCENE_LABELS } from './types'
 import { TurnGroupComponent } from './TurnGroup'
@@ -18,9 +18,11 @@ interface MessageAreaProps {
   sending: boolean
   onSend: (message: string) => void
   onRefresh: () => void
+  isMobile?: boolean
+  onToggleSessionPanel?: () => void
 }
 
-export function MessageArea({ session, turns, loading, isConsole, streaming, thinkingStreaming, sending, onSend, onRefresh }: MessageAreaProps) {
+export function MessageArea({ session, turns, loading, isConsole, streaming, thinkingStreaming, sending, onSend, onRefresh, isMobile, onToggleSessionPanel }: MessageAreaProps) {
   const bottomRef = useRef<HTMLDivElement>(null)
   const scrollContainerRef = useRef<HTMLDivElement>(null)
   const isInitialScroll = useRef(true)
@@ -71,6 +73,17 @@ export function MessageArea({ session, turns, loading, isConsole, streaming, thi
     }
   }, [turns, checkScrollPosition])
 
+  // Auto-scroll when streaming new content (if user was near bottom)
+  useEffect(() => {
+    if (!streaming && !thinkingStreaming) return
+    const el = scrollContainerRef.current
+    if (!el) return
+    const isNearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 200
+    if (isNearBottom) {
+      bottomRef.current?.scrollIntoView({ behavior: 'instant' })
+    }
+  }, [streaming, thinkingStreaming])
+
   useEffect(() => {
     isInitialScroll.current = true
   }, [session?.key])
@@ -93,10 +106,19 @@ export function MessageArea({ session, turns, loading, isConsole, streaming, thi
   return (
     <div className="flex-1 min-w-0 flex flex-col bg-[var(--bg-primary)] relative">
       {/* Session header */}
-      <div className="px-4 py-2.5 border-b border-[var(--border)] flex items-center justify-between">
-        <div>
+      <div className="px-4 py-2.5 border-b border-[var(--border)] flex items-center justify-between gap-2">
+        <div className="min-w-0 flex-1">
           <h3 className="text-sm font-medium text-[var(--text-primary)] flex items-center gap-1.5">
-            {session.key}
+            {isMobile && onToggleSessionPanel && (
+              <button
+                onClick={onToggleSessionPanel}
+                className="p-1 -ml-1 rounded-md text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)] transition-colors"
+                title="会话列表"
+              >
+                <Menu className="w-4 h-4" />
+              </button>
+            )}
+            <span className="truncate">{session.key}</span>
             <button
               onClick={() => {
                 navigator.clipboard.writeText(session.key)
@@ -198,10 +220,10 @@ export function MessageArea({ session, turns, loading, isConsole, streaming, thi
 
       {/* Scroll to bottom floating button */}
       {showScrollDown && (
-        <div className="absolute bottom-20 right-8 z-10">
+        <div className={`absolute z-10 ${isMobile ? 'bottom-16 right-4' : 'bottom-20 right-8'}`}>
           <button
             onClick={scrollToBottom}
-            className="p-2 rounded-full bg-[var(--bg-secondary)] border border-[var(--border)] shadow-lg text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)] transition-colors"
+            className="p-2.5 rounded-full bg-[var(--accent)] text-white shadow-lg hover:bg-[var(--accent-hover)] transition-colors"
             title="Scroll to bottom"
           >
             <ArrowDown className="w-4 h-4" />
@@ -210,7 +232,7 @@ export function MessageArea({ session, turns, loading, isConsole, streaming, thi
       )}
 
       {/* Input (console only) */}
-      {isConsole && <ChatInput onSend={onSend} disabled={sending} />}
+      {isConsole && <ChatInput onSend={onSend} disabled={sending} isMobile={isMobile} />}
 
       {/* Search modal */}
       {showSearch && (
