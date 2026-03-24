@@ -9,11 +9,12 @@ import { formatTimestamp, calcDuration, getContentText, formatTokenCount } from 
 
 interface TurnGroupProps {
   turn: TurnGroupType
+  index?: number
   tokenStats?: TurnTokenStats
   sessionKey?: string
 }
 
-export function TurnGroupComponent({ turn, tokenStats, sessionKey }: TurnGroupProps) {
+export function TurnGroupComponent({ turn, index, tokenStats, sessionKey }: TurnGroupProps) {
   const duration = calcDuration(turn.startTime, turn.endTime)
   const hasToolCalls = turn.toolCalls.length > 0
   const [showTokenInfo, setShowTokenInfo] = useState(false)
@@ -41,7 +42,7 @@ export function TurnGroupComponent({ turn, tokenStats, sessionKey }: TurnGroupPr
   )
 
   return (
-    <div className="space-y-2">
+    <div className="space-y-2" id={index != null ? `turn-${index}` : undefined}>
       {/* User message */}
       {(turn.userMessage.metadata?.subagent_announce === true || isSubagentMessage(turn.userMessage.content))
         ? <SubagentResultBlock

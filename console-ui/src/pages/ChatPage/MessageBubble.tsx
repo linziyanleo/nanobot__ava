@@ -1,13 +1,16 @@
 import { Copy, Check, Brain, ChevronDown, ChevronRight, Info, Eye, Mic } from 'lucide-react';
-import { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useMemo, Suspense } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { oneDark } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import { cn } from '../../lib/utils';
 import type { RawMessage, TurnTokenStats } from './types';
 import { getContentText, formatTimestamp, formatTokenCount } from './utils';
 import { TokenInfoPopover } from './TokenInfoPopover';
+
+const SyntaxHighlighter = React.lazy(() =>
+  import('react-syntax-highlighter').then(m => ({ default: m.Prism }))
+);
 
 interface MediaBlock {
   type: 'vision' | 'voice'
@@ -61,6 +64,80 @@ function MediaBlockIndicator({ block }: { block: MediaBlock }) {
   )
 }
 
+const MarkdownRenderer = React.memo(function MarkdownRenderer({ content }: { content: string }) {
+  const components = useMemo(() => ({
+    code({ className, children, ...props }: { className?: string; children?: React.ReactNode; [key: string]: unknown }) {
+      const match = /language-(\w+)/.exec(className || '');
+      const isInline = !match && !String(children).includes('\n');
+      const codeString = String(children).replace(/\n$/, '');
+      return isInline ? (
+        <code
+          className="px-1 py-0.5 rounded text-[0.85em] font-mono bg-black/20 text-[var(--accent)]"
+          {...props}
+        >
+          {children}
+        </code>
+      ) : (
+        <Suspense fallback={<pre className="p-3 rounded-lg bg-[#282c34] text-sm overflow-x-auto my-2"><code>{codeString}</code></pre>}>
+          <SyntaxHighlighter
+            style={oneDark}
+            language={match ? match[1] : 'text'}
+            PreTag="div"
+            customStyle={{
+              margin: '0.5em 0',
+              borderRadius: '0.5rem',
+              fontSize: '0.8rem',
+            }}
+          >
+            {codeString}
+          </SyntaxHighlighter>
+        </Suspense>
+      );
+    },
+    a({ children, href }: { children?: React.ReactNode; href?: string }) {
+      return (
+        <a
+          href={href}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="text-[var(--accent)] underline hover:opacity-80"
+        >
+          {children}
+        </a>
+      );
+    },
+    table({ children }: { children?: React.ReactNode }) {
+      return (
+        <div className="overflow-x-auto my-2">
+          <table className="min-w-full border-collapse text-sm">
+            {children}
+          </table>
+        </div>
+      );
+    },
+    th({ children }: { children?: React.ReactNode }) {
+      return (
+        <th className="border border-[var(--border)] px-3 py-1.5 bg-[var(--bg-tertiary,var(--bg-secondary))] font-semibold text-left">
+          {children}
+        </th>
+      );
+    },
+    td({ children }: { children?: React.ReactNode }) {
+      return (
+        <td className="border border-[var(--border)] px-3 py-1.5">
+          {children}
+        </td>
+      );
+    },
+  }), [])
+
+  return (
+    <ReactMarkdown remarkPlugins={[remarkGfm]} components={components as never}>
+      {content}
+    </ReactMarkdown>
+  )
+})
+
 interface MessageBubbleProps {
   message: RawMessage;
   isUser: boolean;
@@ -68,7 +145,7 @@ interface MessageBubbleProps {
   sessionKey?: string;
 }
 
-export function MessageBubble({ message, isUser, tokenStats, sessionKey }: MessageBubbleProps) {
+export const MessageBubble = React.memo(function MessageBubble({ message, isUser, tokenStats, sessionKey }: MessageBubbleProps) {
   const [copied, setCopied] = useState(false);
   const [reasoningExpanded, setReasoningExpanded] = useState(false);
   const [showTokenInfo, setShowTokenInfo] = useState(false);
@@ -143,73 +220,7 @@ export function MessageBubble({ message, isUser, tokenStats, sessionKey }: Messa
                   <pre className="whitespace-pre-wrap font-[inherit] break-words">{displayText}</pre>
                 ) : (
                   <div className="markdown-body">
-                    <ReactMarkdown
-                      remarkPlugins={[remarkGfm]}
-                      components={{
-                        code({ className, children, ...props }) {
-                          const match = /language-(\w+)/.exec(className || '');
-                          const isInline = !match && !String(children).includes('\n');
-                          return isInline ? (
-                            <code
-                              className="px-1 py-0.5 rounded text-[0.85em] font-mono bg-black/20 text-[var(--accent)]"
-                              {...props}
-                            >
-                              {children}
-                            </code>
-                          ) : (
-                            <SyntaxHighlighter
-                              style={oneDark}
-                              language={match ? match[1] : 'text'}
-                              PreTag="div"
-                              customStyle={{
-                                margin: '0.5em 0',
-                                borderRadius: '0.5rem',
-                                fontSize: '0.8rem',
-                              }}
-                            >
-                              {String(children).replace(/\n$/, '')}
-                            </SyntaxHighlighter>
-                          );
-                        },
-                        a({ children, href }) {
-                          return (
-                            <a
-                              href={href}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="text-[var(--accent)] underline hover:opacity-80"
-                            >
-                              {children}
-                            </a>
-                          );
-                        },
-                        table({ children }) {
-                          return (
-                            <div className="overflow-x-auto my-2">
-                              <table className="min-w-full border-collapse text-sm">
-                                {children}
-                              </table>
-                            </div>
-                          );
-                        },
-                        th({ children }) {
-                          return (
-                            <th className="border border-[var(--border)] px-3 py-1.5 bg-[var(--bg-tertiary,var(--bg-secondary))] font-semibold text-left">
-                              {children}
-                            </th>
-                          );
-                        },
-                        td({ children }) {
-                          return (
-                            <td className="border border-[var(--border)] px-3 py-1.5">
-                              {children}
-                            </td>
-                          );
-                        },
-                      }}
-                    >
-                      {displayText}
-                    </ReactMarkdown>
+                    <MarkdownRenderer content={displayText} />
                   </div>
                 )
               )}
@@ -250,4 +261,7 @@ export function MessageBubble({ message, isUser, tokenStats, sessionKey }: Messa
       </div>
     </div>
   );
-}
+}, (prev, next) => {
+  return prev.message.content === next.message.content &&
+         prev.tokenStats === next.tokenStats
+})
