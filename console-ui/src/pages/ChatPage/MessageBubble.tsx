@@ -1,5 +1,9 @@
 import { Copy, Check, Brain, ChevronDown, ChevronRight, Info, Eye, Mic } from 'lucide-react';
 import { useState, useRef, useEffect } from 'react';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
+import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
+import { oneDark } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import { cn } from '../../lib/utils';
 import type { RawMessage, TurnTokenStats } from './types';
 import { getContentText, formatTimestamp, formatTokenCount } from './utils';
@@ -134,7 +138,81 @@ export function MessageBubble({ message, isUser, tokenStats, sessionKey }: Messa
                   : 'bg-[var(--bg-secondary)] text-[var(--text-primary)] rounded-bl-md border border-[var(--border)]',
               )}
             >
-              {displayText && <pre className="whitespace-pre-wrap font-[inherit] break-words">{displayText}</pre>}
+              {displayText && (
+                isUser ? (
+                  <pre className="whitespace-pre-wrap font-[inherit] break-words">{displayText}</pre>
+                ) : (
+                  <div className="markdown-body">
+                    <ReactMarkdown
+                      remarkPlugins={[remarkGfm]}
+                      components={{
+                        code({ className, children, ...props }) {
+                          const match = /language-(\w+)/.exec(className || '');
+                          const isInline = !match && !String(children).includes('\n');
+                          return isInline ? (
+                            <code
+                              className="px-1 py-0.5 rounded text-[0.85em] font-mono bg-black/20 text-[var(--accent)]"
+                              {...props}
+                            >
+                              {children}
+                            </code>
+                          ) : (
+                            <SyntaxHighlighter
+                              style={oneDark}
+                              language={match ? match[1] : 'text'}
+                              PreTag="div"
+                              customStyle={{
+                                margin: '0.5em 0',
+                                borderRadius: '0.5rem',
+                                fontSize: '0.8rem',
+                              }}
+                            >
+                              {String(children).replace(/\n$/, '')}
+                            </SyntaxHighlighter>
+                          );
+                        },
+                        a({ children, href }) {
+                          return (
+                            <a
+                              href={href}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="text-[var(--accent)] underline hover:opacity-80"
+                            >
+                              {children}
+                            </a>
+                          );
+                        },
+                        table({ children }) {
+                          return (
+                            <div className="overflow-x-auto my-2">
+                              <table className="min-w-full border-collapse text-sm">
+                                {children}
+                              </table>
+                            </div>
+                          );
+                        },
+                        th({ children }) {
+                          return (
+                            <th className="border border-[var(--border)] px-3 py-1.5 bg-[var(--bg-tertiary,var(--bg-secondary))] font-semibold text-left">
+                              {children}
+                            </th>
+                          );
+                        },
+                        td({ children }) {
+                          return (
+                            <td className="border border-[var(--border)] px-3 py-1.5">
+                              {children}
+                            </td>
+                          );
+                        },
+                      }}
+                    >
+                      {displayText}
+                    </ReactMarkdown>
+                  </div>
+                )
+              )}
               {mediaBlocks.map((block, i) => (
                 <MediaBlockIndicator key={i} block={block} />
               ))}
