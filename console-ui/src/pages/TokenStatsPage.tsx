@@ -1,6 +1,18 @@
 import { useEffect, useState, useCallback, useRef } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { RefreshCw, BarChart3, List, ChevronDown, ChevronUp, Trash2, Copy, Check, Search, X } from 'lucide-react';
+import {
+  RefreshCw,
+  BarChart3,
+  List,
+  ChevronDown,
+  ChevronUp,
+  Copy,
+  Check,
+  Search,
+  X,
+  SlidersHorizontal,
+} from 'lucide-react';
+import { useResponsiveMode } from '../hooks/useResponsiveMode';
 import {
   BarChart,
   Bar,
@@ -213,15 +225,17 @@ function buildFilterStr(
 }
 
 export default function TokenStatsPage() {
+  const { isMobile } = useResponsiveMode();
   const [searchParams, setSearchParams] = useSearchParams();
   const [view, setView] = useState<'records' | 'charts'>('records');
   const [summary, setSummary] = useState<TokenSummary | null>(null);
   const [records, setRecords] = useState<TokenRecord[]>([]);
+  const [filtersExpanded, setFiltersExpanded] = useState(!isMobile);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(0);
   const [expandedRow, setExpandedRow] = useState<number | null>(null);
   const [loading, setLoading] = useState(false);
-  const { isAdmin } = useAuth();
+  useAuth();
   const pageSize = 50;
 
   const [filterSessionKey, setFilterSessionKey] = useState(searchParams.get('session_key') || '');
@@ -377,17 +391,6 @@ export default function TokenStatsPage() {
     filterModelRole !== 'all' ||
     timePreset !== 'all';
 
-  const handleReset = async () => {
-    if (!confirm('确认清空所有 Token 统计数据？')) return;
-    try {
-      await api('/stats/tokens/reset', { method: 'POST' });
-      loadSummary();
-      loadRecords(0);
-    } catch {
-      /* ignore */
-    }
-  };
-
   const totalPages = Math.ceil(total / pageSize);
 
   const pieData = summary
@@ -399,9 +402,9 @@ export default function TokenStatsPage() {
 
   return (
     <div>
-      <div className="flex items-center justify-between mb-6">
-        <div className="flex items-center gap-3">
-          <h1 className="text-2xl font-bold">Token 统计</h1>
+      <div className="flex items-center justify-between mb-4">
+        <div className="flex items-center gap-2">
+          {!isMobile && <h1 className="text-2xl font-bold">Token 统计</h1>}
           <div className="flex bg-[var(--bg-tertiary)] rounded-lg p-0.5">
             <button
               onClick={() => setView('records')}
@@ -411,7 +414,8 @@ export default function TokenStatsPage() {
                   : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
               }`}
             >
-              <List className="w-3.5 h-3.5" /> 明细
+              <List className="w-3.5 h-3.5" />
+              {!isMobile && ' 明细'}
             </button>
             <button
               onClick={() => {
@@ -424,97 +428,76 @@ export default function TokenStatsPage() {
                   : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
               }`}
             >
-              <BarChart3 className="w-3.5 h-3.5" /> 聚合
+              <BarChart3 className="w-3.5 h-3.5" />
+              {!isMobile && ' 聚合'}
             </button>
           </div>
         </div>
-        <div className="flex gap-2">
-          {isAdmin() && (
-            <button
-              onClick={handleReset}
-              className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-[var(--danger)]/10 text-[var(--danger)] hover:bg-[var(--danger)]/20 text-sm"
-            >
-              <Trash2 className="w-4 h-4" /> 清空
-            </button>
-          )}
+        <div className="flex gap-1.5">
           <button
             onClick={() => {
               loadSummary();
               loadRecords(page);
             }}
             className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-[var(--bg-tertiary)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] text-sm"
+            title="刷新"
           >
-            <RefreshCw className="w-4 h-4" /> 刷新
+            <RefreshCw className="w-4 h-4" />
+            {!isMobile && ' 刷新'}
           </button>
         </div>
       </div>
 
       {/* Overview Cards */}
-      {summary && (
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
-          <div className="bg-[var(--bg-secondary)] border border-[var(--border)] rounded-xl p-4">
-            <p className="text-xs text-[var(--text-secondary)] mb-1">总 Token</p>
-            <p className="text-xl font-bold text-[var(--accent)]">{formatTokens(summary.totals.total_tokens)}</p>
+      {summary &&
+        (isMobile ? (
+          <div className="flex items-center gap-3 mb-3 px-1 text-xs overflow-x-auto">
+            <span className="shrink-0">
+              <span className="text-[var(--text-secondary)]">Total:</span>{' '}
+              <span className="font-semibold text-[var(--accent)]">{formatTokens(summary.totals.total_tokens)}</span>
+            </span>
+            <span className="text-[var(--border)]">|</span>
+            <span className="shrink-0">
+              <span className="text-[var(--text-secondary)]">Calls:</span>{' '}
+              <span className="font-semibold text-purple-400">{summary.totals.total_calls}</span>
+            </span>
+            <span className="text-[var(--border)]">|</span>
+            <span className="shrink-0">
+              <span className="text-[var(--text-secondary)]">In:</span>{' '}
+              <span className="font-semibold text-cyan-400">{formatTokens(summary.totals.prompt_tokens)}</span>
+            </span>
+            <span className="text-[var(--border)]">|</span>
+            <span className="shrink-0">
+              <span className="text-[var(--text-secondary)]">Out:</span>{' '}
+              <span className="font-semibold text-emerald-400">{formatTokens(summary.totals.completion_tokens)}</span>
+            </span>
           </div>
-          <div className="bg-[var(--bg-secondary)] border border-[var(--border)] rounded-xl p-4">
-            <p className="text-xs text-[var(--text-secondary)] mb-1">LLM 调用</p>
-            <p className="text-xl font-bold text-purple-400">{summary.totals.total_calls}</p>
+        ) : (
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
+            <div className="bg-[var(--bg-secondary)] border border-[var(--border)] rounded-xl p-4">
+              <p className="text-xs text-[var(--text-secondary)] mb-1">总 Token</p>
+              <p className="text-xl font-bold text-[var(--accent)]">{formatTokens(summary.totals.total_tokens)}</p>
+            </div>
+            <div className="bg-[var(--bg-secondary)] border border-[var(--border)] rounded-xl p-4">
+              <p className="text-xs text-[var(--text-secondary)] mb-1">LLM 调用</p>
+              <p className="text-xl font-bold text-purple-400">{summary.totals.total_calls}</p>
+            </div>
+            <div className="bg-[var(--bg-secondary)] border border-[var(--border)] rounded-xl p-4">
+              <p className="text-xs text-[var(--text-secondary)] mb-1">Prompt Tokens</p>
+              <p className="text-xl font-bold text-cyan-400">{formatTokens(summary.totals.prompt_tokens)}</p>
+            </div>
+            <div className="bg-[var(--bg-secondary)] border border-[var(--border)] rounded-xl p-4">
+              <p className="text-xs text-[var(--text-secondary)] mb-1">Completion Tokens</p>
+              <p className="text-xl font-bold text-emerald-400">{formatTokens(summary.totals.completion_tokens)}</p>
+            </div>
           </div>
-          <div className="bg-[var(--bg-secondary)] border border-[var(--border)] rounded-xl p-4">
-            <p className="text-xs text-[var(--text-secondary)] mb-1">Prompt Tokens</p>
-            <p className="text-xl font-bold text-cyan-400">{formatTokens(summary.totals.prompt_tokens)}</p>
-          </div>
-          <div className="bg-[var(--bg-secondary)] border border-[var(--border)] rounded-xl p-4">
-            <p className="text-xs text-[var(--text-secondary)] mb-1">Completion Tokens</p>
-            <p className="text-xl font-bold text-emerald-400">{formatTokens(summary.totals.completion_tokens)}</p>
-          </div>
-        </div>
-      )}
+        ))}
 
       {/* Search / Filter Bar */}
       {view === 'records' && (
         <div className="bg-[var(--bg-secondary)] border border-[var(--border)] rounded-xl p-4 mb-4">
+          {/* Primary filters: 功能角色 / 时间范围 / 模型 */}
           <div className="flex flex-wrap gap-1 items-end">
-            <div className="flex-1 min-w-[120px]">
-              <label className="text-[10px] text-[var(--text-secondary)] mb-1 block">Session ID</label>
-              <input
-                type="text"
-                value={filterSessionKey}
-                onChange={e => setFilterSessionKey(e.target.value)}
-                placeholder="telegram:12345"
-                className="w-full px-2.5 py-1.5 rounded-lg bg-[var(--bg-primary)] border border-[var(--border)] text-xs text-[var(--text-primary)] placeholder:text-[var(--text-secondary)]/50 focus:border-[var(--accent)] outline-none"
-              />
-            </div>
-            <div className="flex-1 min-w-[120px]">
-              <label className="text-[10px] text-[var(--text-secondary)] mb-1 block">模型</label>
-              <input
-                type="text"
-                value={filterModel}
-                onChange={e => setFilterModel(e.target.value)}
-                placeholder="claude-sonnet"
-                className="w-full px-2.5 py-1.5 rounded-lg bg-[var(--bg-primary)] border border-[var(--border)] text-xs text-[var(--text-primary)] placeholder:text-[var(--text-secondary)]/50 focus:border-[var(--accent)] outline-none"
-              />
-            </div>
-            <div className="flex-1 min-w-[80px]">
-              <label className="text-[10px] text-[var(--text-secondary)] mb-1 block">Provider</label>
-              <input
-                type="text"
-                value={filterProvider}
-                onChange={e => setFilterProvider(e.target.value)}
-                placeholder="yunwu"
-                className="w-full px-2.5 py-1.5 rounded-lg bg-[var(--bg-primary)] border border-[var(--border)] text-xs text-[var(--text-primary)] placeholder:text-[var(--text-secondary)]/50 focus:border-[var(--accent)] outline-none"
-              />
-            </div>
-            <div className="w-[70px]">
-              <label className="text-[10px] text-[var(--text-secondary)] mb-1 block">Turn</label>
-              <input
-                type="text"
-                value={filterTurnSeq}
-                onChange={e => setFilterTurnSeq(e.target.value)}
-                placeholder="0"
-                className="w-full px-2.5 py-1.5 rounded-lg bg-[var(--bg-primary)] border border-[var(--border)] text-xs text-[var(--text-primary)] placeholder:text-[var(--text-secondary)]/50 focus:border-[var(--accent)] outline-none"
-              />
-            </div>
             <div>
               <label className="text-[10px] text-[var(--text-secondary)] mb-1 block">功能角色</label>
               <div className="flex bg-[var(--bg-primary)] rounded-lg border border-[var(--border)] p-0.5">
@@ -571,28 +554,16 @@ export default function TokenStatsPage() {
                 ))}
               </div>
             </div>
-            {timePreset === 'custom' && (
-              <>
-                <div>
-                  <label className="text-[10px] text-[var(--text-secondary)] mb-1 block">开始日期</label>
-                  <input
-                    type="date"
-                    value={customStart}
-                    onChange={e => setCustomStart(e.target.value)}
-                    className="px-2.5 py-1.5 rounded-lg bg-[var(--bg-primary)] border border-[var(--border)] text-xs text-[var(--text-primary)] focus:border-[var(--accent)] outline-none"
-                  />
-                </div>
-                <div>
-                  <label className="text-[10px] text-[var(--text-secondary)] mb-1 block">结束日期</label>
-                  <input
-                    type="date"
-                    value={customEnd}
-                    onChange={e => setCustomEnd(e.target.value)}
-                    className="px-2.5 py-1.5 rounded-lg bg-[var(--bg-primary)] border border-[var(--border)] text-xs text-[var(--text-primary)] focus:border-[var(--accent)] outline-none"
-                  />
-                </div>
-              </>
-            )}
+            <div className="flex-1 min-w-[100px]">
+              <label className="text-[10px] text-[var(--text-secondary)] mb-1 block">模型</label>
+              <input
+                type="text"
+                value={filterModel}
+                onChange={e => setFilterModel(e.target.value)}
+                placeholder="claude-sonnet"
+                className="w-full px-2.5 py-1.5 rounded-lg bg-[var(--bg-primary)] border border-[var(--border)] text-xs text-[var(--text-primary)] placeholder:text-[var(--text-secondary)]/50 focus:border-[var(--accent)] outline-none"
+              />
+            </div>
             <div className="flex gap-1.5">
               <button
                 onClick={handleSearch}
@@ -608,8 +579,73 @@ export default function TokenStatsPage() {
               >
                 <X className="w-3 h-3" />
               </button>
+              <button
+                onClick={() => setFiltersExpanded(!filtersExpanded)}
+                className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-[var(--bg-tertiary)] text-[var(--text-secondary)] text-xs hover:text-[var(--text-primary)]"
+                title="更多筛选"
+              >
+                <SlidersHorizontal className="w-3 h-3" />
+              </button>
             </div>
           </div>
+
+          {/* Extended filters (collapsible) */}
+          {filtersExpanded && (
+            <div className="flex flex-wrap gap-1 items-end mt-2 pt-2 border-t border-[var(--border)]">
+              <div className="flex-1 min-w-[120px]">
+                <label className="text-[10px] text-[var(--text-secondary)] mb-1 block">Session ID</label>
+                <input
+                  type="text"
+                  value={filterSessionKey}
+                  onChange={e => setFilterSessionKey(e.target.value)}
+                  placeholder="telegram:12345"
+                  className="w-full px-2.5 py-1.5 rounded-lg bg-[var(--bg-primary)] border border-[var(--border)] text-xs text-[var(--text-primary)] placeholder:text-[var(--text-secondary)]/50 focus:border-[var(--accent)] outline-none"
+                />
+              </div>
+              <div className="flex-1 min-w-[80px]">
+                <label className="text-[10px] text-[var(--text-secondary)] mb-1 block">Provider</label>
+                <input
+                  type="text"
+                  value={filterProvider}
+                  onChange={e => setFilterProvider(e.target.value)}
+                  placeholder="yunwu"
+                  className="w-full px-2.5 py-1.5 rounded-lg bg-[var(--bg-primary)] border border-[var(--border)] text-xs text-[var(--text-primary)] placeholder:text-[var(--text-secondary)]/50 focus:border-[var(--accent)] outline-none"
+                />
+              </div>
+              <div className="w-[70px]">
+                <label className="text-[10px] text-[var(--text-secondary)] mb-1 block">Turn</label>
+                <input
+                  type="text"
+                  value={filterTurnSeq}
+                  onChange={e => setFilterTurnSeq(e.target.value)}
+                  placeholder="0"
+                  className="w-full px-2.5 py-1.5 rounded-lg bg-[var(--bg-primary)] border border-[var(--border)] text-xs text-[var(--text-primary)] placeholder:text-[var(--text-secondary)]/50 focus:border-[var(--accent)] outline-none"
+                />
+              </div>
+              {timePreset === 'custom' && (
+                <>
+                  <div>
+                    <label className="text-[10px] text-[var(--text-secondary)] mb-1 block">开始日期</label>
+                    <input
+                      type="date"
+                      value={customStart}
+                      onChange={e => setCustomStart(e.target.value)}
+                      className="px-2.5 py-1.5 rounded-lg bg-[var(--bg-primary)] border border-[var(--border)] text-xs text-[var(--text-primary)] focus:border-[var(--accent)] outline-none"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[10px] text-[var(--text-secondary)] mb-1 block">结束日期</label>
+                    <input
+                      type="date"
+                      value={customEnd}
+                      onChange={e => setCustomEnd(e.target.value)}
+                      className="px-2.5 py-1.5 rounded-lg bg-[var(--bg-primary)] border border-[var(--border)] text-xs text-[var(--text-primary)] focus:border-[var(--accent)] outline-none"
+                    />
+                  </div>
+                </>
+              )}
+            </div>
+          )}
         </div>
       )}
 
@@ -620,7 +656,7 @@ export default function TokenStatsPage() {
             <table className="w-full text-sm table-fixed">
               <colgroup>
                 <col className="w-[120px]" />
-                <col />
+                <col className="min-w-[160px]" />
                 <col className="w-[60px]" />
                 <col className="w-[100px]" />
                 <col className="w-[85px]" />

@@ -3,6 +3,7 @@ import { Server, Settings, Brain, UserCog, MessageSquare, Activity, RefreshCw, P
 import { api } from '../api/client'
 import { useAuth } from '../stores/auth'
 import { useNavigate } from 'react-router-dom'
+import { useResponsiveMode } from '../hooks/useResponsiveMode'
 
 interface GatewayStatusData {
   running: boolean
@@ -19,6 +20,7 @@ export default function DashboardPage() {
   const [gwMessage, setGwMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const { user, isAdmin } = useAuth();
   const navigate = useNavigate()
+  const { isMobile } = useResponsiveMode()
 
   const loadStatus = useCallback(() => {
     api<GatewayStatusData>('/gateway/status').then(setStatus).catch(() => {})
@@ -116,24 +118,41 @@ export default function DashboardPage() {
         <p className="text-[var(--text-secondary)] text-sm mt-1">欢迎回来, {user?.username}</p>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4 mb-6">
-        {cards.map(card => (
-          <button
-            key={card.label}
-            onClick={card.onClick}
-            className="bg-[var(--bg-secondary)] border border-[var(--border)] rounded-xl p-5 text-left hover:border-[var(--accent)]/50 transition-all group"
-          >
-            <div className="flex items-center gap-3 mb-3">
+      {isMobile ? (
+        <div className="grid grid-cols-4 gap-2 mb-4">
+          {cards.map(card => (
+            <button
+              key={card.label}
+              onClick={card.onClick}
+              className="flex flex-col items-center gap-1.5 py-3 bg-[var(--bg-secondary)] border border-[var(--border)] rounded-xl hover:border-[var(--accent)]/50 transition-all"
+            >
               <div className={`p-2 rounded-lg bg-[var(--bg-tertiary)] ${card.color}`}>
-                <card.icon className="w-5 h-5" />
+                <card.icon className="w-4 h-4" />
               </div>
-              <span className="text-sm text-[var(--text-secondary)]">{card.label}</span>
-            </div>
-            <p className={`text-xl font-semibold ${card.color}`}>{card.value}</p>
-            {card.sub && <p className="text-xs text-[var(--text-secondary)] mt-1">{card.sub}</p>}
-          </button>
-        ))}
-      </div>
+              <span className="text-xs font-medium">{card.value}</span>
+            </button>
+          ))}
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4 mb-6">
+          {cards.map(card => (
+            <button
+              key={card.label}
+              onClick={card.onClick}
+              className="bg-[var(--bg-secondary)] border border-[var(--border)] rounded-xl p-5 text-left hover:border-[var(--accent)]/50 transition-all group"
+            >
+              <div className="flex items-center gap-3 mb-3">
+                <div className={`p-2 rounded-lg bg-[var(--bg-tertiary)] ${card.color}`}>
+                  <card.icon className="w-5 h-5" />
+                </div>
+                <span className="text-sm text-[var(--text-secondary)]">{card.label}</span>
+              </div>
+              <p className={`text-xl font-semibold ${card.color}`}>{card.value}</p>
+              {card.sub && <p className="text-xs text-[var(--text-secondary)] mt-1">{card.sub}</p>}
+            </button>
+          ))}
+        </div>
+      )}
 
       {/* Gateway Section */}
       {gwMessage && (
@@ -154,71 +173,71 @@ export default function DashboardPage() {
         </div>
       )}
 
-      <div className="bg-[var(--bg-secondary)] border border-[var(--border)] rounded-xl p-5 mb-6">
-        <div className="flex items-center justify-between mb-4">
-          <div className="flex items-center gap-3">
-            <div className={`p-2.5 rounded-xl ${status?.running ? 'bg-[var(--success)]/10' : 'bg-[var(--danger)]/10'}`}>
-              <Server className={`w-6 h-6 ${status?.running ? 'text-[var(--success)]' : 'text-[var(--danger)]'}`} />
+      <div className={`bg-[var(--bg-secondary)] border border-[var(--border)] rounded-xl ${isMobile ? 'p-3' : 'p-5'} mb-6`}>
+        <div className="flex items-center justify-between mb-3">
+          <div className="flex items-center gap-2">
+            <div className={`p-2 rounded-lg ${status?.running ? 'bg-[var(--success)]/10' : 'bg-[var(--danger)]/10'}`}>
+              <Server className={`w-5 h-5 ${status?.running ? 'text-[var(--success)]' : 'text-[var(--danger)]'}`} />
             </div>
             <div>
-              <h2 className="text-base font-semibold">
-                {status?.running ? '网关运行中' : '网关未运行'}{' '}
+              <h2 className="text-sm font-semibold flex items-center gap-1.5">
+                {status?.running ? '网关运行中' : '网关未运行'}
                 <button
                   onClick={loadStatus}
-                  className="p-2 rounded-lg text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)] transition-colors"
+                  className="p-1 rounded text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)] transition-colors"
                   title="刷新状态"
                 >
-                  <RefreshCw className="w-4 h-4" />
+                  <RefreshCw className="w-3.5 h-3.5" />
                 </button>
               </h2>
-              <p className="text-xs text-[var(--text-secondary)]">
-                {status?.running ? `PID: ${status.pid} · 运行时间: ${shortUptime(status.uptime_seconds)}` : '未检测到'}
+              <p className="text-[10px] text-[var(--text-secondary)]">
+                {status?.running ? `PID: ${status.pid} · ${shortUptime(status.uptime_seconds)} · 端口: ${status.gateway_port}` : '未检测到'}
               </p>
             </div>
           </div>
           {isAdmin() && (
-            <div className="flex gap-2">
+            <div className="flex gap-1.5">
               <button
                 onClick={() => handleRestart(false)}
                 disabled={restarting}
-                className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-[var(--warning)] hover:bg-[var(--warning)]/80 text-black text-xs font-medium disabled:opacity-50"
+                className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-[var(--warning)] hover:bg-[var(--warning)]/80 text-black text-[11px] font-medium disabled:opacity-50"
               >
-                <RefreshCw className="w-3.5 h-3.5" />
-                {restarting ? 'Scheduling...' : 'Graceful Restart'}
+                <RefreshCw className="w-3 h-3" />
+                {isMobile ? '' : (restarting ? 'Scheduling...' : 'Restart')}
               </button>
               <button
                 onClick={() => handleRestart(true)}
                 disabled={restarting}
-                className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-[var(--danger)] hover:bg-[var(--danger)]/80 text-white text-xs font-medium disabled:opacity-50"
+                className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-[var(--danger)] hover:bg-[var(--danger)]/80 text-white text-[11px] font-medium disabled:opacity-50"
               >
-                <Power className="w-3.5 h-3.5" /> Force Restart
+                <Power className="w-3 h-3" />{isMobile ? '' : ' Force'}
               </button>
             </div>
           )}
         </div>
 
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
-          <div className="bg-[var(--bg-primary)] rounded-lg p-3">
-            <p className="text-[10px] text-[var(--text-secondary)] mb-0.5">状态</p>
-            <p
-              className={`text-sm font-semibold ${status?.running ? 'text-[var(--success)]' : 'text-[var(--danger)]'}`}
-            >
-              {status?.running ? '在线' : '离线'}
-            </p>
+        {!isMobile && (
+          <div className="grid grid-cols-4 gap-3">
+            <div className="bg-[var(--bg-primary)] rounded-lg p-3">
+              <p className="text-[10px] text-[var(--text-secondary)] mb-0.5">状态</p>
+              <p className={`text-sm font-semibold ${status?.running ? 'text-[var(--success)]' : 'text-[var(--danger)]'}`}>
+                {status?.running ? '在线' : '离线'}
+              </p>
+            </div>
+            <div className="bg-[var(--bg-primary)] rounded-lg p-3">
+              <p className="text-[10px] text-[var(--text-secondary)] mb-0.5">PID</p>
+              <p className="text-sm font-semibold">{status?.pid ?? '-'}</p>
+            </div>
+            <div className="bg-[var(--bg-primary)] rounded-lg p-3">
+              <p className="text-[10px] text-[var(--text-secondary)] mb-0.5">端口</p>
+              <p className="text-sm font-semibold">{status?.gateway_port ?? '-'}</p>
+            </div>
+            <div className="bg-[var(--bg-primary)] rounded-lg p-3">
+              <p className="text-[10px] text-[var(--text-secondary)] mb-0.5">运行时间</p>
+              <p className="text-sm font-semibold">{formatUptime(status?.uptime_seconds ?? null)}</p>
+            </div>
           </div>
-          <div className="bg-[var(--bg-primary)] rounded-lg p-3">
-            <p className="text-[10px] text-[var(--text-secondary)] mb-0.5">PID</p>
-            <p className="text-sm font-semibold">{status?.pid ?? '-'}</p>
-          </div>
-          <div className="bg-[var(--bg-primary)] rounded-lg p-3">
-            <p className="text-[10px] text-[var(--text-secondary)] mb-0.5">端口</p>
-            <p className="text-sm font-semibold">{status?.gateway_port ?? '-'}</p>
-          </div>
-          <div className="bg-[var(--bg-primary)] rounded-lg p-3">
-            <p className="text-[10px] text-[var(--text-secondary)] mb-0.5">运行时间</p>
-            <p className="text-sm font-semibold">{formatUptime(status?.uptime_seconds ?? null)}</p>
-          </div>
-        </div>
+        )}
       </div>
 
       <div className="bg-[var(--bg-secondary)] border border-[var(--border)] rounded-xl p-5">
