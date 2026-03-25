@@ -32,29 +32,39 @@ def apply_tools_patch() -> str:
         
         from nanobot.config.loader import load_config
         config = load_config()
-        
-        cc_config = config.agents.defaults.claude_code_config or None
-        
+
+        # ClaudeCodeConfig is at tools.claude_code (fork schema)
+        # Fallback gracefully if the field doesn't exist (vanilla schema)
+        cc_cfg = getattr(getattr(config, "tools", None), "claude_code", None)
+        cc_model = (cc_cfg.model if cc_cfg else None) or \
+                   getattr(getattr(config.agents.defaults, None, None), "claude_code_model", None) or \
+                   "claude-sonnet-4-20250514"
+        cc_max_turns = cc_cfg.max_turns if cc_cfg else 15
+        cc_allowed_tools = cc_cfg.allowed_tools if cc_cfg else "Read,Edit,Bash,Glob,Grep"
+        cc_timeout = cc_cfg.timeout if cc_cfg else 600
+
         self.tools.register(ClaudeCodeTool(
             workspace=self.workspace,
             token_stats=getattr(self, 'token_stats', None),
             default_project=str(self.workspace),
-            model=config.agents.defaults.claude_code_model or "claude-sonnet-4-20250514",
-            max_turns=15,
-            allowed_tools="Read,Edit,Bash,Glob,Grep",
-            timeout=600,
+            model=cc_model,
+            max_turns=cc_max_turns,
+            allowed_tools=cc_allowed_tools,
+            timeout=cc_timeout,
             subagent_manager=self.subagents,
-            cc_config=cc_config,
+            cc_config=cc_cfg,
         ))
         
         self.tools.register(ImageGenTool(
             token_stats=getattr(self, 'token_stats', None),
             media_service=getattr(self, 'media_service', None),
         ))
-        
+
+        # Vision tool: prefer vision_model if configured
+        vision_model = getattr(config.agents.defaults, "vision_model", None) or self.model
         self.tools.register(VisionTool(
             provider=self.provider,
-            model=self.model,
+            model=vision_model,
             token_stats=getattr(self, 'token_stats', None),
         ))
         

@@ -1,0 +1,10 @@
+project: nanobot-ava
+description: nanobot Sidecar 架构扩展 (cafeext/)
+version: "0.1"
+
+default_schema: sdd-riper-one
+
+module_index: .specanchor/modules/module-index.md
+
+token_budget:
+  global_spec_max_lines: 200

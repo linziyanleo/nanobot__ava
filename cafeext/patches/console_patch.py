@@ -1,55 +1,111 @@
-"""Patch to mount Web Console onto the Gateway FastAPI app.
+"""Patch to launch Web Console alongside the nanobot gateway.
 
-Unlike other patches that are zero-arg callables, the Console patch
-needs runtime context (the FastAPI app, workspace, agent_loop, etc.).
+Strategy:
+  Wrap the Typer `gateway` command callback so that before calling
+  asyncio.run(), we inject a Console uvicorn server into the same
+  event loop as a background task.
 
-Strategy: we monkey-patch the CLI gateway command so that after it
-creates the FastAPI app but before it calls uvicorn.run(), it mounts
-the Console sub-application.
+Console is served at: http://0.0.0.0:<CAFE_CONSOLE_PORT>  (default 18791)
+Set CAFE_CONSOLE_PORT env var to change.
 """
 
 from __future__ import annotations
 
+import os
+
 from loguru import logger
 
-from cafeext.launcher import register_patch as _register
+from cafeext.launcher import register_patch
+
+CONSOLE_PORT = int(os.environ.get("CAFE_CONSOLE_PORT", "18791"))
+CONSOLE_HOST = os.environ.get("CAFE_CONSOLE_HOST", "0.0.0.0")
 
 
 def apply_console_patch() -> str:
-    """Patch the gateway startup to mount the Web Console.
-
-    We wrap ``nanobot.cli.commands._create_gateway_app`` (or equivalent) so
-    that the Console FastAPI app is mounted onto the main app at /console
-    before Uvicorn begins serving.
-    """
     import nanobot.cli.commands as cli_mod
 
-    if not hasattr(cli_mod, "_create_gateway_app"):
-        logger.warning(
-            "Gateway app factory not found — console patch skipped. "
-            "Console can still be mounted manually a cafeext.console.app."
-        )
-        return "Console patch skipped (no _create_gateway_app found)"
+    # Find the gateway CommandInfo in the Typer app
+    gateway_cmd = None
+    for cmd_info in cli_mod.app.registered_commands:
+        cb = getattr(cmd_info, "callback", None)
+        if cb and cb.__name__ == "gateway":
+            gateway_cmd = cmd_info
+            break
 
-    original_factory = cli_mod._create_gateway_app
+    if gateway_cmd is None:
+        logger.warning("gateway command not found in Typer app — console patch skipped")
+        return "Console patch skipped (gateway command not found)"
 
-    def patched_gateway_factory(*args, **kwargs):
-        """Create the gateway app, then mount Console onto it."""
-        app = original_factory(*args, **kwargs)
+    original_callback = gateway_cmd.callback
 
+    def patched_gateway(*args, **kwargs) -> None:
+        """Wrap gateway to inject Console into the event loop."""
+        import asyncio
+
+        original_asyncio_run = asyncio.run
+
+        _intercepted = {"done": False}
+
+        def patched_asyncio_run(coro, **run_kwargs):
+            if _intercepted["done"]:
+                return original_asyncio_run(coro, **run_kwargs)
+            _intercepted["done"] = True
+
+            async def _with_console():
+                console_task = None
+                try:
+                    from cafeext.console.app import create_console_app
+                    import uvicorn
+
+                    console_app = create_console_app()
+                    uvicorn_config = uvicorn.Config(
+                        console_app,
+                        host=CONSOLE_HOST,
+                        port=CONSOLE_PORT,
+                        log_level="warning",
+                    )
+                    server = uvicorn.Server(uvicorn_config)
+                    console_task = asyncio.create_task(server.serve())
+                    logger.info(
+                        "Web Console starting at http://{}:{}/", CONSOLE_HOST, CONSOLE_PORT
+                    )
+                    print(
+                        f"☕ Web Console → http://localhost:{CONSOLE_PORT}/"
+                    )
+                except Exception as exc:
+                    logger.warning("Failed to start Web Console: {}", exc)
+
+                try:
+                    await coro
+                finally:
+                    if console_task and not console_task.done():
+                        console_task.cancel()
+                        try:
+                            await console_task
+                        except asyncio.CancelledError:
+                            pass
+
+            try:
+                asyncio.run = original_asyncio_run  # restore before running
+                return original_asyncio_run(_with_console(), **run_kwargs)
+            finally:
+                pass  # asyncio.run already restored
+
+        asyncio.run = patched_asyncio_run
         try:
-            from cafeext.console.app import create_console_app
+            original_callback(*args, **kwargs)
+        finally:
+            asyncio.run = original_asyncio_run  # ensure restore
 
-            console_app = create_console_app()
-            app.mount("/console", console_app, name="console")
-            logger.info("Web Console mounted at /console")
-        except Exception as exc:
-            logger.error("Failed to mount Web Console: {}", exc)
+    # Replace the callback in the CommandInfo
+    gateway_cmd.callback = patched_gateway
+    # Also update the module-level function reference
+    cli_mod.gateway = patched_gateway
 
-        return app
+    return (
+        f"gateway callback wrapped — Console will start at "
+        f"http://localhost:{CONSOLE_PORT}/"
+    )
 
-    cli_mod._create_gateway_app = patched_gateway_factory
-    return "Gateway patched to mount Web Console at /console"
 
-
-_register("web_console", apply_console_patch)
+register_patch("web_console", apply_console_patch)

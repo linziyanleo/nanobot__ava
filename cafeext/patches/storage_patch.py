@@ -154,6 +154,13 @@ def apply_storage_patch() -> str:
     SessionManager._load = patched_load
     SessionManager.list_sessions = patched_list
 
+    # Share db with loop_patch so AgentLoop gets the same instance
+    try:
+        from cafeext.patches.loop_patch import set_shared_db
+        set_shared_db(db)
+    except Exception as exc:
+        logger.warning("Could not share db with loop_patch: {}", exc)
+
     return "SessionManager patched to use SQLite storage"
 
 
