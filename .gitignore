@@ -23,3 +23,10 @@ botpy.log
 nano.*.save
 .DS_Store
 uv.lock
+
+# IDE
+.cursor/
+.vscode/
+
+# Doc
+mydocs/
