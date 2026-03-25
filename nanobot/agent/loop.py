@@ -574,8 +574,9 @@ class AgentLoop:
             history = self._summarizer.summarize(history)
             if self._compression_enabled:
                 history = self.history_compressor.compress(history, msg.content)
-            # Subagent results are assistant outputs; other system messages stay user-role.
-            current_role = "assistant" if msg.sender_id == "subagent" else "user"
+            # Always use user role for system/subagent messages.
+            # Using assistant role here causes "assistant message prefill" errors on non-Claude models (e.g. Gemini).
+            current_role = "user"
             messages = self.context.build_messages(
                 history=history,
                 current_message=msg.content, channel=channel, chat_id=chat_id,
