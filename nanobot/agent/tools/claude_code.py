@@ -220,10 +220,20 @@ class ClaudeCodeTool(Tool):
                 stderr=asyncio.subprocess.PIPE,
                 cwd=cwd,
                 env=env,
+                limit=10 * 1024 * 1024,  # 10MB per line limit to avoid StreamReader overflow
             )
             try:
-                stdout_bytes, stderr_bytes = await asyncio.wait_for(
-                    process.communicate(),
+                # Use read() instead of communicate() to avoid asyncio StreamReader
+                # "Separator is found, but chunk is longer than limit" ValueError
+                # when claude CLI outputs a very large single-line JSON event.
+                async def _read_stdout() -> bytes:
+                    return await process.stdout.read() if process.stdout else b""
+
+                async def _read_stderr() -> bytes:
+                    return await process.stderr.read() if process.stderr else b""
+
+                stdout_bytes, stderr_bytes, _ = await asyncio.wait_for(
+                    asyncio.gather(_read_stdout(), _read_stderr(), process.wait()),
                     timeout=timeout,
                 )
             except asyncio.TimeoutError:
