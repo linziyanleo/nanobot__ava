@@ -62,6 +62,10 @@ export default function ChatPage() {
         setThinkingStreaming('')
         setSending(false)
         loadSessionMessages(sessionKey)
+      } else if (data.type === 'async_result') {
+        // Async result pushed from background tasks (e.g. claude_code completion).
+        // Reload the full message history so the new assistant reply appears.
+        loadSessionMessages(sessionKey)
       }
     }
     ws.onerror = () => setSending(false)

@@ -241,6 +241,9 @@ class ChannelManager:
                         await channel.send(msg)
                     except Exception as e:
                         logger.error("Error sending to {}: {}", msg.channel, e)
+                elif msg.channel == "console":
+                    if not self.bus.dispatch_to_console_listener(msg):
+                        logger.debug("Console message for chat_id={} has no active listener", msg.chat_id)
                 elif msg.channel not in ("cli", "cron", "system"):
                     logger.warning("Unknown channel: {}", msg.channel)
 
