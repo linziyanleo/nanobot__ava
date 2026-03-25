@@ -1,0 +1,49 @@
+{
+  "_comment": "扩展配置 — deep merge 到 config.json 之上，优先级更高。此文件不纳入 Git。",
+  "_usage": "将此文件复制为 ~/.nanobot/extra_config.json，然后填入敏感信息和自定义扩展。",
+
+  "providers": {
+    "anthropic": {
+      "apiKey": "sk-ant-xxx",
+      "apiBase": null
+    },
+    "openai": {
+      "apiKey": "sk-xxx",
+      "apiBase": null
+    },
+    "gemini": {
+      "apiKey": "",
+      "apiBase": null
+    },
+    "zenmux": {
+      "apiKey": "",
+      "apiBase": "https://zenmux.ai/api/anthropic"
+    }
+  },
+
+  "channels": {
+    "telegram": {
+      "token": "your-telegram-bot-token",
+      "proxy": "socks5://127.0.0.1:1080"
+    }
+  },
+
+  "tools": {
+    "claudeCode": {
+      "apiKey": "",
+      "baseUrl": ""
+    },
+    "web": {
+      "proxy": "socks5://127.0.0.1:1080",
+      "search": {
+        "apiKey": "your-brave-search-api-key"
+      }
+    }
+  },
+
+  "gateway": {
+    "console": {
+      "secretKey": "your-production-secret-key"
+    }
+  }
+}

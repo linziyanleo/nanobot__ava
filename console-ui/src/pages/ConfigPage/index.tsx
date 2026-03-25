@@ -1,5 +1,5 @@
 import { useEffect, useState, useRef, useCallback } from 'react'
-import { Save, RefreshCw } from 'lucide-react';
+import { Save, RefreshCw, FileJson, FilePlus2 } from 'lucide-react';
 import { api } from '../../api/client'
 import { useAuth } from '../../stores/auth'
 import type { ConfigData, NanobotConfig, ChannelBase } from './types'
@@ -10,8 +10,12 @@ import { ProviderSection } from './ProviderSection'
 import { GatewaySection } from './GatewaySection'
 import { ToolsSection } from './ToolsSection'
 import { TokenStatsSection } from './TokenStatsSection'
+import { ExtraConfigEditor } from './ExtraConfigEditor'
+
+type ConfigTab = 'main' | 'extra';
 
 export default function ConfigPage() {
+  const [activeTab, setActiveTab] = useState<ConfigTab>('main');
   const [data, setData] = useState<ConfigData | null>(null);
   const [parsed, setParsed] = useState<NanobotConfig | null>(null);
   const [saving, setSaving] = useState(false);
@@ -71,7 +75,12 @@ export default function ConfigPage() {
 
   const readOnly = !canEdit();
 
-  if (!parsed) {
+  const TABS = [
+    { id: 'main' as const, label: '主配置', icon: FileJson, desc: 'config.json' },
+    { id: 'extra' as const, label: '扩展配置', icon: FilePlus2, desc: 'extra_config.json' },
+  ];
+
+  if (activeTab === 'main' && !parsed) {
     return (
       <div className="h-[calc(100vh-3rem)] flex flex-col">
         <div className="flex items-center justify-between mb-4">
@@ -86,25 +95,45 @@ export default function ConfigPage() {
     <div className="h-[calc(100vh-3rem)] flex flex-col">
       <div className="flex items-center justify-between mb-4">
         <h1 className="text-2xl font-bold">配置管理</h1>
-        <div className="flex items-center gap-2">
-          <button
-            onClick={loadConfig}
-            className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-[var(--bg-tertiary)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] text-sm transition-colors"
-          >
-            <RefreshCw className="w-4 h-4" />
-            重载
-          </button>
-          {canEdit() && (
+        {activeTab === 'main' && (
+          <div className="flex items-center gap-2">
             <button
-              onClick={saveConfig}
-              disabled={!dirty || saving}
-              className="flex items-center gap-1.5 px-4 py-2 rounded-lg bg-[var(--accent)] hover:bg-[var(--accent-hover)] text-white text-sm font-medium transition-colors disabled:opacity-40"
+              onClick={loadConfig}
+              className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-[var(--bg-tertiary)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] text-sm transition-colors"
             >
-              <Save className="w-4 h-4" />
-              {saving ? '保存中...' : '保存'}
+              <RefreshCw className="w-4 h-4" />
+              重载
             </button>
-          )}
-        </div>
+            {canEdit() && (
+              <button
+                onClick={saveConfig}
+                disabled={!dirty || saving}
+                className="flex items-center gap-1.5 px-4 py-2 rounded-lg bg-[var(--accent)] hover:bg-[var(--accent-hover)] text-white text-sm font-medium transition-colors disabled:opacity-40"
+              >
+                <Save className="w-4 h-4" />
+                {saving ? '保存中...' : '保存'}
+              </button>
+            )}
+          </div>
+        )}
+      </div>
+
+      <div className="flex gap-1 mb-4 border-b border-[var(--border)]">
+        {TABS.map(tab => (
+          <button
+            key={tab.id}
+            onClick={() => setActiveTab(tab.id)}
+            className={`flex items-center gap-1.5 px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
+              activeTab === tab.id
+                ? 'border-[var(--accent)] text-[var(--accent)]'
+                : 'border-transparent text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
+            }`}
+          >
+            <tab.icon className="w-4 h-4" />
+            {tab.label}
+            <span className="text-xs opacity-60">({tab.desc})</span>
+          </button>
+        ))}
       </div>
 
       {message && (
@@ -115,76 +144,82 @@ export default function ConfigPage() {
         </div>
       )}
 
-      <div className="flex-1 overflow-y-auto space-y-4 pb-8">
-        {parsed.agents?.defaults && (
-          <AgentDefaultsSection
-            config={parsed.agents.defaults}
-            readOnly={readOnly}
-            onChange={defaults => updateParsed(p => ({ ...p, agents: { ...p.agents, defaults } }))}
-            providers={parsed.providers}
-          />
-        )}
+      {activeTab === 'main' && parsed && (
+        <div className="flex-1 overflow-y-auto space-y-4 pb-8">
+          {parsed.agents?.defaults && (
+            <AgentDefaultsSection
+              config={parsed.agents.defaults}
+              readOnly={readOnly}
+              onChange={defaults => updateParsed(p => ({ ...p, agents: { ...p.agents, defaults } }))}
+              providers={parsed.providers}
+            />
+          )}
 
-        {parsed.token_stats && (
-          <TokenStatsSection
-            config={parsed.token_stats}
-            readOnly={readOnly}
-            onChange={token_stats => updateParsed(p => ({ ...p, token_stats }))}
-          />
-        )}
+          {parsed.token_stats && (
+            <TokenStatsSection
+              config={parsed.token_stats}
+              readOnly={readOnly}
+              onChange={token_stats => updateParsed(p => ({ ...p, token_stats }))}
+            />
+          )}
 
-        {parsed.channels && (
-          <Section title="消息渠道" infoKey="channels" defaultOpen={true}>
-            <div className="space-y-3">
-              {Object.entries(parsed.channels).map(([name, channelConfig]) => {
-                if (typeof channelConfig !== 'object' || channelConfig === null) return null;
-                if (!('enabled' in channelConfig)) return null;
-                return (
-                  <ChannelSection
+          {parsed.channels && (
+            <Section title="消息渠道" infoKey="channels" defaultOpen={true}>
+              <div className="space-y-3">
+                {Object.entries(parsed.channels).map(([name, channelConfig]) => {
+                  if (typeof channelConfig !== 'object' || channelConfig === null) return null;
+                  if (!('enabled' in channelConfig)) return null;
+                  return (
+                    <ChannelSection
+                      key={name}
+                      name={name}
+                      config={channelConfig as ChannelBase}
+                      readOnly={readOnly}
+                      onChange={c => updateParsed(p => ({ ...p, channels: { ...p.channels, [name]: c } }))}
+                    />
+                  );
+                })}
+              </div>
+            </Section>
+          )}
+
+          {parsed.providers && (
+            <Section title="LLM 服务商" infoKey="providers" defaultOpen={true}>
+              <div className="space-y-3">
+                {Object.entries(parsed.providers).map(([name, providerConfig]) => (
+                  <ProviderSection
                     key={name}
                     name={name}
-                    config={channelConfig as ChannelBase}
+                    config={providerConfig}
                     readOnly={readOnly}
-                    onChange={c => updateParsed(p => ({ ...p, channels: { ...p.channels, [name]: c } }))}
+                    onChange={c => updateParsed(p => ({ ...p, providers: { ...p.providers, [name]: c } }))}
                   />
-                );
-              })}
-            </div>
-          </Section>
-        )}
+                ))}
+              </div>
+            </Section>
+          )}
 
-        {parsed.providers && (
-          <Section title="LLM 服务商" infoKey="providers" defaultOpen={true}>
-            <div className="space-y-3">
-              {Object.entries(parsed.providers).map(([name, providerConfig]) => (
-                <ProviderSection
-                  key={name}
-                  name={name}
-                  config={providerConfig}
-                  readOnly={readOnly}
-                  onChange={c => updateParsed(p => ({ ...p, providers: { ...p.providers, [name]: c } }))}
-                />
-              ))}
-            </div>
-          </Section>
-        )}
+          {parsed.gateway && (
+            <GatewaySection
+              config={parsed.gateway}
+              readOnly={readOnly}
+              onChange={gateway => updateParsed(p => ({ ...p, gateway }))}
+            />
+          )}
 
-        {parsed.gateway && (
-          <GatewaySection
-            config={parsed.gateway}
-            readOnly={readOnly}
-            onChange={gateway => updateParsed(p => ({ ...p, gateway }))}
-          />
-        )}
+          {parsed.tools && (
+            <ToolsSection
+              config={parsed.tools}
+              readOnly={readOnly}
+              onChange={tools => updateParsed(p => ({ ...p, tools }))}
+            />
+          )}
+        </div>
+      )}
 
-        {parsed.tools && (
-          <ToolsSection
-            config={parsed.tools}
-            readOnly={readOnly}
-            onChange={tools => updateParsed(p => ({ ...p, tools }))}
-          />
-        )}
-      </div>
+      {activeTab === 'extra' && (
+        <ExtraConfigEditor readOnly={readOnly} />
+      )}
     </div>
   );
 }

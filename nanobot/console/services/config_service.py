@@ -11,6 +11,7 @@ from nanobot.console.security import mask_config, reveal_field
 
 EDITABLE_CONFIGS = {
     "config.json": "config.json",
+    "extra_config.json": "extra_config.json",
     "cron/jobs.json": "cron/jobs.json",
 }
 

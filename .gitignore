@@ -15,6 +15,7 @@ docs/
 *.pywz
 *.pyzz
 .DS_Store
+extra_config.json
 .venv/
 venv/
 __pycache__/
