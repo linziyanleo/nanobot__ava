@@ -490,6 +490,14 @@ class AgentLoop:
 
     async def _dispatch(self, msg: InboundMessage) -> None:
         """Process a message under the global lock."""
+        # For system-channel messages (e.g. subagent announcements), resolve
+        # the real origin channel/chat_id so that fallback and error replies
+        # reach the user instead of being silently dropped on "system".
+        if msg.channel == "system" and ":" in msg.chat_id:
+            _reply_channel, _reply_chat = msg.chat_id.split(":", 1)
+        else:
+            _reply_channel, _reply_chat = msg.channel, msg.chat_id
+
         async with self._processing_lock:
             try:
                 response = await self._process_message(msg)
@@ -497,7 +505,7 @@ class AgentLoop:
                     await self.bus.publish_outbound(response)
                 else:
                     await self.bus.publish_outbound(OutboundMessage(
-                        channel=msg.channel, chat_id=msg.chat_id,
+                        channel=_reply_channel, chat_id=_reply_chat,
                         content="", metadata=msg.metadata or {},
                     ))
             except asyncio.CancelledError:
@@ -506,7 +514,7 @@ class AgentLoop:
             except Exception:
                 logger.exception("Error processing message for session {}", msg.session_key)
                 await self.bus.publish_outbound(OutboundMessage(
-                    channel=msg.channel, chat_id=msg.chat_id,
+                    channel=_reply_channel, chat_id=_reply_chat,
                     content="Sorry, I encountered an error.",
                 ))
 

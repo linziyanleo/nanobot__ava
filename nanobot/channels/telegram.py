@@ -660,8 +660,14 @@ class TelegramChannel(BaseChannel):
 
                 media_paths.append(str(file_path))
 
-                # Handle voice transcription
-                if media_type == "voice" or media_type == "audio":
+                # Handle voice transcription via whisper API (only when a
+                # whisper-compatible provider is configured).  When voice_model
+                # points to a general LLM (e.g. gemini), skip channel-level
+                # transcription and let the agent loop handle it via the LLM.
+                _is_whisper = (
+                    self._voice_model and "whisper" in self._voice_model.lower()
+                ) or self.groq_api_key
+                if (media_type == "voice" or media_type == "audio") and _is_whisper:
                     from nanobot.providers.transcription import TranscriptionProvider
                     transcriber = TranscriptionProvider(
                         model=self._voice_model or "whisper-large-v3",

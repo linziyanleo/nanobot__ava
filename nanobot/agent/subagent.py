@@ -1090,6 +1090,7 @@ You possess native multimodal perception. Tools like 'read_file' or 'web_fetch' 
                 stderr=asyncio.subprocess.PIPE,
                 cwd=cwd,
                 env=env,
+                limit=10 * 1024 * 1024,  # 10MB per line limit to avoid StreamReader overflow
             )
         except Exception as e:
             return "", f"Failed to start Claude Code: {e}", None
@@ -1098,13 +1099,14 @@ You possess native multimodal perception. Tools like 'read_file' or 'web_fetch' 
             nonlocal final_result
             if not process.stdout:
                 return
-            while True:
-                line = await process.stdout.readline()
-                if not line:
-                    break
-                text = line.decode("utf-8", errors="replace")
-                stdout_lines.append(text)
-                stripped = text.strip()
+            # Use read() instead of readline() to avoid asyncio StreamReader
+            # "Separator is found, but chunk is longer than limit" ValueError
+            # when claude CLI outputs a very large single-line JSON event.
+            raw = await process.stdout.read()
+            full_text = raw.decode("utf-8", errors="replace")
+            for line in full_text.splitlines(keepends=True):
+                stdout_lines.append(line)
+                stripped = line.strip()
                 if not stripped:
                     continue
                 try:
@@ -1119,11 +1121,9 @@ You possess native multimodal perception. Tools like 'read_file' or 'web_fetch' 
         async def _consume_stderr() -> None:
             if not process.stderr:
                 return
-            while True:
-                line = await process.stderr.readline()
-                if not line:
-                    break
-                stderr_lines.append(line.decode("utf-8", errors="replace"))
+            # Use read() instead of readline() for the same reason as stdout.
+            raw = await process.stderr.read()
+            stderr_lines.append(raw.decode("utf-8", errors="replace"))
 
         try:
             await asyncio.wait_for(

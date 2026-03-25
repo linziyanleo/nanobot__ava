@@ -219,9 +219,16 @@ Reply directly with text for conversations. Only use the 'message' tool to send 
         else:
             merged = [{"type": "text", "text": runtime_ctx}] + user_content
 
+        # Strip trailing assistant messages from history to avoid "assistant message prefill"
+        # errors on non-Claude models (e.g. Gemini). This can happen when a tool callback
+        # notification is sent right after an assistant turn.
+        sanitized_history = list(history)
+        while sanitized_history and sanitized_history[-1].get("role") == "assistant":
+            sanitized_history.pop()
+
         return [
             {"role": "system", "content": self.build_system_prompt(skill_names, channel=channel, chat_id=chat_id)},
-            *history,
+            *sanitized_history,
             {"role": current_role, "content": merged},
         ]
 
