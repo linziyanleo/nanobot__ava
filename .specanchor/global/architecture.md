@@ -2,15 +2,15 @@
 
 ## 核心原则
 
-1. **零侵入上游**：`nanobot/` 目录保持 100% 纯净，所有定制逻辑在 `cafeext/` 中实现
+1. **零侵入上游**：`nanobot/` 目录保持 100% 纯净，所有定制逻辑在 `ava/` 中实现
 2. **Monkey Patch 优先**：能通过运行时 patch 实现的功能，不做 Fork
-3. **Fork 作为最后手段**：Fork 文件放入 `cafeext/forks/`，通过路径覆盖机制生效
+3. **Fork 作为最后手段**：Fork 文件放入 `ava/forks/`，通过路径覆盖机制生效
 4. **最小化拦截点**：patch 只作用于入口/出口（CLI 层、工具执行层、消息总线层）
 
 ## 目录结构
 
 ```
-cafeext/
+ava/
 ├── launcher.py          # 统一入口，依次 apply 所有 patch
 ├── patches/             # Monkey Patch 模块，文件名 *_patch.py 自动发现
 ├── forks/               # Fork 覆盖的上游文件（镜像 nanobot/ 结构）
@@ -33,6 +33,6 @@ cafeext/
 
 ## Fork 覆盖规范
 
-- Fork 文件路径：`cafeext/forks/<mirror_of_nanobot_path>`
+- Fork 文件路径：`ava/forks/<mirror_of_nanobot_path>`
 - 在 `launcher.py` 中通过 `sys.modules` 注入或 `importlib` 覆盖
 - Fork 文件顶部注释标注与上游的 diff 摘要，方便合并冲突时参考

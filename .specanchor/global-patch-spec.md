@@ -1,6 +1,6 @@
 # Global Patch Spec — Sidecar Monkey Patch 规范
 
-> 本规范适用于 `cafeext/patches/` 目录下所有 Monkey Patch 模块。
+> 本规范适用于 `ava/patches/` 目录下所有 Monkey Patch 模块。
 > 所有开发者在编写、审查或维护 patch 时必须遵守本规范。
 
 ---
@@ -9,7 +9,7 @@
 
 ### 1.1 零上游污染原则
 - **绝对禁止**修改 `nanobot/` 目录下的任何文件
-- 所有定制逻辑必须放在 `cafeext/` 目录中
+- 所有定制逻辑必须放在 `ava/` 目录中
 - Patch 通过 Python 运行时动态替换实现，不改变磁盘上的上游源码
 
 ### 1.2 最小化拦截原则
@@ -22,7 +22,7 @@
 
 ### 1.3 可撤销原则
 - 每个 patch 必须可以独立禁用
-- 禁用方式：在 `cafeext/patches/` 中删除或重命名对应的 `*_patch.py` 文件
+- 禁用方式：在 `ava/patches/` 中删除或重命名对应的 `*_patch.py` 文件
 - 禁用后系统回退到上游默认行为，不产生错误
 - Patch 函数必须保存原始方法的引用（如 `original_xxx = Class.method`），以便运行时回滚
 
@@ -42,7 +42,7 @@
 
 ### 2.1 文件命名
 ```
-cafeext/patches/{module_name}_patch.py
+ava/patches/{module_name}_patch.py
 ```
 - `module_name` 对应被 patch 的上游模块或功能域
 - 示例：`tools_patch.py`、`channel_patch.py`、`console_patch.py`、`storage_patch.py`
@@ -75,7 +75,7 @@ def apply_{module_name}_patch() -> str:
 每个 patch 文件必须在模块末尾通过 `register_patch()` 自注册：
 
 ```python
-from cafeext.launcher import register_patch
+from ava.launcher import register_patch
 register_patch("{patch_name}", apply_{module_name}_patch)
 ```
 
@@ -90,7 +90,7 @@ register_patch("{patch_name}", apply_{module_name}_patch)
 ## 3. Patch 注册与执行
 
 ### 3.1 注册中心
-所有 patch 在 `cafeext/launcher.py` 的 `apply_all_patches()` 中统一发现和执行。
+所有 patch 在 `ava/launcher.py` 的 `apply_all_patches()` 中统一发现和执行。
 
 ### 3.2 执行顺序
 Patch 按文件名字母序发现，但逻辑上遵循依赖顺序：
@@ -195,7 +195,7 @@ class TestToolsPatch:
 
 在提交新的 patch 文件前，确认以下事项：
 
-- [ ] 文件放在 `cafeext/patches/` 目录，命名为 `{module}_patch.py`
+- [ ] 文件放在 `ava/patches/` 目录，命名为 `{module}_patch.py`
 - [ ] 有完整的模块级文档字符串
 - [ ] `apply_*_patch()` 函数有返回值描述
 - [ ] 在模块末尾通过 `register_patch()` 自注册
@@ -212,7 +212,7 @@ class TestToolsPatch:
 ## 7. 版本兼容性
 
 ### 7.1 上游版本追踪
-- 在 `cafeext/` 根目录维护 `UPSTREAM_VERSION` 文件，记录最后验证通过的上游 commit hash
+- 在 `ava/` 根目录维护 `UPSTREAM_VERSION` 文件，记录最后验证通过的上游 commit hash
 - 每次上游更新后，运行全量 patch 测试
 
 ### 7.2 降级策略

@@ -1,6 +1,6 @@
 # Module Spec: console_patch — Web Console 注入
 
-> 文件：`cafeext/patches/console_patch.py`
+> 文件：`ava/patches/console_patch.py`
 > 状态：✅ 已实现（Phase 1）
 
 ---
@@ -33,8 +33,8 @@
 - `nanobot.cli.commands._create_gateway_app` — 具体拦截的工厂函数
 
 ### Sidecar 内部依赖
-- `cafeext.console.app.create_console_app` — Console 子应用工厂
-- `cafeext.launcher.register_patch` — 自注册机制（别名 `_register`）
+- `ava.console.app.create_console_app` — Console 子应用工厂
+- `ava.launcher.register_patch` — 自注册机制（别名 `_register`）
 
 ---
 
@@ -43,7 +43,7 @@
 ### 4.1 优雅降级
 - 若 `_create_gateway_app` 不存在于 `cli.commands` 模块中，patch 跳过并输出 warning
 - 返回描述性字符串说明 patch 被跳过
-- Console 仍可通过 `cafeext.console.app` 手动挂载
+- Console 仍可通过 `ava.console.app` 手动挂载
 
 ### 4.2 Console 挂载失败处理
 - `create_console_app()` 执行失败时捕获异常并 log error

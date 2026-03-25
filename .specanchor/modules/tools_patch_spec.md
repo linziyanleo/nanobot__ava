@@ -1,6 +1,6 @@
 # Module Spec: tools_patch — 自定义工具注入
 
-> 文件：`cafeext/patches/tools_patch.py`
+> 文件：`ava/patches/tools_patch.py`
 > 状态：✅ 已实现（Phase 1）
 
 ---
@@ -29,11 +29,11 @@
 
 | 工具名 | 类 | 源文件 | 功能 |
 |--------|-----|--------|------|
-| `claude_code` | `ClaudeCodeTool` | `cafeext/tools/claude_code.py` | Claude Code 子代理，支持代码读写、执行 |
-| `image_gen` | `ImageGenTool` | `cafeext/tools/image_gen.py` | 图片生成（集成外部 API） |
-| `vision` | `VisionTool` | `cafeext/tools/vision.py` | 图片/视觉内容识别 |
-| `send_sticker` | `StickerTool` | `cafeext/tools/sticker.py` | Telegram 贴纸发送 |
-| `memory` | `MemoryTool` | `cafeext/tools/memory_tool.py` | 分类记忆的增删改查 |
+| `claude_code` | `ClaudeCodeTool` | `ava/tools/claude_code.py` | Claude Code 子代理，支持代码读写、执行 |
+| `image_gen` | `ImageGenTool` | `ava/tools/image_gen.py` | 图片生成（集成外部 API） |
+| `vision` | `VisionTool` | `ava/tools/vision.py` | 图片/视觉内容识别 |
+| `send_sticker` | `StickerTool` | `ava/tools/sticker.py` | Telegram 贴纸发送 |
+| `memory` | `MemoryTool` | `ava/tools/memory_tool.py` | 分类记忆的增删改查 |
 
 ---
 
@@ -44,8 +44,8 @@
 - `nanobot.config.loader.load_config` — 读取配置
 
 ### Sidecar 内部依赖
-- `cafeext.tools.*` — 5 个工具的实现类
-- `cafeext.launcher.register_patch` — 自注册机制
+- `ava.tools.*` — 5 个工具的实现类
+- `ava.launcher.register_patch` — 自注册机制
 
 ### 运行时依赖
 - `AgentLoop` 实例的属性：`workspace`、`provider`、`model`、`subagents`、`tools`

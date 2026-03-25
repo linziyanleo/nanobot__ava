@@ -22,8 +22,8 @@
 | 类型 | 路径 |
 |------|------|
 | 源码（feat/0.0.1） | `nanobot/bus/queue.py`（+43 行变更） |
-| 计划实现位置 | `cafeext/bus/console_listener.py` |
-| Patch 文件 | `cafeext/patches/bus_patch.py`（新建） |
+| 计划实现位置 | `ava/bus/console_listener.py` |
+| Patch 文件 | `ava/patches/bus_patch.py`（新建） |
 
 ---
 
@@ -87,8 +87,8 @@ def apply_bus_patch() -> str:
 - `nanobot.bus.queue.MessageBus` — 拦截目标
 
 ### Sidecar 内部依赖
-- `cafeext.console.app` — Console 子应用，WebSocket 端点的消费者
-- `cafeext.patches.console_patch` — 依赖 Console 已挂载
+- `ava.console.app` — Console 子应用，WebSocket 端点的消费者
+- `ava.patches.console_patch` — 依赖 Console 已挂载
 
 ### 外部依赖
 - `asyncio` — 异步事件分发

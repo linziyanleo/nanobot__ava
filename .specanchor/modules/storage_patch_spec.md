@@ -1,6 +1,6 @@
 # Module Spec: storage_patch — SQLite 存储层替换
 
-> 文件：`cafeext/patches/storage_patch.py`
+> 文件：`ava/patches/storage_patch.py`
 > 状态：✅ 已实现（Phase 1）
 
 ---
@@ -76,8 +76,8 @@
 - `nanobot.config.paths.get_workspace_path` — 工作区路径
 
 ### Sidecar 内部依赖
-- `cafeext.storage.Database` — SQLite 数据库封装类
-- `cafeext.launcher.register_patch` — 自注册机制
+- `ava.storage.Database` — SQLite 数据库封装类
+- `ava.launcher.register_patch` — 自注册机制
 
 ---
 

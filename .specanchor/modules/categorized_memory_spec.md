@@ -22,8 +22,8 @@
 | 类型 | 路径 |
 |------|------|
 | 源码（feat/0.0.1） | `nanobot/agent/categorized_memory.py`（+247 行，纯新增） |
-| 计划实现位置 | `cafeext/agent/categorized_memory.py` |
-| Patch 文件 | `cafeext/patches/memory_patch.py`（新建） |
+| 计划实现位置 | `ava/agent/categorized_memory.py` |
+| Patch 文件 | `ava/patches/memory_patch.py`（新建） |
 | 配置文件 | `{workspace}/identity_map.yaml` |
 
 ---
@@ -87,8 +87,8 @@ def apply_memory_patch() -> str:
 - `nanobot.agent.context.ContextBuilder` — 注入记忆到系统提示词
 
 ### Sidecar 内部依赖
-- `cafeext.tools.memory_tool.MemoryTool` — 已在 `tools_patch` 中注册，依赖 `categorized_memory`
-- `cafeext.storage.Database` — 可选，记忆持久化到 SQLite
+- `ava.tools.memory_tool.MemoryTool` — 已在 `tools_patch` 中注册，依赖 `categorized_memory`
+- `ava.storage.Database` — 可选，记忆持久化到 SQLite
 
 ### 外部依赖
 - `PyYAML` — 解析 `identity_map.yaml`

@@ -1,6 +1,6 @@
 # Module Spec: channel_patch — 消息批处理与 Session Backfill
 
-> 文件：`cafeext/patches/channel_patch.py`
+> 文件：`ava/patches/channel_patch.py`
 > 状态：✅ 已实现（Phase 1）
 
 ---
@@ -45,10 +45,10 @@
 - `nanobot.bus.events.OutboundMessage` — 消息数据结构
 
 ### Sidecar 内部依赖
-- `cafeext.channels.batcher.MessageBatcher` — 批处理器实现
-- `cafeext.session.backfill_turns.backfill_workspace_sessions` — 工作区级回填
-- `cafeext.session.backfill_turns._backfill_messages` — 消息级回填
-- `cafeext.launcher.register_patch` — 自注册机制
+- `ava.channels.batcher.MessageBatcher` — 批处理器实现
+- `ava.session.backfill_turns.backfill_workspace_sessions` — 工作区级回填
+- `ava.session.backfill_turns._backfill_messages` — 消息级回填
+- `ava.launcher.register_patch` — 自注册机制
 
 ---
 

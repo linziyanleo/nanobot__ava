@@ -23,8 +23,8 @@
 | 类型 | 路径 |
 |------|------|
 | 源码（feat/0.0.1） | `nanobot/agent/commands.py`（+371 行，纯新增） |
-| 计划实现位置 | `cafeext/agent/commands.py` |
-| Patch 文件 | `cafeext/patches/commands_patch.py`（新建） |
+| 计划实现位置 | `ava/agent/commands.py` |
+| Patch 文件 | `ava/patches/commands_patch.py`（新建） |
 
 ---
 
@@ -102,8 +102,8 @@ def apply_commands_patch() -> str:
 - `nanobot.bus.events.InboundMessage` — 消息数据结构
 
 ### Sidecar 内部依赖
-- `cafeext.agent.categorized_memory.CategorizedMemoryStore` — `/memory` 命令依赖
-- `cafeext.storage.Database` — `/archive` 命令依赖
+- `ava.agent.categorized_memory.CategorizedMemoryStore` — `/memory` 命令依赖
+- `ava.storage.Database` — `/archive` 命令依赖
 
 ### 外部依赖
 - 无

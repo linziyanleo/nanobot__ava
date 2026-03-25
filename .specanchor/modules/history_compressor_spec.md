@@ -24,8 +24,8 @@
 | 类型 | 路径 |
 |------|------|
 | 源码（feat/0.0.1） | `nanobot/agent/history_compressor.py`（+205 行，纯新增） |
-| 计划实现位置 | `cafeext/agent/history_compressor.py` |
-| Patch 文件 | `cafeext/patches/history_patch.py`（新建，可与 history_summarizer 合并） |
+| 计划实现位置 | `ava/agent/history_compressor.py` |
+| Patch 文件 | `ava/patches/history_patch.py`（新建，可与 history_summarizer 合并） |
 
 ---
 

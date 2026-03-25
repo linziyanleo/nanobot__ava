@@ -1,5 +1,5 @@
 project: nanobot-ava
-description: nanobot Sidecar 架构扩展 (cafeext/)
+description: nanobot Sidecar 架构扩展 (ava/)
 version: "0.1"
 
 default_schema: sdd-riper-one

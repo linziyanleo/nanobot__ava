@@ -25,8 +25,8 @@
 | 类型 | 路径 |
 |------|------|
 | 源码（feat/0.0.1） | `nanobot/agent/history_summarizer.py`（+174 行，纯新增） |
-| 计划实现位置 | `cafeext/agent/history_summarizer.py` |
-| Patch 文件 | `cafeext/patches/history_patch.py`（与 history_compressor 共用） |
+| 计划实现位置 | `ava/agent/history_summarizer.py` |
+| Patch 文件 | `ava/patches/history_patch.py`（与 history_compressor 共用） |
 
 ---
 
@@ -89,7 +89,7 @@ class HistorySummarizer:
 - `nanobot.agent.loop.AgentLoop._build_messages` — 拦截目标（与 compressor 共用）
 
 ### Sidecar 内部依赖
-- `cafeext.agent.history_compressor.HistoryCompressor` — 协作关系（摘要 → 压缩）
+- `ava.agent.history_compressor.HistoryCompressor` — 协作关系（摘要 → 压缩）
 
 ### 外部依赖
 - 无（纯 Python 标准库）

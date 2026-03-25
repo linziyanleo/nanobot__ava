@@ -2,8 +2,8 @@
 
 | 模块路径 | Spec 文件 | 描述 |
 |---------|----------|------|
-| cafeext/patches/ | cafeext-patches.spec.md | Monkey Patch 集合 |
-| cafeext/console/ | cafeext-console.spec.md | Web Console 子应用 |
-| cafeext/tools/ | cafeext-tools.spec.md | 自定义工具集 |
-| cafeext/storage/ | cafeext-storage.spec.md | SQLite 存储层 |
-| cafeext/agent/ | cafeext-agent.spec.md | Agent 扩展（记忆/历史） |
+| ava/patches/ | ava-patches.spec.md | Monkey Patch 集合 |
+| ava/console/ | ava-console.spec.md | Web Console 子应用 |
+| ava/tools/ | ava-tools.spec.md | 自定义工具集 |
+| ava/storage/ | ava-storage.spec.md | SQLite 存储层 |
+| ava/agent/ | ava-agent.spec.md | Agent 扩展（记忆/历史） |
