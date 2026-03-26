@@ -24,7 +24,7 @@
 | 功能 | ava/ 位置 | Patch |
 |------|-----------|-------|
 | 5 个自定义工具 | `ava/tools/` | `tools_patch.py` |
-| Web Console 后端（standalone 模式） | `ava/console/` | `console_patch.py` |
+| Web Console 后端（full mode + fallback standalone） | `ava/console/` | `console_patch.py` |
 | SQLite 存储层 + Session Backfill | `ava/storage/` | `storage_patch.py` |
 | 消息批处理器 | `ava/channels/batcher.py` | `channel_patch.py` |
 | Session Backfill | `ava/session/backfill_turns.py` | `storage_patch.py`（集成） |
@@ -38,7 +38,8 @@
 | 历史摘要器 | `ava/agent/history_summarizer.py` | `loop_patch.py` + `context_patch.py` |
 | ContextBuilder 增强 | `ava/patches/context_patch.py` | `context_patch.py` |
 | Config Loader 绑定 | `a_schema_patch.py`（更新 loader.Config） | — |
-| Console Standalone 模式 | `console_patch.py` | HTTP 反向代理到 Gateway |
+| Console UI 前端 | `console-ui/`（React 19 + Vite 7） | `npm run build` → `dist/` |
+| PID 文件管理 | `console_patch.py` | 写入/清理 `~/.nanobot/gateway.pid` |
 
 ### 9 个 Patch 执行顺序
 
@@ -98,8 +99,9 @@ a_schema_patch → b_config_patch → bus_patch → channel_patch → console_pa
 ```
 Phase 1 ✅  Sidecar 骨架 + 5 工具 + Console + Storage + Batcher + Backfill + Skills
 Phase 2 ✅  Schema Fork + Config Patch + Bus Listener + Loop Patch
-Phase 3 ✅  分类记忆 + 历史压缩/摘要 + Gateway 启动修复 + Console UI + Docker/CI
-             └─ Gateway :18790 + Console :6688 + Telegram + Cron + Heartbeat
+Phase 3 ✅  分类记忆 + 历史压缩/摘要 + Gateway 启动 + Console UI + Docker/CI
+             └─ Gateway :18790 + Console :6688（full mode，直连 AgentLoop）
+             └─ Telegram + Cron + Heartbeat + Chat API + Config API 全部可用
              └─ 638 tests passed
 
 待做（按需）：
