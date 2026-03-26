@@ -55,16 +55,23 @@ def apply_console_patch() -> str:
 
             async def _with_console():
                 console_task = None
+                pid_file = None
                 try:
                     from ava.console.app import create_console_app_standalone
                     from nanobot.config.loader import load_config
                     from nanobot.config.paths import get_workspace_path
+                    from pathlib import Path
                     import uvicorn
 
                     cfg = load_config()
                     workspace = get_workspace_path()
                     nanobot_dir = workspace / "data"
                     nanobot_dir.mkdir(parents=True, exist_ok=True)
+
+                    # Write PID file so GatewayService can detect running gateway
+                    pid_file = Path.home() / ".nanobot" / "gateway.pid"
+                    pid_file.parent.mkdir(parents=True, exist_ok=True)
+                    pid_file.write_text(str(os.getpid()))
 
                     # Port priority: config → env → default
                     console_cfg = getattr(getattr(cfg, "gateway", None), "console", None)
@@ -118,6 +125,12 @@ def apply_console_patch() -> str:
                         try:
                             await console_task
                         except asyncio.CancelledError:
+                            pass
+                    # Clean up PID file
+                    if pid_file and pid_file.exists():
+                        try:
+                            pid_file.unlink()
+                        except OSError:
                             pass
 
             try:
