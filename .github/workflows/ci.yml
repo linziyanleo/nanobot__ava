@@ -2,7 +2,7 @@ name: Test Suite
 
 on:
   push:
-    branches: [ main, nightly ]
+    branches: [ main, nightly, refactor/sidecar ]
   pull_request:
     branches: [ main, nightly ]
 
@@ -30,5 +30,24 @@ jobs:
     - name: Install all dependencies
       run: uv sync --all-extras
 
-    - name: Run tests
-      run: uv run pytest tests/
+    - name: Run tests (upstream + sidecar patches)
+      run: uv run pytest tests/ -q
+
+  console-ui:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Node.js 20
+      uses: actions/setup-node@v4
+      with:
+        node-version: '20'
+        cache: 'npm'
+        cache-dependency-path: console-ui/package-lock.json
+
+    - name: Install and build Console UI
+      working-directory: console-ui
+      run: npm ci && npm run build
+
+    - name: Verify build output
+      run: test -f console-ui/dist/index.html
