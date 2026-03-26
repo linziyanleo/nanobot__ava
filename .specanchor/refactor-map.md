@@ -5,7 +5,7 @@
 > **已迁移** = 已在 `ava/` 中实现 Monkey Patch
 > **未迁移** = 仍然只存在于 `feat/0.0.1` 的 `nanobot/` 修改中
 >
-> 最后更新：2026-03-26（Phase 3 完成，Gateway 可启动）
+> 最后更新：2026-03-26（Phase 3 完成，Gateway+Console UI 可运行，Docker/CI 已适配）
 
 ---
 
@@ -86,10 +86,10 @@ a_schema_patch → b_config_patch → bus_patch → channel_patch → console_pa
 
 | 类别 | 状态 |
 |------|------|
-| Console UI 前端 (`console-ui/`) | 独立 React 项目，需 `npm run build` 后放到 `console-ui/dist/` |
-| Docker | 需适配 `python -m ava` 入口 |
-| CI/CD | 需加 patch 测试 |
-| Bridge (WhatsApp Node.js) | 未迁移 |
+| Console UI 前端 (`console-ui/`) | ✅ 已从 feat/0.0.1 提取，`npm run build` 验证通过 |
+| Docker | ✅ Dockerfile 已适配（`python -m ava` 入口 + console-ui 构建） |
+| CI/CD | ✅ 已添加 `refactor/sidecar` 触发 + `console-ui` 构建 job |
+| Bridge (WhatsApp Node.js) | ✅ 已有（Dockerfile 中已集成构建） |
 
 ---
 
@@ -98,12 +98,10 @@ a_schema_patch → b_config_patch → bus_patch → channel_patch → console_pa
 ```
 Phase 1 ✅  Sidecar 骨架 + 5 工具 + Console + Storage + Batcher + Backfill + Skills
 Phase 2 ✅  Schema Fork + Config Patch + Bus Listener + Loop Patch
-Phase 3 ✅  分类记忆 + 历史压缩/摘要接入 + Gateway 启动修复
-             └─ Gateway 可启动（Telegram + Cron + Heartbeat + Console :6688）
-             └─ 612 tests passed
+Phase 3 ✅  分类记忆 + 历史压缩/摘要 + Gateway 启动修复 + Console UI + Docker/CI
+             └─ Gateway :18790 + Console :6688 + Telegram + Cron + Heartbeat
+             └─ 638 tests passed
 
-待做：
-  ├─ Console UI 前端构建部署
-  ├─ Docker/CI 适配
-  └─ CommandRegistry / loop.py Fork / session Fork（按需）
+待做（按需）：
+  └─ CommandRegistry / loop.py Fork / session Fork
 ```

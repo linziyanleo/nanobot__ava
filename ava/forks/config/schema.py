@@ -296,6 +296,7 @@ class AgentDefaults(Base):
     max_tool_iterations: int = 40
     memory_window: int = 100
     reasoning_effort: str | None = None  # low / medium / high — enables LLM thinking mode
+    timezone: str = "UTC"  # IANA timezone, e.g. "Asia/Shanghai", "America/New_York"
     context_compression: ContextCompressionConfig = Field(default_factory=ContextCompressionConfig)
     in_loop_truncation: InLoopTruncationConfig = Field(default_factory=InLoopTruncationConfig)
     history_summarizer: HistorySummarizerConfig = Field(default_factory=HistorySummarizerConfig)
