@@ -1,32 +1,33 @@
-"""Channel extensions patch for TelegramChannel and SessionManager."""
+"""Channel extensions patch for TelegramChannel message batching.
+
+Intercept: TelegramChannel.send
+Behavior: Messages are queued in a MessageBatcher; within a 1-second window,
+multiple messages to the same chat_id are merged into a single send.
+
+Note: Session backfill is handled by storage_patch (after SQLite load),
+not here — avoids the _load ordering conflict between channel/storage patches.
+"""
 
 from __future__ import annotations
 
-import asyncio
 from typing import Any
 
 from loguru import logger
 
 from ava.channels.batcher import MessageBatcher
 from ava.launcher import register_patch
-from ava.session.backfill_turns import backfill_workspace_sessions
 
 
 def apply_channel_patch() -> str:
     """
-    Patch TelegramChannel to add message batching and SessionManager to add backfill.
+    Patch TelegramChannel to add message batching.
 
     Returns:
         Description of what was patched.
     """
     from nanobot.channels.telegram import TelegramChannel
-    from nanobot.config.paths import get_workspace_path
-    from nanobot.session.manager import SessionManager
-
-    workspace = get_workspace_path()
 
     original_send = TelegramChannel.send
-    original_load = SessionManager._load
 
     batcher: MessageBatcher | None = None
 
@@ -49,7 +50,6 @@ def apply_channel_patch() -> str:
             media=media,
             metadata=metadata,
         )
-        # We need a TelegramChannel instance — store it when first patched send is called
         instance = _channel_instance.get("ref")
         if instance is not None:
             await original_send(instance, msg)
@@ -78,29 +78,9 @@ def apply_channel_patch() -> str:
             session_key=None,
         )
 
-    def patched_load(self: SessionManager, key: str) -> Any:
-        """Load session and apply backfill if needed."""
-        session = original_load(self, key)
-
-        if session is not None:
-            from ava.session.backfill_turns import _backfill_messages
-
-            messages = session.messages
-            fixed_messages, inserted, normalized = _backfill_messages(messages)
-
-            if inserted > 0 or normalized > 0:
-                session.messages = fixed_messages
-                logger.info(
-                    "Backfilled session {}: {} placeholders added, {} normalized",
-                    key, inserted, normalized
-                )
-
-        return session
-
     TelegramChannel.send = patched_send
-    SessionManager._load = patched_load
 
-    return "TelegramChannel.send patched with batching, SessionManager patched with backfill"
+    return "TelegramChannel.send patched with message batching"
 
 
 register_patch("channel_extensions", apply_channel_patch)

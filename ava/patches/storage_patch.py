@@ -88,22 +88,22 @@ def apply_storage_patch() -> str:
         self._cache[session.key] = session
 
     def patched_load(self: SessionManager, key: str) -> Session | None:
-        """Load session from SQLite database."""
+        """Load session from SQLite database, then apply backfill."""
         conn = db._get_conn()
-        
+
         session_row = conn.execute(
             "SELECT * FROM sessions WHERE key = ?", (key,)
         ).fetchone()
-        
+
         if not session_row:
             return None
-        
+
         messages = []
         msg_rows = conn.execute(
             "SELECT * FROM session_messages WHERE session_id = ? ORDER BY seq",
             (session_row["id"],),
         ).fetchall()
-        
+
         for msg_row in msg_rows:
             msg = {
                 "role": msg_row["role"],
@@ -119,19 +119,34 @@ def apply_storage_patch() -> str:
             if msg_row["reasoning_content"]:
                 msg["reasoning_content"] = msg_row["reasoning_content"]
             messages.append(msg)
-        
+
         metadata = __import__("json").loads(session_row["metadata"])
         metadata["token_stats"] = __import__("json").loads(session_row["token_stats"])
         if session_row["last_completed"]:
             metadata["last_completed"] = session_row["last_completed"]
-        
-        return Session(
+
+        session = Session(
             key=key,
             messages=messages,
             created_at=__import__("datetime").datetime.fromisoformat(session_row["created_at"]),
             metadata=metadata,
             last_consolidated=session_row["last_consolidated"],
         )
+
+        # Apply backfill after SQLite load (replaces channel_patch's _load wrapper)
+        try:
+            from ava.session.backfill_turns import _backfill_messages
+            fixed_messages, inserted, normalized = _backfill_messages(session.messages)
+            if inserted > 0 or normalized > 0:
+                session.messages = fixed_messages
+                logger.info(
+                    "Backfilled session {}: {} placeholders added, {} normalized",
+                    key, inserted, normalized,
+                )
+        except Exception as exc:
+            logger.warning("Backfill failed for session {}: {}", key, exc)
+
+        return session
 
     def patched_list(self: SessionManager) -> list[dict[str, Any]]:
         """List all sessions from SQLite database."""

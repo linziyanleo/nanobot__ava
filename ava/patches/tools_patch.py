@@ -37,7 +37,7 @@ def apply_tools_patch() -> str:
         # Fallback gracefully if the field doesn't exist (vanilla schema)
         cc_cfg = getattr(getattr(config, "tools", None), "claude_code", None)
         cc_model = (cc_cfg.model if cc_cfg else None) or \
-                   getattr(getattr(config.agents.defaults, None, None), "claude_code_model", None) or \
+                   getattr(config.agents.defaults, "claude_code_model", None) or \
                    "claude-sonnet-4-20250514"
         cc_max_turns = cc_cfg.max_turns if cc_cfg else 15
         cc_allowed_tools = cc_cfg.allowed_tools if cc_cfg else "Read,Edit,Bash,Glob,Grep"

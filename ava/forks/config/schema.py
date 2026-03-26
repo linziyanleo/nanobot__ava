@@ -372,6 +372,7 @@ class WebToolsConfig(Base):
 class ExecToolConfig(Base):
     """Shell exec tool configuration."""
 
+    enable: bool = True
     timeout: int = 60
     path_append: str = ""
     auto_venv: bool = True  # Auto-detect and activate venv in workspace
