@@ -2,11 +2,12 @@
 
 Strategy:
   Wrap the Typer `gateway` command callback so that before calling
-  asyncio.run(), we inject a standalone Console uvicorn server into
-  the same event loop as a background task.
+  asyncio.run(), we inject a Console uvicorn server into the same
+  event loop as a background task.
 
-  The standalone Console uses HTTP reverse-proxy to forward /api/chat
-  requests to the gateway, so it does not require a live AgentLoop ref.
+  The Console uses the full create_console_app() with a live AgentLoop
+  reference (captured by loop_patch during __init__), enabling direct
+  chat API without HTTP reverse-proxy.
 
 Console is served at: http://0.0.0.0:<port>
 Port priority: config.gateway.console.port → CAFE_CONSOLE_PORT env → 6688
@@ -57,7 +58,6 @@ def apply_console_patch() -> str:
                 console_task = None
                 pid_file = None
                 try:
-                    from ava.console.app import create_console_app_standalone
                     from nanobot.config.loader import load_config
                     from nanobot.config.paths import get_workspace_path
                     from pathlib import Path
@@ -73,33 +73,53 @@ def apply_console_patch() -> str:
                     pid_file.parent.mkdir(parents=True, exist_ok=True)
                     pid_file.write_text(str(os.getpid()))
 
-                    # Port priority: config → env → default
+                    # Port config
                     console_cfg = getattr(getattr(cfg, "gateway", None), "console", None)
                     console_port = (
                         (console_cfg.port if console_cfg else None)
                         or int(os.environ.get("CAFE_CONSOLE_PORT", "6688"))
                     )
                     console_host = os.environ.get("CAFE_CONSOLE_HOST", "0.0.0.0")
-                    gateway_port = getattr(cfg.gateway, "port", 18790)
-                    secret_key = (
-                        (console_cfg.secret_key if console_cfg else None)
-                        or "change-me-in-production-use-a-longer-key!"
-                    )
-                    expire_minutes = (
-                        (console_cfg.token_expire_minutes if console_cfg else None)
-                        or 480
-                    )
-                    token_stats_dir = str(workspace / "data")
 
-                    console_app = create_console_app_standalone(
-                        nanobot_dir=nanobot_dir,
-                        workspace=workspace,
-                        gateway_port=gateway_port,
-                        console_port=console_port,
-                        secret_key=secret_key,
-                        expire_minutes=expire_minutes,
-                        token_stats_dir=token_stats_dir,
-                    )
+                    # Get AgentLoop reference from loop_patch (set during __init__)
+                    from ava.patches.loop_patch import get_agent_loop
+                    agent_loop = get_agent_loop()
+
+                    if agent_loop is not None:
+                        # Full mode: direct AgentLoop access, chat API works
+                        from ava.console.app import create_console_app
+                        console_app = create_console_app(
+                            nanobot_dir=nanobot_dir,
+                            workspace=workspace,
+                            agent_loop=agent_loop,
+                            config=cfg,
+                            token_stats_collector=getattr(agent_loop, "token_stats", None),
+                            db=getattr(agent_loop, "db", None),
+                        )
+                        logger.info("Console starting in full mode (direct AgentLoop access)")
+                    else:
+                        # Fallback: standalone mode with HTTP proxy
+                        from ava.console.app import create_console_app_standalone
+                        gateway_port = getattr(cfg.gateway, "port", 18790)
+                        secret_key = (
+                            (console_cfg.secret_key if console_cfg else None)
+                            or "change-me-in-production-use-a-longer-key!"
+                        )
+                        expire_minutes = (
+                            (console_cfg.token_expire_minutes if console_cfg else None)
+                            or 480
+                        )
+                        console_app = create_console_app_standalone(
+                            nanobot_dir=nanobot_dir,
+                            workspace=workspace,
+                            gateway_port=gateway_port,
+                            console_port=console_port,
+                            secret_key=secret_key,
+                            expire_minutes=expire_minutes,
+                            token_stats_dir=str(workspace / "data"),
+                        )
+                        logger.info("Console starting in standalone mode (HTTP proxy)")
+
                     uvicorn_config = uvicorn.Config(
                         console_app,
                         host=console_host,

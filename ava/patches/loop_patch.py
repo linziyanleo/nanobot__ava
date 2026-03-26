@@ -27,12 +27,19 @@ from ava.launcher import register_patch
 
 # Module-level shared db reference (set by storage_patch after us)
 _shared_db = None
+# Module-level reference to the most recently created AgentLoop (for console_patch)
+_agent_loop_ref = None
 
 
 def set_shared_db(db) -> None:
     """Called by storage_patch to share the Database instance."""
     global _shared_db
     _shared_db = db
+
+
+def get_agent_loop():
+    """Return the most recently created AgentLoop instance (or None)."""
+    return _agent_loop_ref
 
 
 def _get_or_create_db(workspace_path) -> object | None:
@@ -60,6 +67,10 @@ def apply_loop_patch() -> str:
     def patched_init(self: AgentLoop, *args, **kwargs) -> None:
         original_init(self, *args, **kwargs)
 
+        # Save ref for console_patch to access the AgentLoop instance
+        global _agent_loop_ref
+        _agent_loop_ref = self
+
         db = _get_or_create_db(self.workspace)
         self.db = db
 
@@ -76,7 +87,8 @@ def apply_loop_patch() -> str:
         # MediaService
         try:
             from ava.console.services.media_service import MediaService
-            self.media_service = MediaService(workspace=self.workspace, db=db)
+            media_dir = self.workspace / "data" / "media" / "generated"
+            self.media_service = MediaService(media_dir=media_dir, db=db)
         except Exception as exc:
             logger.warning("Failed to init MediaService: {}", exc)
             self.media_service = None
