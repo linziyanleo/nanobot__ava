@@ -1,9 +1,13 @@
 """Monkey patch to inject ava capabilities into AgentLoop.
 
 Injected attributes (after __init__):
-  - self.db             — shared Database instance (from storage_patch)
-  - self.token_stats    — TokenStatsCollector instance
-  - self.media_service  — MediaService instance (for image_gen tool)
+  - self.db                  — shared Database instance (from storage_patch)
+  - self.token_stats         — TokenStatsCollector instance
+  - self.media_service       — MediaService instance (for image_gen tool)
+  - self.categorized_memory  — CategorizedMemoryStore instance
+  - self.history_summarizer  — HistorySummarizer instance
+  - self.history_compressor  — HistoryCompressor instance
+  - self.context._agent_loop — back-reference for context_patch to access loop
 
 Also patches _process_message to record token usage after each turn.
 
@@ -77,6 +81,34 @@ def apply_loop_patch() -> str:
             logger.warning("Failed to init MediaService: {}", exc)
             self.media_service = None
 
+        # CategorizedMemoryStore — 基于身份的分类记忆
+        try:
+            from ava.agent.categorized_memory import CategorizedMemoryStore
+            self.categorized_memory = CategorizedMemoryStore(workspace=self.workspace)
+        except Exception as exc:
+            logger.warning("Failed to init CategorizedMemoryStore: {}", exc)
+            self.categorized_memory = None
+
+        # HistorySummarizer — 旧轮次摘要压缩
+        try:
+            from ava.agent.history_summarizer import HistorySummarizer
+            self.history_summarizer = HistorySummarizer(enabled=True, protect_recent=0)
+        except Exception as exc:
+            logger.warning("Failed to init HistorySummarizer: {}", exc)
+            self.history_summarizer = None
+
+        # HistoryCompressor — 基于字符预算的历史裁剪
+        try:
+            from ava.agent.history_compressor import HistoryCompressor
+            self.history_compressor = HistoryCompressor(max_chars=12000, recent_turns=10)
+        except Exception as exc:
+            logger.warning("Failed to init HistoryCompressor: {}", exc)
+            self.history_compressor = None
+
+        # Back-reference for context_patch to access loop attributes
+        if hasattr(self, "context"):
+            self.context._agent_loop = self
+
     AgentLoop.__init__ = patched_init
 
     # ------------------------------------------------------------------
@@ -126,7 +158,7 @@ def apply_loop_patch() -> str:
 
     AgentLoop._process_message = patched_process_message
 
-    return "AgentLoop patched: injected db/token_stats/media_service; _process_message records token usage"
+    return "AgentLoop patched: injected db/token_stats/media_service/categorized_memory/summarizer/compressor; _process_message records token usage"
 
 
 register_patch("agent_loop", apply_loop_patch)
