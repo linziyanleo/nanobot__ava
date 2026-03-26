@@ -1,8 +1,7 @@
-# Module Spec: commands — 统一命令系统（Phase 2.4）
+# Module Spec: commands — 统一命令系统
 
-> 状态：🔶 待迁移
-> 优先级：Phase 2.4
-> 预估工时：2h
+> 状态：🟡 已复制到 `ava/agent/commands.py`，未接入 AgentLoop
+> 原始来源：`feat/0.0.1` 分支 `nanobot/agent/commands.py`（+371 行）
 
 ---
 
@@ -18,73 +17,33 @@
 
 ---
 
-## 2. 源文件位置
+## 2. 文件位置
 
 | 类型 | 路径 |
 |------|------|
-| 源码（feat/0.0.1） | `nanobot/agent/commands.py`（+371 行，纯新增） |
-| 计划实现位置 | `ava/agent/commands.py` |
-| Patch 文件 | `ava/patches/commands_patch.py`（新建） |
+| 当前实现 | `ava/agent/commands.py` ✅ 已复制 |
+| Patch 文件（待创建） | `ava/patches/commands_patch.py` |
 
 ---
 
-## 3. 拦截点设计
+## 3. 接入方案（下一步）
+
+需要 patch `AgentLoop.__init__` 将 `self.commands`（当前为 `CommandRouter`）替换为 `CommandRegistry`。
+
+### 拦截点
 
 | 拦截点 | 类型 | 说明 |
 |--------|------|------|
+| `AgentLoop.__init__`（已有 patch） | 扩展 | 替换 `self.commands` 为 `CommandRegistry` |
 | `AgentLoop._process_inbound` 或等效入口 | 方法包装 | 在消息处理前检查是否为斜杠命令 |
-| 上游 `CommandRouter`（如存在） | 类替换 | 用 `CommandRegistry` 替换旧命令路由 |
 
-### 拦截逻辑
-
-1. 在消息进入 `AgentLoop` 处理流程前，检查消息是否以 `/` 开头
-2. 若是斜杠命令，交由 `CommandRegistry.dispatch()` 处理
-3. `pre_dispatch` 命令在消息到达 Agent 前执行（如 `/archive`），不消耗 LLM 调用
-4. 非 `pre_dispatch` 命令将命令信息附加到消息上下文中
+### 依赖说明
+- `CommandRegistry` 构造函数需要 `AgentLoop` 实例
+- 与 `InboundMessage` 的集成需要验证字段兼容性
 
 ---
 
-## 4. 接口设计
-
-```python
-@dataclass
-class SlashCommand:
-    """斜杠命令定义"""
-    name: str                          # 命令名（不含 /）
-    description: str                   # 命令描述
-    handler: Callable                  # 命令处理函数
-    pre_dispatch: bool = False         # 是否在消息分发前执行
-    admin_only: bool = False           # 是否仅管理员可用
-    channels: list[str] | None = None  # 限定可用渠道
-
-class CommandRegistry:
-    """统一命令注册中心"""
-
-    def __init__(self, agent_loop: AgentLoop):
-        ...
-
-    def register(self, command: SlashCommand) -> None:
-        """注册一个斜杠命令"""
-        ...
-
-    def unregister(self, name: str) -> bool:
-        """注销一个斜杠命令"""
-        ...
-
-    def dispatch(self, message: InboundMessage) -> CommandResult | None:
-        """分发命令，返回执行结果或 None（非命令消息）"""
-        ...
-
-    def list_commands(self, channel: str | None = None) -> list[SlashCommand]:
-        """列出可用命令"""
-        ...
-
-def apply_commands_patch() -> str:
-    """注册统一命令系统"""
-    ...
-```
-
-### 内置命令列表
+## 4. 内置命令列表
 
 | 命令 | 功能 | pre_dispatch |
 |------|------|:------------:|
@@ -104,9 +63,6 @@ def apply_commands_patch() -> str:
 ### Sidecar 内部依赖
 - `ava.agent.categorized_memory.CategorizedMemoryStore` — `/memory` 命令依赖
 - `ava.storage.Database` — `/archive` 命令依赖
-
-### 外部依赖
-- 无
 
 ---
 

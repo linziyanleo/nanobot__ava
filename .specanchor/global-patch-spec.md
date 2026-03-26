@@ -14,9 +14,11 @@
 
 ### 1.2 最小化拦截原则
 - 只在系统的「入口」和「出口」位置打 patch：
-  - **CLI 层**：命令启动、参数注入（如 `cli.commands._create_gateway_app`）
-  - **工具执行层**：工具注册、工具执行（如 `AgentLoop._register_default_tools`）
-  - **消息总线层**：消息发送、session 加载（如 `TelegramChannel._send_message`、`SessionManager._load`）
+  - **配置层**：模块替换、字段注入（如 `sys.modules["nanobot.config.schema"]`、`AgentDefaults` 字段注入）
+  - **CLI 层**：命令回调包装（如 Typer `gateway` 命令 callback）
+  - **Agent 初始化层**：属性注入、方法包装（如 `AgentLoop.__init__`、`AgentLoop._process_message`）
+  - **工具执行层**：工具注册（如 `AgentLoop._register_default_tools`）
+  - **消息总线层**：方法注入、消息发送（如 `MessageBus` 方法注入、`TelegramChannel.send`）
   - **存储层**：数据持久化接口（如 `SessionManager.save`、`SessionManager._load`）
 - **不深入**中间业务逻辑（如 `AgentLoop._process_turn` 的内部分支）
 
@@ -93,14 +95,29 @@ register_patch("{patch_name}", apply_{module_name}_patch)
 所有 patch 在 `ava/launcher.py` 的 `apply_all_patches()` 中统一发现和执行。
 
 ### 3.2 执行顺序
-Patch 按文件名字母序发现，但逻辑上遵循依赖顺序：
+Patch 按文件名字母序发现（`sorted(patches_dir.glob("*_patch.py"))`），当前 9 个 patch 的执行顺序：
 
 ```
-storage → tools → channels → console
+a_schema_patch → b_config_patch → bus_patch → channel_patch → console_patch → context_patch → loop_patch → storage_patch → tools_patch
 ```
 
-- `storage_patch` 最先执行：后续 patch 可能依赖 SQLite 存储
-- `console_patch` 最后执行：依赖 Gateway app 已创建
+| 序号 | 文件 | 注册名 | 职责 |
+|------|------|--------|------|
+| 1 | `a_schema_patch.py` | `config_schema_fork` | 替换 config schema 模块 |
+| 2 | `b_config_patch.py` | `config_schema` | 降级方案：动态注入 config 字段 |
+| 3 | `bus_patch.py` | `bus_console_listener` | MessageBus 方法注入 |
+| 4 | `channel_patch.py` | `channel_extensions` | 消息批处理 |
+| 5 | `console_patch.py` | `web_console` | Console 独立服务启动 |
+| 6 | `context_patch.py` | `context_builder` | 历史摘要+压缩+分类记忆注入 |
+| 7 | `loop_patch.py` | `agent_loop` | AgentLoop 属性注入 + token 统计 |
+| 8 | `storage_patch.py` | `sqlite_storage` | SQLite 存储替换 + db 共享 |
+| 9 | `tools_patch.py` | `custom_tools` | 自定义工具注册 |
+
+**关键依赖链**：
+- `a_schema_patch` → `b_config_patch`（互斥，a 成功则 b 跳过）
+- `context_patch` ← `loop_patch`（context_patch 运行时通过 `_agent_loop` 引用访问 loop 注入的 summarizer/compressor/memory）
+- `loop_patch` ← `storage_patch`（storage 调用 `loop_patch.set_shared_db()` 共享 db）
+- `loop_patch` → `tools_patch`（tools 依赖 loop 注入的 `self.token_stats`/`self.media_service`）
 
 ### 3.3 失败处理
 - 单个 patch 失败不影响其他 patch 的执行

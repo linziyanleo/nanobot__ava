@@ -1,13 +1,13 @@
 # Module Spec: storage_patch — SQLite 存储层替换
 
 > 文件：`ava/patches/storage_patch.py`
-> 状态：✅ 已实现（Phase 1）
+> 状态：✅ 已实现（Phase 1 创建，Phase 2 新增 db 共享）
 
 ---
 
 ## 1. 模块职责
 
-将 nanobot 的 Session 持久化从 JSONL 文件存储替换为 SQLite 数据库存储，提供更好的查询能力、并发安全和数据完整性。
+将 nanobot 的 Session 持久化从 JSONL 文件存储替换为 SQLite 数据库存储，提供更好的查询能力、并发安全和数据完整性。同时将 Database 实例共享给 `loop_patch`。
 
 ---
 
@@ -78,6 +78,7 @@
 ### Sidecar 内部依赖
 - `ava.storage.Database` — SQLite 数据库封装类
 - `ava.launcher.register_patch` — 自注册机制
+- `ava.patches.loop_patch.set_shared_db` — 共享 Database 实例给 loop_patch
 
 ---
 
@@ -98,10 +99,15 @@
 - `tool_calls` 字段：列表序列化为 JSON
 - `metadata` 和 `token_stats`：整体序列化为 JSON
 
-### 5.4 与 channel_patch 的交互
-- `storage_patch` 替换 `SessionManager._load` → `channel_patch` 再次替换 `SessionManager._load`
-- 最终效果：从 SQLite 加载 → 执行 backfill → 返回
-- **执行顺序依赖**：`storage_patch` 必须先于 `channel_patch` 执行
+### 5.4 Database 共享
+- Patch 末尾调用 `loop_patch.set_shared_db(db)` 将 Database 实例共享给 loop_patch
+- 共享失败时仅 warning（loop_patch 已有 fallback 机制自行创建 Database）
+- 确保后续创建的 `AgentLoop` 实例获得同一个 Database 连接
+
+### 5.5 集成 Session Backfill
+- `patched_load` 在从 SQLite 加载 session 后，直接调用 `ava.session.backfill_turns._backfill_messages()` 执行回填
+- Backfill 逻辑从 `channel_patch` 移入 `storage_patch`，解决了两者对 `SessionManager._load` 的冲突
+- Backfill 失败时仅 warning，不影响 session 返回
 
 ---
 
@@ -124,4 +130,6 @@
 | 空数据库 | Load 不存在的 key 返回 None |
 | Upsert | 同 key 多次 save 只保留最新版本 |
 | 缓存同步 | Save 后 `_cache` 正确更新 |
+| db 共享 | `set_shared_db()` 成功调用 |
+| db 共享失败 | `loop_patch` 不可用时仅 warning |
 | 拦截点缺失 | `SessionManager` 缺少目标方法时优雅降级 |

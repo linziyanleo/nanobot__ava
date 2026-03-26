@@ -1,8 +1,7 @@
-# Module Spec: history_compressor — 历史压缩器（Phase 2.2）
+# Module Spec: history_compressor — 历史压缩器
 
-> 状态：🔶 待迁移
-> 优先级：Phase 2.2
-> 预估工时：1h
+> 状态：🟡 已复制到 `ava/agent/history_compressor.py`，未接入 AgentLoop
+> 原始来源：`feat/0.0.1` 分支 `nanobot/agent/history_compressor.py`（+205 行）
 
 ---
 
@@ -19,81 +18,45 @@
 
 ---
 
-## 2. 源文件位置
+## 2. 文件位置
 
 | 类型 | 路径 |
 |------|------|
-| 源码（feat/0.0.1） | `nanobot/agent/history_compressor.py`（+205 行，纯新增） |
-| 计划实现位置 | `ava/agent/history_compressor.py` |
-| Patch 文件 | `ava/patches/history_patch.py`（新建，可与 history_summarizer 合并） |
+| 当前实现 | `ava/agent/history_compressor.py` ✅ 已复制 |
+| Patch 文件（待创建） | `ava/patches/history_patch.py` 或扩展 `loop_patch.py` |
 
 ---
 
-## 3. 拦截点设计
+## 3. 接入方案（下一步）
+
+需要 patch `AgentLoop._build_messages` 或 `_process_message`，在消息列表构建时插入压缩逻辑。
+
+### 与 history_summarizer 的协作
+- 调用链：原始消息 → `HistorySummarizer.summarize()` → `HistoryCompressor.compress()` → 最终消息列表
+- 建议两者共用一个 patch 入口（`history_patch.py`）
+
+### 拦截点
 
 | 拦截点 | 类型 | 说明 |
 |--------|------|------|
 | `AgentLoop._build_messages` | 方法包装 | 在构建消息列表时插入压缩逻辑 |
 
-### 拦截逻辑
-
-1. 原始 `_build_messages` 返回完整消息列表
-2. 包装函数将消息列表传入 `HistoryCompressor.compress()`
-3. 返回压缩后的消息列表
-
 ---
 
-## 4. 接口设计
-
-```python
-class HistoryCompressor:
-    """基于字符预算的历史消息压缩器"""
-
-    def __init__(
-        self,
-        char_budget: int = 100_000,
-        recent_turns: int = 5,
-        relevance_threshold: float = 0.3,
-    ):
-        ...
-
-    def compress(
-        self,
-        messages: list[dict],
-        current_query: str | None = None,
-    ) -> list[dict]:
-        """压缩消息列表，返回裁剪后的消息"""
-        ...
-
-    def extract_terms(self, text: str) -> set[str]:
-        """从文本中提取关键术语（支持英文 + CJK）"""
-        ...
-
-    def score_relevance(
-        self,
-        message: dict,
-        query_terms: set[str],
-    ) -> float:
-        """计算消息与当前查询的相关性评分"""
-        ...
-```
-
----
-
-## 5. 依赖关系
+## 4. 依赖关系
 
 ### 上游依赖
 - `nanobot.agent.loop.AgentLoop._build_messages` — 拦截目标
 
 ### Sidecar 内部依赖
-- 无（纯工具类，无其他 Sidecar 依赖）
+- `ava.agent.history_summarizer.HistorySummarizer` — 协作（摘要 → 压缩）
 
 ### 外部依赖
 - 标准库 `re` — 正则表达式用于术语提取
 
 ---
 
-## 6. 测试要点
+## 5. 测试要点
 
 | 测试场景 | 验证内容 |
 |----------|----------|

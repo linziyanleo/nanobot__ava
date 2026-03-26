@@ -1,8 +1,7 @@
-# Module Spec: history_summarizer — 历史摘要器（Phase 2.3）
+# Module Spec: history_summarizer — 历史摘要器
 
-> 状态：🔶 待迁移
-> 优先级：Phase 2.3
-> 预估工时：1h
+> 状态：🟡 已复制到 `ava/agent/history_summarizer.py`，未接入 AgentLoop
+> 原始来源：`feat/0.0.1` 分支 `nanobot/agent/history_summarizer.py`（+174 行）
 
 ---
 
@@ -20,70 +19,32 @@
 
 ---
 
-## 2. 源文件位置
+## 2. 文件位置
 
 | 类型 | 路径 |
 |------|------|
-| 源码（feat/0.0.1） | `nanobot/agent/history_summarizer.py`（+174 行，纯新增） |
-| 计划实现位置 | `ava/agent/history_summarizer.py` |
-| Patch 文件 | `ava/patches/history_patch.py`（与 history_compressor 共用） |
+| 当前实现 | `ava/agent/history_summarizer.py` ✅ 已复制 |
+| Patch 文件（待创建） | `ava/patches/history_patch.py`（与 history_compressor 共用） |
 
 ---
 
-## 3. 拦截点设计
+## 3. 接入方案（下一步）
+
+与 `HistoryCompressor` 共用 patch 入口。调用链：
+
+```
+原始消息 → HistorySummarizer.summarize() → HistoryCompressor.compress() → 最终消息列表
+```
+
+### 拦截点
 
 | 拦截点 | 类型 | 说明 |
 |--------|------|------|
-| `AgentLoop._build_messages` | 方法包装 | 在消息列表构建时应用摘要逻辑 |
-
-### 拦截逻辑
-
-1. 与 `HistoryCompressor` 协作：先摘要，后压缩
-2. 调用链：原始消息 → `HistorySummarizer.summarize()` → `HistoryCompressor.compress()` → 最终消息列表
-3. 两者共用一个 patch 入口（`history_patch.py`）
+| `AgentLoop._build_messages` | 方法包装（与 compressor 共用） | 在消息列表构建时应用摘要逻辑 |
 
 ---
 
-## 4. 接口设计
-
-```python
-class HistorySummarizer:
-    """轮级历史摘要器"""
-
-    def __init__(
-        self,
-        recent_count: int = 10,
-        summary_format: str = "condensed",
-    ):
-        ...
-
-    def summarize(self, messages: list[dict]) -> list[dict]:
-        """将旧轮次消息摘要为精简格式
-
-        Args:
-            messages: 完整消息列表
-
-        Returns:
-            摘要后的消息列表（最近消息保持原样，旧消息被压缩）
-        """
-        ...
-
-    def _summarize_turn(
-        self,
-        user_msg: dict,
-        assistant_msg: dict,
-    ) -> list[dict]:
-        """将单轮对话压缩为摘要消息对"""
-        ...
-
-    def _is_cron_triggered(self, message: dict) -> bool:
-        """判断消息是否由定时任务触发"""
-        ...
-```
-
----
-
-## 5. 依赖关系
+## 4. 依赖关系
 
 ### 上游依赖
 - `nanobot.agent.loop.AgentLoop._build_messages` — 拦截目标（与 compressor 共用）
@@ -96,7 +57,7 @@ class HistorySummarizer:
 
 ---
 
-## 6. 测试要点
+## 5. 测试要点
 
 | 测试场景 | 验证内容 |
 |----------|----------|

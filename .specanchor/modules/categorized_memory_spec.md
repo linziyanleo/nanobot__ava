@@ -1,8 +1,7 @@
-# Module Spec: categorized_memory — 分类记忆系统（Phase 2.1）
+# Module Spec: categorized_memory — 分类记忆系统
 
-> 状态：🔶 待迁移
-> 优先级：Phase 2.1
-> 预估工时：1h
+> 状态：🟡 已复制到 `ava/agent/categorized_memory.py`，未接入 AgentLoop
+> 原始来源：`feat/0.0.1` 分支 `nanobot/agent/categorized_memory.py`（+247 行）
 
 ---
 
@@ -17,77 +16,48 @@
 
 ---
 
-## 2. 源文件位置
+## 2. 文件位置
 
 | 类型 | 路径 |
 |------|------|
-| 源码（feat/0.0.1） | `nanobot/agent/categorized_memory.py`（+247 行，纯新增） |
-| 计划实现位置 | `ava/agent/categorized_memory.py` |
-| Patch 文件 | `ava/patches/memory_patch.py`（新建） |
+| 当前实现 | `ava/agent/categorized_memory.py` ✅ 已复制 |
+| Patch 文件（待创建） | `ava/patches/memory_patch.py` 或扩展 `loop_patch.py` |
 | 配置文件 | `{workspace}/identity_map.yaml` |
 
 ---
 
-## 3. 拦截点设计
+## 3. 接入方案（下一步）
+
+需要在 `loop_patch.py` 中扩展 `patched_init`，添加以下逻辑：
+
+```python
+# 在 AgentLoop.__init__ patch 中追加：
+from ava.agent.categorized_memory import CategorizedMemoryStore, IdentityResolver
+
+identity_resolver = IdentityResolver(workspace / "identity_map.yaml")
+self.categorized_memory = CategorizedMemoryStore(
+    workspace=workspace,
+    identity_resolver=identity_resolver,
+)
+```
+
+### 拦截点
 
 | 拦截点 | 类型 | 说明 |
 |--------|------|------|
-| `ContextBuilder.build_system_prompt` | 方法包装 | 在系统提示词中注入用户记忆 |
-| `AgentLoop.__init__` | 方法包装 | 在初始化时创建 `CategorizedMemoryStore` 实例并绑定到 `self.categorized_memory` |
-
-### 拦截逻辑
-
-1. 在 `AgentLoop.__init__` 完成后，根据配置创建 `CategorizedMemoryStore` 实例
-2. 在 `ContextBuilder.build_system_prompt` 中，根据当前 channel/chat_id 解析用户身份，注入对应记忆
+| `AgentLoop.__init__`（已有 patch） | 扩展 | 在 loop_patch 中追加 `self.categorized_memory` 赋值 |
+| `ContextBuilder.build_system_prompt` | 方法包装（新增） | 在系统提示词中注入用户记忆 |
 
 ---
 
-## 4. 接口设计
-
-```python
-class IdentityResolver:
-    """从 identity_map.yaml 解析 channel:chat_id → 人名映射"""
-
-    def __init__(self, config_path: Path):
-        ...
-
-    def resolve(self, channel: str, chat_id: str) -> str | None:
-        """返回用户名称，未找到返回 None"""
-        ...
-
-class CategorizedMemoryStore:
-    """按用户分类的记忆存储"""
-
-    def __init__(self, workspace: Path, identity_resolver: IdentityResolver):
-        ...
-
-    def get_memories(self, user: str) -> list[str]:
-        """获取指定用户的所有记忆"""
-        ...
-
-    def add_memory(self, user: str, content: str) -> None:
-        """为指定用户添加记忆"""
-        ...
-
-    def remove_memory(self, user: str, index: int) -> bool:
-        """删除指定用户的某条记忆"""
-        ...
-
-def apply_memory_patch() -> str:
-    """注册分类记忆到 AgentLoop 和 ContextBuilder"""
-    ...
-```
-
----
-
-## 5. 依赖关系
+## 4. 依赖关系
 
 ### 上游依赖
 - `nanobot.agent.loop.AgentLoop` — 绑定记忆存储实例
 - `nanobot.agent.context.ContextBuilder` — 注入记忆到系统提示词
 
 ### Sidecar 内部依赖
-- `ava.tools.memory_tool.MemoryTool` — 已在 `tools_patch` 中注册，依赖 `categorized_memory`
+- `ava.tools.memory_tool.MemoryTool` — 已在 `tools_patch` 中条件注册，依赖 `self.categorized_memory`
 - `ava.storage.Database` — 可选，记忆持久化到 SQLite
 
 ### 外部依赖
@@ -95,7 +65,7 @@ def apply_memory_patch() -> str:
 
 ---
 
-## 6. 测试要点
+## 5. 测试要点
 
 | 测试场景 | 验证内容 |
 |----------|----------|
@@ -105,3 +75,4 @@ def apply_memory_patch() -> str:
 | 记忆 CRUD | 增删改查操作正确 |
 | 系统提示词注入 | 记忆内容正确出现在系统提示词中 |
 | 配置文件缺失 | identity_map.yaml 不存在时优雅降级 |
+| MemoryTool 联动 | categorized_memory 存在时 MemoryTool 被注册 |

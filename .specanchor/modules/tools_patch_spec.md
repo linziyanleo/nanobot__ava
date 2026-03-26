@@ -1,13 +1,13 @@
 # Module Spec: tools_patch — 自定义工具注入
 
 > 文件：`ava/patches/tools_patch.py`
-> 状态：✅ 已实现（Phase 1）
+> 状态：✅ 已实现（Phase 1，Phase 2 更新配置读取）
 
 ---
 
 ## 1. 模块职责
 
-将 5 个 CafeExt 自定义工具注入到 `AgentLoop` 的工具注册流程中，使 Agent 具备图片生成、视觉识别、Claude Code 子代理、贴纸发送和分类记忆管理能力。
+将 5 个 ava 自定义工具注入到 `AgentLoop` 的工具注册流程中，使 Agent 具备图片生成、视觉识别、Claude Code 子代理、贴纸发送和分类记忆管理能力。
 
 ---
 
@@ -46,6 +46,7 @@
 ### Sidecar 内部依赖
 - `ava.tools.*` — 5 个工具的实现类
 - `ava.launcher.register_patch` — 自注册机制
+- `ava.patches.loop_patch` — 提供 `self.token_stats`、`self.media_service`、`self.db`（间接依赖）
 
 ### 运行时依赖
 - `AgentLoop` 实例的属性：`workspace`、`provider`、`model`、`subagents`、`tools`
@@ -55,9 +56,18 @@
 
 ## 5. 配置依赖
 
-从 `config.json` 读取的配置项：
-- `agents.defaults.claude_code_config` — ClaudeCodeTool 配置
-- `agents.defaults.claude_code_model` — Claude Code 使用的模型（默认 `claude-sonnet-4-20250514`）
+从 `config.json` 读取的配置项（通过 fork schema）：
+
+| 配置路径 | 说明 | 降级策略 |
+|----------|------|----------|
+| `config.tools.claude_code` | ClaudeCodeConfig 对象（model、max_turns、allowed_tools、timeout） | 若不存在则使用硬编码默认值 |
+| `config.agents.defaults.claude_code_model` | Claude Code 模型（旧路径，降级使用） | 默认 `claude-sonnet-4-20250514` |
+| `config.agents.defaults.vision_model` | 视觉识别模型 | 不存在时使用 `self.model` |
+
+### 配置读取优先级（ClaudeCode）
+1. `config.tools.claude_code.model`（fork schema 新路径）
+2. `config.agents.defaults.claude_code_model`（旧路径）
+3. 硬编码默认值 `"claude-sonnet-4-20250514"`
 
 ---
 
@@ -67,7 +77,9 @@
 |----------|----------|
 | 工具注册 | Patch 后 `AgentLoop.tools` 中包含 5 个自定义工具 |
 | 上游工具保留 | Patch 不影响上游默认工具的注册 |
-| 配置传递 | `ClaudeCodeTool` 正确接收 config 中的参数 |
+| fork schema 配置 | `config.tools.claude_code` 存在时正确读取 |
+| vanilla schema 降级 | fork 未加载时使用 `agents.defaults` 路径 |
+| vision_model | 配置 `vision_model` 时 VisionTool 使用指定模型 |
 | 可选属性缺失 | `token_stats`/`media_service`/`categorized_memory` 不存在时不报错 |
 | `MemoryTool` 条件注册 | `categorized_memory` 为 None 时不注册 `MemoryTool` |
 | 拦截点缺失 | `AgentLoop` 无 `_register_default_tools` 时优雅跳过 |
