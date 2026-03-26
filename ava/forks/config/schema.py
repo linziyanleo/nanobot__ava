@@ -271,6 +271,7 @@ class HeartbeatConfig(Base):
 
     enabled: bool = True
     interval_s: int = 30 * 60  # 30 minutes
+    keep_recent_messages: int = 8
     phrase1: HeartbeatPhaseConfig = Field(default_factory=HeartbeatPhaseConfig)  # Phase 1 decision
     phrase2: HeartbeatPhaseConfig = Field(default_factory=HeartbeatPhaseConfig)  # Phase 2 execution
 
@@ -287,6 +288,7 @@ class AgentDefaults(Base):
     memory_tier: Literal["default", "mini"] | None = "default"  # Model tier for memory consolidation
     provider: str = "auto"  # Provider name (e.g. "anthropic", "openrouter") or "auto" for auto-detection
     max_tokens: int = 8192
+    context_window_tokens: int = 65_536
     temperature: float = 0.1
     max_tool_iterations: int = 40
     memory_window: int = 100
@@ -352,6 +354,7 @@ class GatewayConfig(Base):
 
     host: str = "0.0.0.0"
     port: int = 18790
+    heartbeat: HeartbeatConfig = Field(default_factory=HeartbeatConfig)
     console: ConsoleConfig = Field(default_factory=ConsoleConfig)
 
 

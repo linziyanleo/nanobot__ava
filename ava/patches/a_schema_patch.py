@@ -51,6 +51,13 @@ def apply_schema_patch() -> str:
         import nanobot.config as config_pkg
         config_pkg.schema = fork_mod
 
+        # Update Config reference in loader (it uses `from ... import Config`)
+        try:
+            import nanobot.config.loader as loader_mod
+            loader_mod.Config = fork_mod.Config
+        except Exception:
+            pass
+
         logger.info("Replaced nanobot.config.schema with ava fork")
         return "nanobot.config.schema replaced with ava fork (ConsoleConfig, multi-model, channel configs)"
 

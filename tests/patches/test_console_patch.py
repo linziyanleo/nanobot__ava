@@ -32,12 +32,14 @@ class TestConsolePatch:
         result = apply_console_patch()
         assert "skipped" in result.lower() or "console" in result.lower()
 
-    def test_console_port_from_env(self):
-        """T7.4: CAFE_CONSOLE_PORT env var is respected."""
-        from ava.patches import console_patch
+    def test_console_uses_standalone_factory(self):
+        """T7.4: console_patch uses create_console_app_standalone (not create_console_app)."""
+        import inspect
+        from ava.patches.console_patch import apply_console_patch
 
-        # Default port
-        assert console_patch.CONSOLE_PORT == int(os.environ.get("CAFE_CONSOLE_PORT", "18791"))
+        source = inspect.getsource(apply_console_patch)
+        assert "create_console_app_standalone" in source
+        assert "create_console_app()" not in source  # no bare call without params
 
     def test_asyncio_run_not_permanently_replaced(self):
         """T7.3: asyncio.run is not permanently replaced at patch time."""

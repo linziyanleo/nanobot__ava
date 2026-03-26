@@ -164,7 +164,7 @@ def create_console_app_standalone(
     db_path = nanobot_dir / "nanobot.db"
     db = None
     if db_path.exists():
-        from nanobot.storage.database import Database
+        from ava.storage import Database
         db = Database(db_path)
 
     token_stats = None

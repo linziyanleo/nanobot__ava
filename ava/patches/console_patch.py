@@ -2,11 +2,14 @@
 
 Strategy:
   Wrap the Typer `gateway` command callback so that before calling
-  asyncio.run(), we inject a Console uvicorn server into the same
-  event loop as a background task.
+  asyncio.run(), we inject a standalone Console uvicorn server into
+  the same event loop as a background task.
 
-Console is served at: http://0.0.0.0:<CAFE_CONSOLE_PORT>  (default 18791)
-Set CAFE_CONSOLE_PORT env var to change.
+  The standalone Console uses HTTP reverse-proxy to forward /api/chat
+  requests to the gateway, so it does not require a live AgentLoop ref.
+
+Console is served at: http://0.0.0.0:<port>
+Port priority: config.gateway.console.port → CAFE_CONSOLE_PORT env → 6688
 """
 
 from __future__ import annotations
@@ -16,9 +19,6 @@ import os
 from loguru import logger
 
 from ava.launcher import register_patch
-
-CONSOLE_PORT = int(os.environ.get("CAFE_CONSOLE_PORT", "18791"))
-CONSOLE_HOST = os.environ.get("CAFE_CONSOLE_HOST", "0.0.0.0")
 
 
 def apply_console_patch() -> str:
@@ -38,8 +38,10 @@ def apply_console_patch() -> str:
 
     original_callback = gateway_cmd.callback
 
-    def patched_gateway(*args, **kwargs) -> None:
-        """Wrap gateway to inject Console into the event loop."""
+    import functools
+
+    @functools.wraps(original_callback)
+    def gateway(*args, **kwargs) -> None:
         import asyncio
 
         original_asyncio_run = asyncio.run
@@ -54,23 +56,56 @@ def apply_console_patch() -> str:
             async def _with_console():
                 console_task = None
                 try:
-                    from ava.console.app import create_console_app
+                    from ava.console.app import create_console_app_standalone
+                    from nanobot.config.loader import load_config
+                    from nanobot.config.paths import get_workspace_path
                     import uvicorn
 
-                    console_app = create_console_app()
+                    cfg = load_config()
+                    workspace = get_workspace_path()
+                    nanobot_dir = workspace / "data"
+                    nanobot_dir.mkdir(parents=True, exist_ok=True)
+
+                    # Port priority: config → env → default
+                    console_cfg = getattr(getattr(cfg, "gateway", None), "console", None)
+                    console_port = (
+                        (console_cfg.port if console_cfg else None)
+                        or int(os.environ.get("CAFE_CONSOLE_PORT", "6688"))
+                    )
+                    console_host = os.environ.get("CAFE_CONSOLE_HOST", "0.0.0.0")
+                    gateway_port = getattr(cfg.gateway, "port", 18790)
+                    secret_key = (
+                        (console_cfg.secret_key if console_cfg else None)
+                        or "change-me-in-production-use-a-longer-key!"
+                    )
+                    expire_minutes = (
+                        (console_cfg.token_expire_minutes if console_cfg else None)
+                        or 480
+                    )
+                    token_stats_dir = str(workspace / "data")
+
+                    console_app = create_console_app_standalone(
+                        nanobot_dir=nanobot_dir,
+                        workspace=workspace,
+                        gateway_port=gateway_port,
+                        console_port=console_port,
+                        secret_key=secret_key,
+                        expire_minutes=expire_minutes,
+                        token_stats_dir=token_stats_dir,
+                    )
                     uvicorn_config = uvicorn.Config(
                         console_app,
-                        host=CONSOLE_HOST,
-                        port=CONSOLE_PORT,
+                        host=console_host,
+                        port=console_port,
                         log_level="warning",
                     )
                     server = uvicorn.Server(uvicorn_config)
                     console_task = asyncio.create_task(server.serve())
                     logger.info(
-                        "Web Console starting at http://{}:{}/", CONSOLE_HOST, CONSOLE_PORT
+                        "Web Console starting at http://{}:{}/", console_host, console_port
                     )
                     print(
-                        f"☕ Web Console → http://localhost:{CONSOLE_PORT}/"
+                        f"☕ Web Console → http://localhost:{console_port}/"
                     )
                 except Exception as exc:
                     logger.warning("Failed to start Web Console: {}", exc)
@@ -97,15 +132,11 @@ def apply_console_patch() -> str:
         finally:
             asyncio.run = original_asyncio_run  # ensure restore
 
-    # Replace the callback in the CommandInfo
-    gateway_cmd.callback = patched_gateway
-    # Also update the module-level function reference
-    cli_mod.gateway = patched_gateway
+    # Replace the callback in the CommandInfo (keep original name for Typer)
+    gateway_cmd.callback = gateway
+    cli_mod.gateway = gateway
 
-    return (
-        f"gateway callback wrapped — Console will start at "
-        f"http://localhost:{CONSOLE_PORT}/"
-    )
+    return "gateway callback wrapped — Console will start alongside gateway"
 
 
 register_patch("web_console", apply_console_patch)
