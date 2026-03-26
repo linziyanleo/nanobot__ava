@@ -1,6 +1,6 @@
 FROM ghcr.io/astral-sh/uv:python3.12-bookworm-slim
 
-# Install Node.js 20 for the WhatsApp bridge
+# Install Node.js 20 for the WhatsApp bridge and Console UI build
 RUN apt-get update && \
     apt-get install -y --no-install-recommends curl ca-certificates gnupg git openssh-client && \
     mkdir -p /etc/apt/keyrings && \
@@ -22,6 +22,7 @@ RUN mkdir -p nanobot bridge && touch nanobot/__init__.py && \
 
 # Copy the full source and install
 COPY nanobot/ nanobot/
+COPY ava/ ava/
 COPY bridge/ bridge/
 RUN uv pip install --system --no-cache .
 
@@ -32,11 +33,17 @@ WORKDIR /app/bridge
 RUN npm install && npm run build
 WORKDIR /app
 
+# Build the Console UI
+COPY console-ui/ console-ui/
+WORKDIR /app/console-ui
+RUN npm install && npm run build
+WORKDIR /app
+
 # Create config directory
 RUN mkdir -p /root/.nanobot
 
-# Gateway default port
-EXPOSE 18790
+# Gateway default port + Console UI port
+EXPOSE 18790 6688
 
-ENTRYPOINT ["nanobot"]
-CMD ["status"]
+ENTRYPOINT ["python", "-m", "ava"]
+CMD ["gateway"]

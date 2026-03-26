@@ -3,11 +3,13 @@ __pycache__
 *.pyo
 *.pyd
 *.egg-info
-dist/
 build/
 .git
 .env
 .assets
 node_modules/
 bridge/dist/
+console-ui/dist/
+console-ui/node_modules/
 workspace/
+.specanchor/
