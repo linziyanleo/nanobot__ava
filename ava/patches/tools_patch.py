@@ -69,7 +69,7 @@ def apply_tools_patch() -> str:
         ))
         
         self.tools.register(StickerTool())
-        
+
         categorized_memory = getattr(self, 'categorized_memory', None)
         db = getattr(self, 'db', None)
         if categorized_memory:
@@ -77,6 +77,7 @@ def apply_tools_patch() -> str:
                 store=categorized_memory,
                 db=db,
             ))
+
 
     AgentLoop._register_default_tools = patched_register_default_tools
     

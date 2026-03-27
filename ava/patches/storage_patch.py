@@ -19,11 +19,10 @@ def apply_storage_patch() -> str:
     Returns:
         Description of what was patched.
     """
-    from nanobot.config.paths import get_workspace_path
+    from nanobot.config.paths import get_data_dir
     from nanobot.session.manager import SessionManager, Session
 
-    workspace = get_workspace_path()
-    db_path = workspace / "data" / "nanobot.db"
+    db_path = get_data_dir() / "nanobot.db"
     db = Database(db_path)
 
     original_save = SessionManager.save

@@ -61,6 +61,13 @@ def apply_context_patch() -> str:
             except Exception as exc:
                 logger.warning("CategorizedMemory injection failed: {}", exc)
 
+        # 5. 保存 system prompt 到 loop，供 token_stats 记录
+        if loop and messages and messages[0].get("role") == "system":
+            try:
+                loop._last_system_prompt = (messages[0]["content"] or "")[:500]
+            except Exception:
+                pass
+
         return messages
 
     patched_build_messages._ava_patched = True

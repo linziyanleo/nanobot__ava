@@ -63,9 +63,11 @@ def apply_console_patch() -> str:
                     from pathlib import Path
                     import uvicorn
 
+                    from nanobot.config.paths import get_data_dir
+
                     cfg = load_config()
                     workspace = get_workspace_path()
-                    nanobot_dir = workspace / "data"
+                    nanobot_dir = get_data_dir()  # ~/.nanobot/ — aligned with upstream
                     nanobot_dir.mkdir(parents=True, exist_ok=True)
 
                     # Write PID file so GatewayService can detect running gateway
@@ -116,7 +118,7 @@ def apply_console_patch() -> str:
                             console_port=console_port,
                             secret_key=secret_key,
                             expire_minutes=expire_minutes,
-                            token_stats_dir=str(workspace / "data"),
+                            token_stats_dir=str(nanobot_dir),
                         )
                         logger.info("Console starting in standalone mode (HTTP proxy)")
 

@@ -23,16 +23,17 @@ def _restore_session_manager():
 
 @pytest.fixture
 def storage_db(tmp_path):
-    """Apply storage_patch with a temp workspace and return (db, workspace)."""
+    """Apply storage_patch with a temp data dir and return (db, data_dir, db_path)."""
     from unittest.mock import patch as mock_patch
 
-    with mock_patch("nanobot.config.paths.get_workspace_path", return_value=tmp_path):
-        (tmp_path / "data").mkdir(exist_ok=True)
+    data_dir = tmp_path / "data"
+    data_dir.mkdir(exist_ok=True)
+    with mock_patch("nanobot.config.paths.get_data_dir", return_value=data_dir):
         from ava.storage import Database
 
-        db_path = tmp_path / "data" / "nanobot.db"
+        db_path = data_dir / "nanobot.db"
         db = Database(db_path)
-        return db, tmp_path, db_path
+        return db, data_dir, db_path
 
 
 @pytest.fixture
@@ -40,9 +41,9 @@ def patched_manager(tmp_path):
     """Return a SessionManager after storage_patch is applied."""
     from unittest.mock import patch as mock_patch
 
-    with mock_patch("nanobot.config.paths.get_workspace_path", return_value=tmp_path):
-        (tmp_path / "data").mkdir(exist_ok=True)
-
+    data_dir = tmp_path / "data"
+    data_dir.mkdir(exist_ok=True)
+    with mock_patch("nanobot.config.paths.get_data_dir", return_value=data_dir):
         from ava.patches.storage_patch import apply_storage_patch
         apply_storage_patch()
 
@@ -72,8 +73,9 @@ class TestStoragePatch:
         """T5.0: apply_storage_patch runs without error."""
         from unittest.mock import patch as mock_patch
 
-        with mock_patch("nanobot.config.paths.get_workspace_path", return_value=tmp_path):
-            (tmp_path / "data").mkdir(exist_ok=True)
+        data_dir = tmp_path / "data"
+        data_dir.mkdir(exist_ok=True)
+        with mock_patch("nanobot.config.paths.get_data_dir", return_value=data_dir):
             from ava.patches.storage_patch import apply_storage_patch
 
             result = apply_storage_patch()
@@ -161,9 +163,9 @@ class TestStoragePatch:
         """T5.9: storage_patch calls loop_patch.set_shared_db."""
         from unittest.mock import patch as mock_patch
 
-        with mock_patch("nanobot.config.paths.get_workspace_path", return_value=tmp_path):
-            (tmp_path / "data").mkdir(exist_ok=True)
-
+        data_dir = tmp_path / "data"
+        data_dir.mkdir(exist_ok=True)
+        with mock_patch("nanobot.config.paths.get_data_dir", return_value=data_dir):
             # Verify that after apply, loop_patch._shared_db is set
             from ava.patches.loop_patch import set_shared_db
             set_shared_db(None)  # reset
