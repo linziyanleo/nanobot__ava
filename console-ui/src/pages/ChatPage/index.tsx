@@ -61,17 +61,19 @@ export default function ChatPage() {
         setStreaming('')
         setThinkingStreaming('')
         setSending(false)
-        loadSessionMessages(sessionKey)
+        // Use ref so we always call the latest loadSessionMessages even after
+        // sessions state has updated (avoids stale closure on re-renders).
+        loadSessionMessagesRef.current(sessionKey)
       } else if (data.type === 'async_result') {
-        // Async result pushed from background tasks (e.g. claude_code completion).
-        // Reload the full message history so the new assistant reply appears.
-        loadSessionMessages(sessionKey)
+        loadSessionMessagesRef.current(sessionKey)
       }
     }
     ws.onerror = () => setSending(false)
     ws.onclose = () => setSending(false)
     wsRef.current = ws
-  }, [loadSessionMessages])
+  // connectWs no longer depends on loadSessionMessages directly — stable ref used instead.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   const loadSessionList = useCallback(async () => {
     try {
@@ -244,6 +246,11 @@ export default function ChatPage() {
 
   const activeSessionRef = useRef(activeSession)
   activeSessionRef.current = activeSession
+
+  // Keep a ref to loadSessionMessages so ws.onmessage always uses the latest version
+  // without re-creating the WebSocket every time sessions state updates.
+  const loadSessionMessagesRef = useRef(loadSessionMessages)
+  loadSessionMessagesRef.current = loadSessionMessages
 
   const handleSend = (message: string) => {
     if (!wsRef.current || sending) return
