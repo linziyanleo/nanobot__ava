@@ -11,6 +11,8 @@ from nanobot.config.schema import Config
 # Global variable to store current config path (for multi-instance support)
 _current_config_path: Path | None = None
 
+EXTRA_CONFIG_FILENAME = "extra_config.json"
+
 
 def set_config_path(path: Path) -> None:
     """Set the current config path (used to derive data directory)."""
@@ -25,9 +27,29 @@ def get_config_path() -> Path:
     return Path.home() / ".nanobot" / "config.json"
 
 
+def _deep_merge(base: dict, override: dict) -> dict:
+    """Recursively merge override into base. Override values take precedence.
+
+    - Dicts are merged recursively
+    - Non-dict values in override replace base values
+    - Keys only in base are preserved
+    """
+    merged = base.copy()
+    for key, val in override.items():
+        if key in merged and isinstance(merged[key], dict) and isinstance(val, dict):
+            merged[key] = _deep_merge(merged[key], val)
+        else:
+            merged[key] = val
+    return merged
+
+
 def load_config(config_path: Path | None = None) -> Config:
     """
     Load configuration from file or create default.
+
+    Loads config.json as the base config, then deep-merges extra_config.json
+    (if it exists in the same directory) on top. extra_config.json values
+    take precedence over config.json values.
 
     Args:
         config_path: Optional path to config file. Uses default if not provided.
@@ -42,6 +64,16 @@ def load_config(config_path: Path | None = None) -> Config:
             with open(path, encoding="utf-8") as f:
                 data = json.load(f)
             data = _migrate_config(data)
+
+            extra_path = path.parent / EXTRA_CONFIG_FILENAME
+            if extra_path.exists():
+                try:
+                    with open(extra_path, encoding="utf-8") as f:
+                        extra_data = json.load(f)
+                    data = _deep_merge(data, extra_data)
+                except (json.JSONDecodeError, ValueError) as e:
+                    print(f"Warning: Failed to load extra config from {extra_path}: {e}")
+
             return Config.model_validate(data)
         except (json.JSONDecodeError, ValueError, pydantic.ValidationError) as e:
             logger.warning(f"Failed to load config from {path}: {e}")
@@ -74,4 +106,15 @@ def _migrate_config(data: dict) -> dict:
     exec_cfg = tools.get("exec", {})
     if "restrictToWorkspace" in exec_cfg and "restrictToWorkspace" not in tools:
         tools["restrictToWorkspace"] = exec_cfg.pop("restrictToWorkspace")
+
+    # Move gateway.heartbeat → agents.defaults.heartbeat
+    gateway = data.get("gateway", {})
+    if "heartbeat" in gateway:
+        agents = data.setdefault("agents", {})
+        defaults = agents.setdefault("defaults", {})
+        if "heartbeat" not in defaults:
+            defaults["heartbeat"] = gateway.pop("heartbeat")
+        else:
+            gateway.pop("heartbeat")
+
     return data

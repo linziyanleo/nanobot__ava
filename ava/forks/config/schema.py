@@ -212,6 +212,7 @@ class ChannelsConfig(Base):
 
     send_progress: bool = True    # stream agent's text progress to the channel
     send_tool_hints: bool = False  # stream tool-call hints (e.g. read_file("…"))
+    send_max_retries: int = Field(default=3, ge=0, le=10)  # Max delivery attempts (initial send included)
     whatsapp: WhatsAppConfig = Field(default_factory=WhatsAppConfig)
     telegram: TelegramConfig = Field(default_factory=TelegramConfig)
     discord: DiscordConfig = Field(default_factory=DiscordConfig)
@@ -228,10 +229,13 @@ class ContextCompressionConfig(Base):
     """Context compression and history-retrieval fallback settings."""
 
     enabled: bool = True  # Master switch for history compression pipeline
-    max_chars: int = 12000  # Upper bound for compressed history text size before current user message
+    # max_chars is a character budget for compressed history.
+    # Chinese is ~10 chars/token, English ~4 chars/token, mixed ~6-8.
+    # 50000 chars ≈ 6000-8000 tokens — keeps history meaningful without flooding context.
+    max_chars: int = 50000
     recent_turns: int = 10  # Always keep this many latest completed turns with highest priority
     min_recent_turns: int = 4  # Never shrink below this many recent turns during budget trimming
-    max_old_turns: int = 4  # Max number of older turns retained by relevance ranking
+    max_old_turns: int = 6  # Max number of older turns retained by relevance ranking (raised from 4)
     protected_recent_messages: int = 20  # Protect last N messages from compression entirely
     enable_history_lookup_hint: bool = True  # Add memory.search_history hint when compressed context lacks query terms
     bootstrap_max_chars: int = 16000  # Total size limit for all bootstrap files (AGENTS.md, SOUL.md, etc.)
@@ -259,8 +263,8 @@ class HistorySummarizerConfig(Base):
     """Turn-level history summarization to reduce token usage."""
 
     enabled: bool = True
-    protect_recent: int = 0  # Keep last N messages in original format (0 = summarize all)
-    tool_result_max_chars: int = 200  # Max chars per individual tool result summary
+    protect_recent: int = 6  # Keep last N messages unsummarized (≈3 full turns with tool calls)
+    tool_result_max_chars: int = 400  # Max chars per individual tool result summary
 
 
 class HeartbeatPhaseConfig(Base):
@@ -284,10 +288,9 @@ class AgentDefaults(Base):
 
     workspace: str = "~/.nanobot/workspace"
     model: str = "anthropic/claude-opus-4-6"
-    vision_model: str | None = None  # Model for vision/OCR tasks (fallback to model)
-    mini_model: str | None = None  # Lightweight model for simple tasks (fallback to model)
-    voice_model: str | None = None  # Model for voice transcription (e.g. "groq/whisper-large-v3")
-    image_gen_model: str | None = None  # Image generation model (e.g. "google/gemini-3.1-flash-image-preview")
+    vision_model: str = "google/gemini-3.1-flash-lite-preview"  # Model for vision/OCR tasks
+    mini_model: str = "google/gemini-3.1-flash-lite-preview"  # Lightweight model for simple tasks
+    image_gen_model: str = "google/gemini-3.1-flash-image-preview"  # Image generation model
     memory_tier: Literal["default", "mini"] | None = "default"  # Model tier for memory consolidation
     provider: str = "auto"  # Provider name (e.g. "anthropic", "openrouter") or "auto" for auto-detection
     max_tokens: int = 8192
