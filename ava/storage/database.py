@@ -361,6 +361,7 @@ class Database:
 
 _SAFE_ALTER_COLUMNS: list[tuple[str, str, str]] = [
     ("cost_usd", "REAL", "0"),
+    ("current_turn_tokens", "INTEGER", "0"),
 ]
 
 _SCHEMA_DDL = """
@@ -416,7 +417,8 @@ CREATE TABLE IF NOT EXISTS token_usage (
     model_role TEXT DEFAULT 'default',
     cached_tokens INTEGER DEFAULT 0,
     cache_creation_tokens INTEGER DEFAULT 0,
-    cost_usd REAL DEFAULT 0
+    cost_usd REAL DEFAULT 0,
+    current_turn_tokens INTEGER DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS idx_tu_timestamp ON token_usage(timestamp);
 CREATE INDEX IF NOT EXISTS idx_tu_model ON token_usage(model);

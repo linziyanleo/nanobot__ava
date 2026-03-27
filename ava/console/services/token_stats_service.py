@@ -35,6 +35,7 @@ class TokenUsageRecord:
     cached_tokens: int = 0
     cache_creation_tokens: int = 0
     cost_usd: float = 0.0
+    current_turn_tokens: int = 0
 
 class TokenStatsCollector:
     """Collects per-call LLM token usage.
@@ -86,19 +87,27 @@ class TokenStatsCollector:
         finish_reason: str = "",
         model_role: str = "default",
         cost_usd: float = 0.0,
+        # Pre-resolved token counts — if provided, skip internal re-parsing from usage dict
+        cached_tokens: int | None = None,
+        cache_creation_tokens: int | None = None,
+        current_turn_tokens: int = 0,
     ) -> None:
         """Append a single LLM call record."""
         ts = datetime.now().isoformat()
         prompt_tokens = usage.get("prompt_tokens", 0)
         completion_tokens = usage.get("completion_tokens", 0)
-        total_tokens = usage.get("total_tokens", 0)
+        total_tokens = usage.get("total_tokens", 0) or (prompt_tokens + completion_tokens)
 
-        cached_tokens = 0
-        cache_creation_tokens = 0
-        prompt_details = usage.get("prompt_tokens_details")
-        if isinstance(prompt_details, dict):
-            cached_tokens = prompt_details.get("cached_tokens", 0) or 0
-        cache_creation_tokens = usage.get("cache_creation_input_tokens", 0) or 0
+        # Resolve cached/cache_creation: prefer pre-parsed values passed by caller,
+        # fall back to parsing from the raw usage dict (OpenAI or Anthropic structure).
+        if cached_tokens is None:
+            prompt_details = usage.get("prompt_tokens_details")
+            if isinstance(prompt_details, dict):
+                cached_tokens = int(prompt_details.get("cached_tokens", 0) or 0)
+            else:
+                cached_tokens = int(usage.get("cache_read_input_tokens", 0) or 0)
+        if cache_creation_tokens is None:
+            cache_creation_tokens = int(usage.get("cache_creation_input_tokens", 0) or 0)
 
         if self._use_db:
             self._db.execute(
@@ -106,13 +115,13 @@ class TokenStatsCollector:
                    (timestamp, model, provider, prompt_tokens, completion_tokens, total_tokens,
                     session_key, turn_seq, iteration, user_message, output_content,
                     system_prompt_preview, conversation_history, full_request_payload, finish_reason,
-                    model_role, cached_tokens, cache_creation_tokens, cost_usd)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    model_role, cached_tokens, cache_creation_tokens, cost_usd, current_turn_tokens)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
                     ts, model, provider, prompt_tokens, completion_tokens, total_tokens,
                     session_key, turn_seq, iteration, user_message, output_content,
                     system_prompt, conversation_history, full_request_payload, finish_reason,
-                    model_role, cached_tokens, cache_creation_tokens, cost_usd,
+                    model_role, cached_tokens, cache_creation_tokens, cost_usd, current_turn_tokens,
                 ),
             )
             self._db.commit()
