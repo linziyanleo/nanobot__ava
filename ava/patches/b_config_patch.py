@@ -5,6 +5,8 @@ Adds to AgentDefaults:
   - claude_code_config: dict | None  — extra config (api_key, base_url)
   - vision_model: str | None  — override model for VisionTool
   - mini_model: str | None   — lightweight model for quick tasks
+
+Note: voice_model was removed — voice transcription uses upstream Groq Whisper.
 """
 
 from __future__ import annotations
@@ -30,6 +32,7 @@ def apply_config_patch() -> str:
         "claude_code_config": None,
         "vision_model": None,
         "mini_model": None,
+        # voice_model removed — voice transcription uses upstream Groq Whisper
     }
 
     added = []

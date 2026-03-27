@@ -1,11 +1,18 @@
-"""Channel extensions patch for TelegramChannel message batching.
+"""Channel extensions patch for TelegramChannel message batching and send_delta fixes.
 
 Intercept: TelegramChannel.send
 Behavior: Messages are queued in a MessageBatcher; within a 1-second window,
 multiple messages to the same chat_id are merged into a single send.
 
-Note: Session backfill is handled by storage_patch (after SQLite load),
-not here — avoids the _load ordering conflict between channel/storage patches.
+Intercept: TelegramChannel.send_delta
+Behavior: (a) Always stop typing on stream_end regardless of buf state —
+upstream skips _stop_typing when buf is empty (tool-call-only turns).
+(b) Fallback to send_message when buf.message_id is None at stream_end —
+upstream drops the message; we send a fresh one instead.
+Stream_id matching and not_modified handling are left to upstream (since 33abe915).
+
+Note: Voice transcription uses upstream Groq Whisper (config: providers.groq.apiKey).
+Session backfill is handled by storage_patch (after SQLite load).
 """
 
 from __future__ import annotations
@@ -20,13 +27,16 @@ from ava.launcher import register_patch
 
 def apply_channel_patch() -> str:
     """
-    Patch TelegramChannel to add message batching.
+    Patch TelegramChannel to add message batching and send_delta fixes.
 
     Returns:
         Description of what was patched.
     """
     from nanobot.channels.telegram import TelegramChannel
 
+    # ------------------------------------------------------------------
+    # 1. Patch send: message batching
+    # ------------------------------------------------------------------
     original_send = TelegramChannel.send
 
     batcher: MessageBatcher | None = None
@@ -44,7 +54,6 @@ def apply_channel_patch() -> str:
 
         msg = OutboundMessage(
             channel="telegram",
-            sender_id=sender_id,
             chat_id=chat_id,
             content=content,
             media=media,
@@ -80,7 +89,49 @@ def apply_channel_patch() -> str:
 
     TelegramChannel.send = patched_send
 
-    return "TelegramChannel.send patched with message batching"
+    # ------------------------------------------------------------------
+    # 3. Patch send_delta: two behaviors upstream doesn't cover:
+    #    (a) Always stop typing on stream_end regardless of buf state —
+    #        upstream only calls _stop_typing after it confirms buf has text,
+    #        leaving the typing indicator stuck on tool-call-only turns.
+    #    (b) Fallback send_message when buf.message_id is None on stream_end —
+    #        upstream returns early and drops the message; we send a fresh one.
+    #    All other logic (stream_id matching, not_modified handling) is now
+    #    handled by upstream send_delta (since 33abe915).
+    # ------------------------------------------------------------------
+    original_send_delta = TelegramChannel.send_delta
+
+    async def patched_send_delta(self: TelegramChannel, chat_id: str, delta: str, metadata: dict | None = None) -> None:
+        meta = metadata or {}
+        if meta.get("_stream_end"):
+            # (a) Stop typing immediately — upstream skips this when buf is empty
+            self._stop_typing(chat_id)
+
+            buf = self._stream_bufs.get(chat_id)
+            if buf and buf.text and buf.message_id is None:
+                # (b) send_message hasn't completed yet: send a fresh message
+                stream_id = meta.get("_stream_id")
+                if stream_id is not None and buf.stream_id is not None and buf.stream_id != stream_id:
+                    self._stream_bufs.pop(chat_id, None)
+                    return
+                try:
+                    from nanobot.utils.helpers import strip_think
+                    text = strip_think(buf.text) or buf.text
+                except Exception:
+                    text = buf.text
+                self._stream_bufs.pop(chat_id, None)
+                logger.info("send_delta fallback send_message chat={} len={}", chat_id, len(text))
+                try:
+                    await self._call_with_retry(self._app.bot.send_message, chat_id=int(chat_id), text=text)
+                except Exception as exc:
+                    logger.warning("send_delta fallback send failed: {}", exc)
+                return
+
+        await original_send_delta(self, chat_id, delta, metadata)
+
+    TelegramChannel.send_delta = patched_send_delta
+
+    return "TelegramChannel patched: message batching + voice transcription LLM fallback + send_delta typing fix"
 
 
 register_patch("channel_extensions", apply_channel_patch)
