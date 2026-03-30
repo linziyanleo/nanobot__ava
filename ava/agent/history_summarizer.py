@@ -39,8 +39,17 @@ class HistorySummarizer:
             return history
 
         if self.protect_recent > 0 and len(history) > self.protect_recent:
-            to_summarize = history[:-self.protect_recent]
-            protected = self._filter_empty_messages(history[-self.protect_recent:])
+            split = len(history) - self.protect_recent
+            # 向前调整分界点，避免切断 tool_call 组：
+            # protected 部分不能以 tool_result 或带 tool_calls 的 assistant 开头，
+            # 否则 summarize 会丢弃对应的 tool_use 导致 orphan tool_result。
+            while split > 0 and (
+                history[split].get("role") == "tool"
+                or (history[split].get("role") == "assistant" and history[split].get("tool_calls"))
+            ):
+                split -= 1
+            to_summarize = history[:split]
+            protected = self._filter_empty_messages(history[split:])
         else:
             to_summarize = history
             protected = []

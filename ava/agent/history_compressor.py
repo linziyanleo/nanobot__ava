@@ -145,8 +145,17 @@ class HistoryCompressor:
 
         # Phase 1: Protect the most recent messages entirely
         if self.protected_recent_messages > 0 and len(history) > self.protected_recent_messages:
-            protected = history[-self.protected_recent_messages:]
-            to_compress = history[:-self.protected_recent_messages]
+            split = len(history) - self.protected_recent_messages
+            # 向前调整分界点，避免切断 tool_call 组：
+            # protected 部分不能以 tool_result 或带 tool_calls 的 assistant 开头，
+            # 否则会产生 orphan tool_result 导致 API 400 错误。
+            while split > 0 and (
+                history[split].get("role") == "tool"
+                or (history[split].get("role") == "assistant" and history[split].get("tool_calls"))
+            ):
+                split -= 1
+            protected = history[split:]
+            to_compress = history[:split]
         elif self.protected_recent_messages == 0:
             # No protection: compress entire history
             protected = []
