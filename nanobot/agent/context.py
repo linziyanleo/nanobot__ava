@@ -143,11 +143,42 @@ IMPORTANT: To send files (images, documents, audio, video) to the user, you MUST
         else:
             merged = [{"type": "text", "text": runtime_ctx}] + user_content
 
+        clean_history = self._sanitize_history(history, current_role)
+
         return [
             {"role": "system", "content": self.build_system_prompt(skill_names)},
-            *history,
+            *clean_history,
             {"role": current_role, "content": merged},
         ]
+
+    def _sanitize_history(
+        self, history: list[dict[str, Any]], current_role: str = "user",
+    ) -> list[dict[str, Any]]:
+        """Remove trailing incomplete assistant messages that cause provider errors.
+
+        Handles two cases:
+        - Consecutive assistant messages (last assistant followed by current_role=="assistant")
+        - Assistant message with tool_calls but no subsequent tool result
+        """
+        if not history:
+            return history
+
+        result = list(history)
+        last = result[-1]
+
+        if last.get("role") != "assistant":
+            return result
+
+        # Case 1: consecutive assistant — current message is also assistant
+        if current_role == "assistant":
+            result.pop()
+            return result
+
+        # Case 2: assistant has tool_calls but no following tool result
+        if last.get("tool_calls"):
+            result.pop()
+
+        return result
 
     def _build_user_content(self, text: str, media: list[str] | None) -> str | list[dict[str, Any]]:
         """Build user message content with optional base64-encoded images."""
