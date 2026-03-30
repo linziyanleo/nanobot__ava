@@ -1,4 +1,7 @@
 """Patch ContextBuilder.build_messages to apply history processing and memory injection.
+Also patches LLMProvider.chat_with_retry / chat_stream_with_retry to sanitize messages
+before sending to non-Claude providers (removes trailing assistant messages, merges
+consecutive same-role messages that violate strict user/assistant alternation).
 
 Intercept: ContextBuilder.build_messages
 Behavior:
@@ -6,6 +9,12 @@ Behavior:
   2. Apply HistoryCompressor to trim history within character budget
   3. Call original build_messages
   4. Inject CategorizedMemoryStore context into system prompt
+
+Intercept: LLMProvider.chat_with_retry / chat_stream_with_retry
+Behavior:
+  Sanitize messages for non-Claude providers:
+  - Remove trailing assistant messages (causes HTTP 400 prefill error)
+  - Merge consecutive same-role messages into one
 
 Depends on loop_patch having set self.context._agent_loop on the ContextBuilder.
 """
@@ -15,6 +24,55 @@ from __future__ import annotations
 from loguru import logger
 
 from ava.launcher import register_patch
+
+
+def _is_claude_provider(provider) -> bool:
+    """Return True if the provider is Anthropic/Claude-based."""
+    return type(provider).__name__ == "AnthropicProvider"
+
+
+def sanitize_messages(messages: list[dict]) -> list[dict]:
+    """Remove trailing assistant messages and merge consecutive same-role messages.
+
+    Some providers (e.g. OpenAI-compatible) reject requests where:
+    - The last message role is 'assistant' (prefill not supported)
+    - Two consecutive messages share the same role
+
+    System messages are always kept at position 0 and not merged.
+    """
+    if not messages:
+        return messages
+
+    # Step 1: merge consecutive same-role non-system messages
+    merged: list[dict] = []
+    for msg in messages:
+        role = msg.get("role")
+        if (
+            merged
+            and role != "system"
+            and merged[-1].get("role") == role
+            and role in ("user", "assistant")
+        ):
+            prev = merged[-1]
+            prev_content = prev.get("content") or ""
+            curr_content = msg.get("content") or ""
+            if isinstance(prev_content, str) and isinstance(curr_content, str):
+                prev["content"] = (prev_content + "\n\n" + curr_content).strip()
+            else:
+                # Non-string content (list of blocks): just keep the latest
+                merged[-1] = msg
+        else:
+            merged.append(dict(msg))
+
+    # Step 2: drop trailing assistant messages (only non-system messages)
+    while merged and merged[-1].get("role") == "assistant":
+        dropped = merged.pop()
+        logger.debug(
+            "sanitize_messages: dropped trailing assistant message (content={!r:.80})",
+            (dropped.get("content") or "")[:80],
+        )
+
+    return merged
 
 
 def apply_context_patch() -> str:
@@ -73,7 +131,43 @@ def apply_context_patch() -> str:
     patched_build_messages._ava_patched = True
     ContextBuilder.build_messages = patched_build_messages
 
-    return "ContextBuilder.build_messages patched: history summarize+compress, categorized memory injection"
+    # ------------------------------------------------------------------
+    # Patch LLMProvider.chat_with_retry and chat_stream_with_retry
+    # to sanitize messages before sending to non-Claude providers.
+    # ------------------------------------------------------------------
+    try:
+        from nanobot.providers.base import LLMProvider
+    except ImportError:
+        logger.warning("context_patch: LLMProvider not found, skipping message sanitize patch")
+        return "ContextBuilder.build_messages patched (LLMProvider sanitize skipped)"
+
+    if getattr(LLMProvider.chat_with_retry, "_ava_sanitize_patched", False):
+        return "ContextBuilder.build_messages patched: history summarize+compress, categorized memory injection"
+
+    original_chat_with_retry = LLMProvider.chat_with_retry
+    original_chat_stream_with_retry = LLMProvider.chat_stream_with_retry
+
+    async def patched_chat_with_retry(self, messages, **kwargs):
+        """Wrap chat_with_retry: sanitize messages for non-Claude providers."""
+        if not _is_claude_provider(self):
+            messages = sanitize_messages(messages)
+        return await original_chat_with_retry(self, messages, **kwargs)
+
+    async def patched_chat_stream_with_retry(self, messages, **kwargs):
+        """Wrap chat_stream_with_retry: sanitize messages for non-Claude providers."""
+        if not _is_claude_provider(self):
+            messages = sanitize_messages(messages)
+        return await original_chat_stream_with_retry(self, messages, **kwargs)
+
+    patched_chat_with_retry._ava_sanitize_patched = True
+    patched_chat_stream_with_retry._ava_sanitize_patched = True
+    LLMProvider.chat_with_retry = patched_chat_with_retry
+    LLMProvider.chat_stream_with_retry = patched_chat_stream_with_retry
+
+    return (
+        "ContextBuilder.build_messages patched: history summarize+compress, categorized memory injection; "
+        "LLMProvider.chat_with_retry/chat_stream_with_retry patched: sanitize trailing assistant messages"
+    )
 
 
 register_patch("context_builder", apply_context_patch)
