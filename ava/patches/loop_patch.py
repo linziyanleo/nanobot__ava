@@ -106,7 +106,19 @@ def apply_loop_patch() -> str:
         # HistorySummarizer — 旧轮次摘要压缩
         try:
             from ava.agent.history_summarizer import HistorySummarizer
-            self.history_summarizer = HistorySummarizer(enabled=True, protect_recent=0)
+            _protect_recent = (
+                getattr(self.config, "get", lambda *a, **kw: None)("history_compressor.protect_recent")
+                if hasattr(self, "config") and self.config is not None
+                else None
+            )
+            if _protect_recent is None:
+                try:
+                    _protect_recent = self.config.history_compressor.protect_recent
+                except Exception:
+                    _protect_recent = None
+            if not isinstance(_protect_recent, int) or _protect_recent < 0:
+                _protect_recent = 6
+            self.history_summarizer = HistorySummarizer(enabled=True, protect_recent=_protect_recent)
         except Exception as exc:
             logger.warning("Failed to init HistorySummarizer: {}", exc)
             self.history_summarizer = None
@@ -114,7 +126,19 @@ def apply_loop_patch() -> str:
         # HistoryCompressor — 基于字符预算的历史裁剪
         try:
             from ava.agent.history_compressor import HistoryCompressor
-            self.history_compressor = HistoryCompressor(max_chars=12000, recent_turns=10)
+            _max_chars = (
+                getattr(self.config, "get", lambda *a, **kw: None)("history_compressor.max_chars")
+                if hasattr(self, "config") and self.config is not None
+                else None
+            )
+            if _max_chars is None:
+                try:
+                    _max_chars = self.config.history_compressor.max_chars
+                except Exception:
+                    _max_chars = None
+            if not isinstance(_max_chars, int) or _max_chars <= 0:
+                _max_chars = 20000
+            self.history_compressor = HistoryCompressor(max_chars=_max_chars, recent_turns=10)
         except Exception as exc:
             logger.warning("Failed to init HistoryCompressor: {}", exc)
             self.history_compressor = None
