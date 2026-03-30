@@ -15,7 +15,9 @@ from nanobot.agent.tools.base import Tool
 if TYPE_CHECKING:
     from nanobot.agent.subagent import SubagentManager
 
-_MAX_OUTPUT_CHARS = 16000
+_MAX_OUTPUT_CHARS = 32000   # hard cap for extreme cases
+_HEAD_CHARS = 8000          # keep first N chars (task breakdown, early progress)
+_TAIL_CHARS = 12000         # keep last N chars (final summary, conclusions)
 
 class ClaudeCodeTool(Tool):
     """Run Claude Code CLI to modify code, add features, fix bugs, or analyze a codebase.
@@ -310,7 +312,7 @@ class ClaudeCodeTool(Tool):
                 "prompt_tokens_details": {"cached_tokens": cache_read},
             },
             user_message=user_msg,
-            output_content=result_text[:16000] if result_text else "",
+            output_content=result_text[:_MAX_OUTPUT_CHARS] if result_text else "",
             finish_reason=finish,
             model_role="claude_code",
             cost_usd=cost,
@@ -345,7 +347,14 @@ class ClaudeCodeTool(Tool):
 
         if result_text:
             if len(result_text) > _MAX_OUTPUT_CHARS:
-                result_text = result_text[:_MAX_OUTPUT_CHARS] + "\n... (truncated)"
+                head = result_text[:_HEAD_CHARS]
+                tail = result_text[-_TAIL_CHARS:]
+                omitted = len(result_text) - _HEAD_CHARS - _TAIL_CHARS
+                result_text = (
+                    head
+                    + f"\n\n... [{omitted} chars omitted — output too long] ...\n\n"
+                    + tail
+                )
             parts.append(result_text)
         else:
             parts.append("(no result text)")
