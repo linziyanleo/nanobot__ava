@@ -16,6 +16,7 @@ build/
 *.pyzz
 .venv/
 venv/
+.nanobot/
 __pycache__/
 poetry.lock
 .pytest_cache/
