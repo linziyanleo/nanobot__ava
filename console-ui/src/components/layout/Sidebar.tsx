@@ -4,6 +4,7 @@ import {
   Bot,
   PanelLeftClose,
   User,
+  LogOut,
 } from 'lucide-react';
 import { useAuth } from '../../stores/auth';
 import { cn } from '../../lib/utils';
@@ -37,7 +38,7 @@ function FixedTooltip({ label, children }: { label: string; children: ReactNode 
 }
 
 export default function Sidebar() {
-  const { user } = useAuth();
+  const { user, logout, isAdmin } = useAuth();
   const [collapsed, setCollapsed] = useState(() => {
     try {
       return localStorage.getItem(STORAGE_KEY) === '1';
@@ -125,27 +126,57 @@ export default function Sidebar() {
       {/* Footer */}
       <div className={cn('border-t border-[var(--border)]', collapsed ? 'p-2' : 'p-4')}>
         {collapsed ? (
-          <FixedTooltip label={user?.username ?? '用户'}>
+          isAdmin() ? (
+            <FixedTooltip label={user?.username ?? '用户'}>
+              <NavLink
+                to="/users"
+                className="flex justify-center p-2 rounded-lg text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)] transition-colors"
+              >
+                <User className="w-4 h-4" />
+              </NavLink>
+            </FixedTooltip>
+          ) : (
+            <FixedTooltip label={`${user?.username ?? '用户'} · 退出`}>
+              <button
+                onClick={logout}
+                className="flex justify-center p-2 rounded-lg text-[var(--text-secondary)] hover:text-[var(--danger)] hover:bg-[var(--bg-tertiary)] transition-colors w-full"
+              >
+                <User className="w-4 h-4" />
+              </button>
+            </FixedTooltip>
+          )
+        ) : (
+          isAdmin() ? (
             <NavLink
               to="/users"
-              className="flex justify-center p-2 rounded-lg text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)] transition-colors"
+              className="flex items-center gap-3 px-1 py-1.5 rounded-lg hover:bg-[var(--bg-tertiary)] transition-colors"
             >
-              <User className="w-4 h-4" />
+              <div className="w-8 h-8 rounded-full bg-[var(--accent)]/15 flex items-center justify-center shrink-0">
+                <User className="w-4 h-4 text-[var(--accent)]" />
+              </div>
+              <div className="min-w-0">
+                <p className="text-sm font-medium text-[var(--text-primary)] truncate">{user?.username}</p>
+                <p className="text-xs text-[var(--text-secondary)] capitalize">{user?.role}</p>
+              </div>
             </NavLink>
-          </FixedTooltip>
-        ) : (
-          <NavLink
-            to="/users"
-            className="flex items-center gap-3 px-1 py-1.5 rounded-lg hover:bg-[var(--bg-tertiary)] transition-colors"
-          >
-            <div className="w-8 h-8 rounded-full bg-[var(--accent)]/15 flex items-center justify-center shrink-0">
-              <User className="w-4 h-4 text-[var(--accent)]" />
+          ) : (
+            <div className="flex items-center gap-2 px-1 py-1.5">
+              <div className="w-8 h-8 rounded-full bg-[var(--bg-tertiary)] flex items-center justify-center shrink-0">
+                <User className="w-4 h-4 text-[var(--text-secondary)]" />
+              </div>
+              <div className="min-w-0 flex-1">
+                <p className="text-sm font-medium text-[var(--text-primary)] truncate">{user?.username}</p>
+                <p className="text-xs text-[var(--text-secondary)] capitalize">{user?.role}</p>
+              </div>
+              <button
+                onClick={logout}
+                title="退出登录"
+                className="p-1.5 rounded-lg text-[var(--text-secondary)] hover:text-[var(--danger)] hover:bg-[var(--bg-tertiary)] transition-colors shrink-0"
+              >
+                <LogOut className="w-3.5 h-3.5" />
+              </button>
             </div>
-            <div className="min-w-0">
-              <p className="text-sm font-medium text-[var(--text-primary)] truncate">{user?.username}</p>
-              <p className="text-xs text-[var(--text-secondary)] capitalize">{user?.role}</p>
-            </div>
-          </NavLink>
+          )
         )}
       </div>
     </aside>

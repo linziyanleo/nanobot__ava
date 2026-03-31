@@ -1080,14 +1080,16 @@ function RecordRow({
                   </CopyablePre>
                 </div>
               )}
-              {r.system_prompt_preview && (
-                <div>
-                  <p className="text-[var(--text-secondary)] mb-1">系统提示词:</p>
+              <div>
+                <p className="text-[var(--text-secondary)] mb-1">系统提示词:</p>
+                {r.system_prompt_preview ? (
                   <CopyablePre className="bg-[var(--bg-primary)] rounded-lg p-3 text-xs whitespace-pre-wrap break-all max-h-32 overflow-y-auto text-[var(--text-secondary)]">
                     {r.system_prompt_preview}
                   </CopyablePre>
-                </div>
-              )}
+                ) : (
+                  <p className="text-xs text-[var(--text-tertiary)] italic">（与上一条相同，已省略）</p>
+                )}
+              </div>
               {r.conversation_history && (
                 <div>
                   <p className="text-[var(--text-secondary)] mb-1">对话历史:</p>

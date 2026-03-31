@@ -24,6 +24,8 @@ export default function ChatPage() {
   const [sending, setSending] = useState(false)
   const [mobileSessionOpen, setMobileSessionOpen] = useState(false)
   const wsRef = useRef<WebSocket | null>(null)
+  const wsReconnectTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const wsSessionId = useRef<string>('')
   const initializedRef = useRef(false)
   const { isMobile } = useResponsiveMode()
   useAuth()
@@ -47,8 +49,13 @@ export default function ChatPage() {
     return loadSessionMessagesWithMeta(sessionKey, meta, silent)
   }, [sessions, loadSessionMessagesWithMeta])
 
-  const connectWs = useCallback((sid: string) => {
+  const connectWs = useCallback((sid: string, isReconnect = false) => {
+    if (wsReconnectTimer.current) {
+      clearTimeout(wsReconnectTimer.current)
+      wsReconnectTimer.current = null
+    }
     wsRef.current?.close()
+    wsSessionId.current = sid
     const sessionKey = `console:${sid}`
     const ws = new WebSocket(wsUrl(`/chat/ws/${sid}`))
     ws.onmessage = (e) => {
@@ -61,17 +68,26 @@ export default function ChatPage() {
         setStreaming('')
         setThinkingStreaming('')
         setSending(false)
-        // Use ref so we always call the latest loadSessionMessages even after
-        // sessions state has updated (avoids stale closure on re-renders).
         loadSessionMessagesRef.current(sessionKey)
       } else if (data.type === 'async_result') {
         loadSessionMessagesRef.current(sessionKey)
       }
     }
     ws.onerror = () => setSending(false)
-    ws.onclose = () => setSending(false)
+    ws.onclose = () => {
+      setSending(false)
+      // Reload messages on disconnect — the LLM may have finished while ws was down.
+      loadSessionMessagesRef.current(sessionKey, true)
+      // Auto-reconnect if this is still the active session
+      if (wsSessionId.current === sid) {
+        wsReconnectTimer.current = setTimeout(() => connectWs(sid, true), 2000)
+      }
+    }
     wsRef.current = ws
-  // connectWs no longer depends on loadSessionMessages directly — stable ref used instead.
+    // If reconnecting after a drop, reload messages to catch anything missed.
+    if (isReconnect) {
+      loadSessionMessagesRef.current(sessionKey, true)
+    }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
@@ -133,6 +149,8 @@ export default function ChatPage() {
     setActiveSession(key)
     setStreaming('')
     setThinkingStreaming('')
+    wsSessionId.current = ''
+    if (wsReconnectTimer.current) { clearTimeout(wsReconnectTimer.current); wsReconnectTimer.current = null }
     wsRef.current?.close()
     setMobileSessionOpen(false)
 
@@ -147,6 +165,8 @@ export default function ChatPage() {
 
   const handleSceneChange = (scene: SceneType) => {
     setActiveScene(scene)
+    wsSessionId.current = ''
+    if (wsReconnectTimer.current) { clearTimeout(wsReconnectTimer.current); wsReconnectTimer.current = null }
     wsRef.current?.close()
     setStreaming('')
     setThinkingStreaming('')
@@ -222,6 +242,8 @@ export default function ChatPage() {
         setActiveSession('')
         setCurrentMeta(null)
         setTurns([])
+        wsSessionId.current = ''
+        if (wsReconnectTimer.current) { clearTimeout(wsReconnectTimer.current); wsReconnectTimer.current = null }
         wsRef.current?.close()
       }
       loadSessionList()

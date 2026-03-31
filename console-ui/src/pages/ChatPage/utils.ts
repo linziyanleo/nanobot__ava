@@ -82,7 +82,24 @@ export function groupTurns(messages: RawMessage[]): TurnGroup[] {
         startTime: msg.timestamp,
         toolCalls: [],
       }
-    } else if (current) {
+    } else if (!current) {
+      // Orphan assistant/tool message without a preceding user message.
+      // Create a turn with a synthetic user placeholder so it still renders.
+      current = {
+        userMessage: { role: 'user', content: null, timestamp: msg.timestamp },
+        assistantSteps: [],
+        isComplete: false,
+        startTime: msg.timestamp,
+        toolCalls: [],
+      }
+      current.assistantSteps.push(msg)
+
+      if (msg.role === 'assistant' && msg.tool_calls?.length) {
+        for (const tc of msg.tool_calls) {
+          current.toolCalls.push({ call: tc })
+        }
+      }
+    } else {
       current.assistantSteps.push(msg)
 
       if (msg.role === 'assistant' && msg.tool_calls?.length) {
