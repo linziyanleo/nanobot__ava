@@ -13,9 +13,9 @@ avoiding full repo clones.
 from __future__ import annotations
 
 import json
-import os
 import subprocess
 import shutil
+import time
 from pathlib import Path
 from urllib.parse import urlparse
 
@@ -79,16 +79,29 @@ def _gh_api(endpoint: str) -> dict | list:
     return json.loads(result.stdout)
 
 
-def _gh_api_raw(url: str) -> bytes:
-    """Download raw file content via gh api."""
-    result = subprocess.run(
-        ["gh", "api", url, "-H", "Accept: application/vnd.github.raw+json"],
-        capture_output=True,
-        timeout=30,
-    )
-    if result.returncode != 0:
-        raise RuntimeError(f"gh api download failed: {result.stderr.decode().strip()}")
-    return result.stdout
+def _gh_api_raw(url: str, retries: int = 3) -> bytes:
+    """Download raw file content via gh api with retry.
+
+    Uses Contents API path (``/repos/…/contents/…``) instead of
+    ``raw.githubusercontent.com`` URLs for reliability.
+    """
+    for attempt in range(1, retries + 1):
+        result = subprocess.run(
+            ["gh", "api", url, "-H", "Accept: application/vnd.github.raw+json"],
+            capture_output=True,
+            timeout=60,
+        )
+        if result.returncode == 0:
+            return result.stdout
+        err = result.stderr.decode().strip()
+        if attempt < retries and ("EOF" in err or "timeout" in err.lower()):
+            wait = attempt * 2
+            logger.warning("Download attempt {}/{} failed ({}), retrying in {}s…", attempt, retries, err, wait)
+            time.sleep(wait)
+            continue
+        raise RuntimeError(f"gh api download failed: {err}")
+    # unreachable, but keeps mypy happy
+    raise RuntimeError("gh api download failed after retries")
 
 
 def download_skill_from_github(
@@ -190,11 +203,14 @@ def _walk(
         rel = f"{rel_prefix}{name}" if rel_prefix else name
 
         if item_type == "file":
+            # Always use Contents API path — raw.githubusercontent.com is unreliable
+            # for bulk downloads (EOF errors on sequential requests)
+            api_dl = f"/repos/{owner}/{repo}/contents/{item['path']}?ref={ref}"
             results.append({
                 "name": name,
                 "type": "file",
                 "rel_path": rel,
-                "download_url": item.get("download_url") or f"/repos/{owner}/{repo}/contents/{item['path']}?ref={ref}",
+                "download_url": api_dl,
             })
         elif item_type == "dir":
             _walk(owner, repo, ref, item["path"], f"{rel}/", results)
