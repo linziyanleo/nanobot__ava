@@ -450,4 +450,15 @@ CREATE TABLE IF NOT EXISTS media_records (
     error TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_media_ts ON media_records(timestamp);
+
+CREATE TABLE IF NOT EXISTS skill_config (
+    name TEXT PRIMARY KEY,
+    source TEXT NOT NULL DEFAULT 'ava',
+    enabled INTEGER NOT NULL DEFAULT 1,
+    installed_at TEXT,
+    install_method TEXT,
+    git_url TEXT,
+    updated_at TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_skill_source ON skill_config(source);
 """

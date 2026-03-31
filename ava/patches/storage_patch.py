@@ -25,6 +25,10 @@ def apply_storage_patch() -> str:
     db_path = get_data_dir() / "nanobot.db"
     db = Database(db_path)
 
+    # Register global singleton so other patches (skills_patch) can access it
+    from ava.storage import set_db
+    set_db(db)
+
     original_save = SessionManager.save
     original_load = SessionManager._load
     original_list = SessionManager.list_sessions
