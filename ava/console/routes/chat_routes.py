@@ -109,7 +109,10 @@ async def chat_ws(websocket: WebSocket, session_id: str):
 
             async def on_progress(chunk: str, *, tool_hint: bool = False, is_thinking: bool = False):
                 msg_type = "thinking" if is_thinking else "progress"
-                await websocket.send_json({"type": msg_type, "content": chunk, "tool_hint": tool_hint})
+                try:
+                    await websocket.send_json({"type": msg_type, "content": chunk, "tool_hint": tool_hint})
+                except Exception:
+                    pass  # Client disconnected mid-stream; agent loop will still finish.
 
             response = await svc_chat.send_message(
                 session_id=session_id,
@@ -117,7 +120,10 @@ async def chat_ws(websocket: WebSocket, session_id: str):
                 user_id=user.username,
                 on_progress=on_progress,
             )
-            await websocket.send_json({"type": "complete", "content": response})
+            try:
+                await websocket.send_json({"type": "complete", "content": response})
+            except Exception:
+                logger.debug("WS send complete failed for {} (client disconnected)", session_id)
 
     except WebSocketDisconnect:
         pass
