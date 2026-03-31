@@ -12,7 +12,6 @@ from __future__ import annotations
 
 import re
 import shutil
-import subprocess
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -218,51 +217,20 @@ class SkillsService:
     # ─── Skills — install ────────────────────────────────────────────────────────
 
     def install_skill_from_git(self, git_url: str, name: str | None = None) -> dict[str, Any]:
-        """Install a skill from a Git repository into ava/skills/."""
-        self.builtin_skills_dir.mkdir(parents=True, exist_ok=True)
+        """Install a skill from a GitHub URL into ~/.agents/skills/.
 
-        if not name:
-            name = git_url.rstrip("/").split("/")[-1]
-            if name.endswith(".git"):
-                name = name[:-4]
+        Supports GitHub repo URLs, tree URLs (subdirectory), and blob URLs.
+        Uses `gh` CLI to download only the needed files without full clone.
+        """
+        from ava.console.services.gh_skill_installer import download_skill_from_github
 
-        target_dir = self.builtin_skills_dir / name
-
-        if target_dir.exists():
-            raise ValueError(f"Skill '{name}' already exists")
-
-        try:
-            result = subprocess.run(
-                ["git", "clone", "--depth", "1", git_url, str(target_dir)],
-                capture_output=True,
-                text=True,
-                timeout=60,
-            )
-            if result.returncode != 0:
-                raise RuntimeError(f"Git clone failed: {result.stderr}")
-
-            git_dir = target_dir / ".git"
-            if git_dir.exists():
-                shutil.rmtree(git_dir)
-
-            skill_file = target_dir / "SKILL.md"
-            if not skill_file.exists():
-                shutil.rmtree(target_dir)
-                raise ValueError("No SKILL.md found in repository")
-
-            self._record_install(name, "ava", "git", git_url=git_url)
-            return {"ok": True, "name": name, "path": str(target_dir)}
-        except subprocess.TimeoutExpired:
-            if target_dir.exists():
-                shutil.rmtree(target_dir)
-            raise RuntimeError("Git clone timed out")
-        except Exception:
-            if target_dir.exists():
-                shutil.rmtree(target_dir)
-            raise
+        self.agents_dir.mkdir(parents=True, exist_ok=True)
+        result = download_skill_from_github(git_url, name=name, target_dir=self.agents_dir)
+        self._record_install(result["name"], "agents", "git", git_url=git_url)
+        return result
 
     def install_skill_from_path(self, source_path: str, name: str | None = None) -> dict[str, Any]:
-        """Install a skill by copying from a local path into ava/skills/."""
+        """Install a skill by copying from a local path into ~/.agents/skills/."""
         source = Path(source_path).expanduser().resolve()
 
         if not source.exists():
@@ -277,14 +245,14 @@ class SkillsService:
         if not name:
             name = source.name
 
-        self.builtin_skills_dir.mkdir(parents=True, exist_ok=True)
-        target_dir = self.builtin_skills_dir / name
+        self.agents_dir.mkdir(parents=True, exist_ok=True)
+        target_dir = self.agents_dir / name
 
         if target_dir.exists():
             raise ValueError(f"Skill '{name}' already exists")
 
         shutil.copytree(source, target_dir)
-        self._record_install(name, "ava", "path")
+        self._record_install(name, "agents", "path")
         return {"ok": True, "name": name, "path": str(target_dir)}
 
     def install_skill_from_upload(self, name: str, files: dict[str, bytes]) -> dict[str, Any]:
@@ -294,8 +262,8 @@ class SkillsService:
             name: skill directory name
             files: mapping of relative_path → content bytes
         """
-        self.builtin_skills_dir.mkdir(parents=True, exist_ok=True)
-        target_dir = self.builtin_skills_dir / name
+        self.agents_dir.mkdir(parents=True, exist_ok=True)
+        target_dir = self.agents_dir / name
 
         if target_dir.exists():
             raise ValueError(f"Skill '{name}' already exists")
@@ -319,7 +287,7 @@ class SkillsService:
                 shutil.rmtree(target_dir, ignore_errors=True)
                 raise ValueError("No SKILL.md found in uploaded files")
 
-            self._record_install(name, "ava", "upload")
+            self._record_install(name, "agents", "upload")
             return {"ok": True, "name": name, "path": str(target_dir)}
         except Exception:
             if target_dir.exists():
