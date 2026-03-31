@@ -21,7 +21,7 @@ from ava.launcher import register_patch
 # Resolved once at import time
 _AVA_SKILLS_DIR = Path(__file__).parent.parent / "skills"
 _PROJECT_ROOT = Path(__file__).parent.parent.parent
-_AGENTS_DIR = _PROJECT_ROOT / ".agents"
+_AGENTS_SKILLS_DIR = Path.home() / ".agents" / "skills"
 _NANOBOT_SKILLS_DIR = _PROJECT_ROOT / "nanobot" / "skills"
 
 
@@ -64,7 +64,7 @@ def apply_skills_patch() -> str:
         # Override builtin_skills to ava/skills/ — this makes the original
         # list_skills() scan ava/ instead of nanobot/, giving ava priority.
         original_init(self, workspace, _AVA_SKILLS_DIR)
-        self._agents_dir = _AGENTS_DIR
+        self._agents_dir = _AGENTS_SKILLS_DIR
 
     # ------------------------------------------------------------------
     # Patch list_skills: append .agents/ + nanobot/ fallback + disabled filter
@@ -80,7 +80,7 @@ def apply_skills_patch() -> str:
                 s["source"] = "ava"
 
         # Add .agents/
-        agents_dir = getattr(self, "_agents_dir", _AGENTS_DIR)
+        agents_dir = getattr(self, "_agents_dir", _AGENTS_SKILLS_DIR)
         if agents_dir.exists():
             for skill_dir in sorted(agents_dir.iterdir()):
                 resolved = skill_dir.resolve() if skill_dir.is_symlink() else skill_dir
@@ -126,7 +126,7 @@ def apply_skills_patch() -> str:
             return result
 
         # .agents/
-        agents_dir = getattr(self, "_agents_dir", _AGENTS_DIR)
+        agents_dir = getattr(self, "_agents_dir", _AGENTS_SKILLS_DIR)
         agents_skill = agents_dir / name
         if agents_skill.exists():
             resolved = agents_skill.resolve() if agents_skill.is_symlink() else agents_skill

@@ -36,7 +36,7 @@ class SkillsService:
         self.builtin_skills_dir = builtin_skills_dir  # ava/skills/
         self.nanobot_dir = nanobot_dir
         self.nanobot_skills_dir = nanobot_dir / "nanobot" / "skills"
-        self.agents_dir = nanobot_dir / ".agents"
+        self.agents_dir = Path.home() / ".agents" / "skills"
         self.tools_dir = Path(__file__).parent.parent.parent / "agent" / "tools"
         self.db = db
 
