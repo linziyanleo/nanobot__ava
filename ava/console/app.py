@@ -80,7 +80,7 @@ def create_console_app(
             console_port=console_cfg.port,
         ),
         media=MediaService(db=db),
-        skills=SkillsService(workspace, skill_dir, nanobot_dir),
+        skills=SkillsService(workspace, skill_dir, nanobot_dir, db=db),
         chat=ChatService(agent_loop, workspace, db=db),
         token_stats=token_stats_collector,
     )
@@ -162,10 +162,8 @@ def create_console_app_standalone(
     users.ensure_default_admin()
 
     db_path = nanobot_dir / "nanobot.db"
-    db = None
-    if db_path.exists():
-        from ava.storage import Database
-        db = Database(db_path)
+    from ava.storage import Database
+    db = Database(db_path)
 
     token_stats = None
     if token_stats_dir:
@@ -182,7 +180,7 @@ def create_console_app_standalone(
             console_port=console_port,
         ),
         media=MediaService(db=db),
-        skills=SkillsService(workspace, skill_dir, nanobot_dir),
+        skills=SkillsService(workspace, skill_dir, nanobot_dir, db=db),
         chat=None,  # type: ignore[arg-type]
         token_stats=token_stats,
     )

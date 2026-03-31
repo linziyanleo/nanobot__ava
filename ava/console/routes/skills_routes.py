@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
 from pydantic import BaseModel
 
 from ava.console import auth
@@ -26,6 +26,11 @@ class DeleteSkillRequest(BaseModel):
     name: str
 
 
+class ToggleSkillRequest(BaseModel):
+    name: str
+    enabled: bool
+
+
 @router.get("/tools")
 async def list_tools(
     user: UserInfo = Depends(auth.require_role("admin", "editor", "viewer")),
@@ -39,7 +44,7 @@ async def list_tools(
 async def list_skills(
     user: UserInfo = Depends(auth.require_role("admin", "editor", "viewer")),
 ):
-    """List all skills (builtin + workspace)."""
+    """List all skills (ava + agents + builtin) with enabled state."""
     from ava.console.app import get_services
     return {"skills": get_services().skills.list_skills()}
 
@@ -57,6 +62,29 @@ async def get_skill(
     return skill
 
 
+@router.put("/toggle")
+async def toggle_skill(
+    body: ToggleSkillRequest,
+    request: Request,
+    user: UserInfo = Depends(auth.require_role("admin", "editor")),
+):
+    """Enable or disable a skill."""
+    from ava.console.app import get_services
+    svc = get_services()
+
+    try:
+        result = svc.skills.toggle_skill(body.name, body.enabled)
+        svc.audit.log(
+            user=user.username, role=user.role,
+            action="skill.toggle",
+            target=f"{body.name}:{'enabled' if body.enabled else 'disabled'}",
+            ip=get_client_ip(request),
+        )
+        return result
+    except RuntimeError as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.post("/install/git")
 async def install_from_git(
     body: InstallGitRequest,
@@ -66,7 +94,7 @@ async def install_from_git(
     """Install a skill from a Git repository."""
     from ava.console.app import get_services
     svc = get_services()
-    
+
     try:
         result = svc.skills.install_skill_from_git(body.git_url, body.name)
         svc.audit.log(
@@ -91,7 +119,7 @@ async def install_from_path(
     """Install a skill from a local path."""
     from ava.console.app import get_services
     svc = get_services()
-    
+
     try:
         result = svc.skills.install_skill_from_path(body.source_path, body.name)
         svc.audit.log(
@@ -107,16 +135,50 @@ async def install_from_path(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.post("/install/upload")
+async def install_from_upload(
+    request: Request,
+    name: str = Form(...),
+    files: list[UploadFile] = File(...),
+    user: UserInfo = Depends(auth.require_role("admin", "editor")),
+):
+    """Install a skill from uploaded files (native file picker / webkitdirectory)."""
+    from ava.console.app import get_services
+    svc = get_services()
+
+    if not files:
+        raise HTTPException(status_code=400, detail="No files uploaded")
+
+    file_map: dict[str, bytes] = {}
+    for f in files:
+        # webkitdirectory provides webkitRelativePath; fallback to filename
+        rel_path = f.filename or "unknown"
+        content = await f.read()
+        file_map[rel_path] = content
+
+    try:
+        result = svc.skills.install_skill_from_upload(name, file_map)
+        svc.audit.log(
+            user=user.username, role=user.role, action="skill.install",
+            target=f"upload:{name}", ip=get_client_ip(request),
+        )
+        return result
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.delete("/delete")
 async def delete_skill(
     body: DeleteSkillRequest,
     request: Request,
     user: UserInfo = Depends(auth.require_role("admin")),
 ):
-    """Delete a workspace skill."""
+    """Delete an ava/skills/ skill."""
     from ava.console.app import get_services
     svc = get_services()
-    
+
     try:
         result = svc.skills.delete_skill(body.name)
         svc.audit.log(

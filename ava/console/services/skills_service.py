@@ -1,83 +1,94 @@
-"""Skills and tools management service."""
+"""Skills and tools management service.
+
+Manages three skill sources:
+  1. ava/skills/   — sidecar custom skills (install target)
+  2. .agents/      — external agent skills (read-only discovery)
+  3. nanobot/skills/ — upstream builtin (read-only)
+
+Enabled/disabled state is persisted in SQLite ``skill_config`` table.
+"""
 
 from __future__ import annotations
 
-import importlib
-import inspect
-import os
 import re
 import shutil
 import subprocess
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
 from loguru import logger
 
+from ava.storage.database import Database
+
 
 class SkillsService:
     """Service for managing skills and tools."""
 
-    def __init__(self, workspace: Path, builtin_skills_dir: Path, nanobot_dir: Path):
+    def __init__(
+        self,
+        workspace: Path,
+        builtin_skills_dir: Path,
+        nanobot_dir: Path,
+        db: Database | None = None,
+    ):
         self.workspace = workspace
-        self.builtin_skills_dir = builtin_skills_dir
+        self.builtin_skills_dir = builtin_skills_dir  # ava/skills/
         self.nanobot_dir = nanobot_dir
-        self.workspace_skills_dir = workspace / "skills"
+        self.nanobot_skills_dir = nanobot_dir / "nanobot" / "skills"
+        self.agents_dir = nanobot_dir / ".agents"
         self.tools_dir = Path(__file__).parent.parent.parent / "agent" / "tools"
+        self.db = db
 
     # ─── Tools ──────────────────────────────────────────────────────────────────
 
     def list_tools(self) -> list[dict[str, Any]]:
         """List all built-in tools with their metadata."""
         tools = []
-        
-        # Tool files to scan (excluding base.py, registry.py, __init__.py)
+
         tool_files = [
             f for f in self.tools_dir.glob("*.py")
             if f.name not in ("__init__.py", "base.py", "registry.py")
         ]
-        
+
         for tool_file in sorted(tool_files):
             tool_info = self._extract_tool_info(tool_file)
             if tool_info:
                 tools.extend(tool_info)
-        
+
         return tools
 
     def _extract_tool_info(self, tool_file: Path) -> list[dict[str, Any]]:
         """Extract tool information from a tool file."""
         tools = []
         content = tool_file.read_text(encoding="utf-8")
-        
-        # Find all Tool classes
+
         class_pattern = re.compile(
             r'class\s+(\w+)\(Tool\):\s*"""([^"]+)"""',
-            re.MULTILINE
+            re.MULTILINE,
         )
-        
+
         for match in class_pattern.finditer(content):
             class_name = match.group(1)
             description = match.group(2).strip()
-            
-            # Try to find the name property
+
             name = self._extract_property_value(content, class_name, "name")
             if not name:
-                # Derive name from class name (e.g., ReadFileTool -> read_file)
-                name = re.sub(r'Tool$', '', class_name)
-                name = re.sub(r'(?<!^)(?=[A-Z])', '_', name).lower()
-            
+                name = re.sub(r"Tool$", "", class_name)
+                name = re.sub(r"(?<!^)(?=[A-Z])", "_", name).lower()
+
             tools.append({
                 "name": name,
                 "class": class_name,
                 "description": description,
                 "file": tool_file.name,
             })
-        
+
         return tools
 
     def _extract_property_value(self, content: str, class_name: str, prop_name: str) -> str | None:
         """Extract a property value from class definition."""
-        # Look for class-level attribute: name = "xxx"
-        pattern = rf'class\s+{class_name}.*?(?=class\s+\w+|$)'
+        pattern = rf"class\s+{class_name}.*?(?=class\s+\w+|$)"
         class_match = re.search(pattern, content, re.DOTALL)
         if class_match:
             class_content = class_match.group(0)
@@ -87,52 +98,84 @@ class SkillsService:
                 return prop_match.group(1)
         return None
 
-    # ─── Skills ─────────────────────────────────────────────────────────────────
+    # ─── Skills — listing ────────────────────────────────────────────────────────
+
+    def _now_iso(self) -> str:
+        return datetime.now(timezone.utc).isoformat()
+
+    def _enabled_map(self) -> dict[str, bool]:
+        """Return {name: enabled} from SQLite."""
+        if not self.db:
+            return {}
+        try:
+            rows = self.db.fetchall("SELECT name, enabled FROM skill_config")
+            return {r["name"]: bool(r["enabled"]) for r in rows}
+        except Exception:
+            return {}
+
+    def _config_row(self, name: str) -> dict | None:
+        if not self.db:
+            return None
+        try:
+            row = self.db.fetchone("SELECT * FROM skill_config WHERE name = ?", (name,))
+            return dict(row) if row else None
+        except Exception:
+            return None
 
     def list_skills(self) -> list[dict[str, Any]]:
-        """List all skills (builtin + workspace)."""
-        skills = []
-        
-        # Workspace skills (highest priority)
-        if self.workspace_skills_dir.exists():
-            for skill_dir in sorted(self.workspace_skills_dir.iterdir()):
-                if skill_dir.is_dir():
-                    skill_file = skill_dir / "SKILL.md"
-                    if skill_file.exists():
-                        meta = self._parse_skill_metadata(skill_file)
-                        skills.append({
-                            "name": skill_dir.name,
-                            "source": "workspace",
-                            "path": str(skill_file),
-                            "enabled": True,  # Workspace skills are always enabled
-                            **meta,
-                        })
-        
-        # Built-in skills
-        if self.builtin_skills_dir.exists():
-            for skill_dir in sorted(self.builtin_skills_dir.iterdir()):
-                if skill_dir.is_dir() and skill_dir.name != "__pycache__":
-                    skill_file = skill_dir / "SKILL.md"
-                    if skill_file.exists():
-                        # Skip if already in workspace
-                        if any(s["name"] == skill_dir.name for s in skills):
-                            continue
-                        meta = self._parse_skill_metadata(skill_file)
-                        skills.append({
-                            "name": skill_dir.name,
-                            "source": "builtin",
-                            "path": str(skill_file),
-                            "enabled": True,
-                            **meta,
-                        })
-        
+        """List all skills from three sources with enabled state."""
+        skills: list[dict[str, Any]] = []
+        seen: set[str] = set()
+        enabled_map = self._enabled_map()
+
+        # 1. ava/skills/ (sidecar custom — highest priority)
+        self._scan_dir(self.builtin_skills_dir, "ava", skills, seen, enabled_map)
+
+        # 2. .agents/ (external agent skills)
+        self._scan_dir(self.agents_dir, "agents", skills, seen, enabled_map, follow_symlinks=True)
+
+        # 3. nanobot/skills/ (upstream builtin)
+        self._scan_dir(self.nanobot_skills_dir, "builtin", skills, seen, enabled_map)
+
         return skills
+
+    def _scan_dir(
+        self,
+        base: Path,
+        source: str,
+        skills: list[dict],
+        seen: set[str],
+        enabled_map: dict[str, bool],
+        follow_symlinks: bool = False,
+    ) -> None:
+        if not base.exists():
+            return
+        for entry in sorted(base.iterdir()):
+            resolved = entry.resolve() if (follow_symlinks and entry.is_symlink()) else entry
+            if not resolved.is_dir() or entry.name in seen or entry.name == "__pycache__":
+                continue
+            skill_file = resolved / "SKILL.md"
+            if not skill_file.exists():
+                continue
+            meta = self._parse_skill_metadata(skill_file)
+            enabled = enabled_map.get(entry.name, True)
+            cfg = self._config_row(entry.name)
+            skills.append({
+                "name": entry.name,
+                "source": source,
+                "path": str(skill_file),
+                "enabled": enabled,
+                "install_method": cfg["install_method"] if cfg else None,
+                "git_url": cfg["git_url"] if cfg else None,
+                **meta,
+            })
+            seen.add(entry.name)
 
     def _parse_skill_metadata(self, skill_file: Path) -> dict[str, Any]:
         """Parse skill metadata from SKILL.md frontmatter."""
         content = skill_file.read_text(encoding="utf-8")
-        meta = {"description": "", "always": False}
-        
+        meta: dict[str, Any] = {"description": "", "always": False}
+
         if content.startswith("---"):
             match = re.match(r"^---\n(.*?)\n---", content, re.DOTALL)
             if match:
@@ -140,14 +183,12 @@ class SkillsService:
                     if ":" in line:
                         key, value = line.split(":", 1)
                         key = key.strip()
-                        value = value.strip().strip('"\'')
+                        value = value.strip().strip("\"'")
                         if key == "description":
                             meta["description"] = value
                         elif key == "always":
                             meta["always"] = value.lower() == "true"
-                        elif key == "name":
-                            pass  # We use directory name
-        
+
         return meta
 
     def get_skill(self, name: str) -> dict[str, Any] | None:
@@ -157,21 +198,39 @@ class SkillsService:
                 return skill
         return None
 
+    # ─── Skills — toggle ─────────────────────────────────────────────────────────
+
+    def toggle_skill(self, name: str, enabled: bool) -> dict[str, Any]:
+        """Enable or disable a skill (any source). Persists to SQLite."""
+        if not self.db:
+            raise RuntimeError("Database not available")
+
+        now = self._now_iso()
+        self.db.execute(
+            """INSERT INTO skill_config (name, source, enabled, updated_at)
+               VALUES (?, '', ?, ?)
+               ON CONFLICT(name) DO UPDATE SET enabled = ?, updated_at = ?""",
+            (name, int(enabled), now, int(enabled), now),
+        )
+        self.db.commit()
+        return {"ok": True, "name": name, "enabled": enabled}
+
+    # ─── Skills — install ────────────────────────────────────────────────────────
+
     def install_skill_from_git(self, git_url: str, name: str | None = None) -> dict[str, Any]:
-        """Install a skill from a Git repository."""
-        self.workspace_skills_dir.mkdir(parents=True, exist_ok=True)
-        
-        # Extract skill name from URL if not provided
+        """Install a skill from a Git repository into ava/skills/."""
+        self.builtin_skills_dir.mkdir(parents=True, exist_ok=True)
+
         if not name:
             name = git_url.rstrip("/").split("/")[-1]
             if name.endswith(".git"):
                 name = name[:-4]
-        
-        target_dir = self.workspace_skills_dir / name
-        
+
+        target_dir = self.builtin_skills_dir / name
+
         if target_dir.exists():
             raise ValueError(f"Skill '{name}' already exists")
-        
+
         try:
             result = subprocess.run(
                 ["git", "clone", "--depth", "1", git_url, str(target_dir)],
@@ -181,64 +240,130 @@ class SkillsService:
             )
             if result.returncode != 0:
                 raise RuntimeError(f"Git clone failed: {result.stderr}")
-            
-            # Remove .git directory
+
             git_dir = target_dir / ".git"
             if git_dir.exists():
                 shutil.rmtree(git_dir)
-            
-            # Verify SKILL.md exists
+
             skill_file = target_dir / "SKILL.md"
             if not skill_file.exists():
                 shutil.rmtree(target_dir)
-                raise ValueError(f"No SKILL.md found in repository")
-            
+                raise ValueError("No SKILL.md found in repository")
+
+            self._record_install(name, "ava", "git", git_url=git_url)
             return {"ok": True, "name": name, "path": str(target_dir)}
         except subprocess.TimeoutExpired:
             if target_dir.exists():
                 shutil.rmtree(target_dir)
             raise RuntimeError("Git clone timed out")
-        except Exception as e:
+        except Exception:
             if target_dir.exists():
                 shutil.rmtree(target_dir)
             raise
 
     def install_skill_from_path(self, source_path: str, name: str | None = None) -> dict[str, Any]:
-        """Install a skill by copying from a local path."""
+        """Install a skill by copying from a local path into ava/skills/."""
         source = Path(source_path).expanduser().resolve()
-        
+
         if not source.exists():
             raise FileNotFoundError(f"Source path does not exist: {source}")
-        
         if not source.is_dir():
             raise ValueError(f"Source must be a directory: {source}")
-        
+
         skill_file = source / "SKILL.md"
         if not skill_file.exists():
             raise ValueError(f"No SKILL.md found in {source}")
-        
+
         if not name:
             name = source.name
-        
-        self.workspace_skills_dir.mkdir(parents=True, exist_ok=True)
-        target_dir = self.workspace_skills_dir / name
-        
+
+        self.builtin_skills_dir.mkdir(parents=True, exist_ok=True)
+        target_dir = self.builtin_skills_dir / name
+
         if target_dir.exists():
             raise ValueError(f"Skill '{name}' already exists")
-        
+
         shutil.copytree(source, target_dir)
+        self._record_install(name, "ava", "path")
         return {"ok": True, "name": name, "path": str(target_dir)}
 
+    def install_skill_from_upload(self, name: str, files: dict[str, bytes]) -> dict[str, Any]:
+        """Install a skill from uploaded files (native file picker).
+
+        Args:
+            name: skill directory name
+            files: mapping of relative_path → content bytes
+        """
+        self.builtin_skills_dir.mkdir(parents=True, exist_ok=True)
+        target_dir = self.builtin_skills_dir / name
+
+        if target_dir.exists():
+            raise ValueError(f"Skill '{name}' already exists")
+
+        has_skill_md = False
+        try:
+            for rel_path, content in files.items():
+                # Sanitize: strip leading skill-name/ prefix if browser includes it
+                clean = rel_path.lstrip("/")
+                parts = Path(clean).parts
+                # If first part matches the skill name, strip it
+                if len(parts) > 1 and parts[0] == name:
+                    clean = str(Path(*parts[1:]))
+                dest = target_dir / clean
+                dest.parent.mkdir(parents=True, exist_ok=True)
+                dest.write_bytes(content)
+                if dest.name == "SKILL.md":
+                    has_skill_md = True
+
+            if not has_skill_md:
+                shutil.rmtree(target_dir, ignore_errors=True)
+                raise ValueError("No SKILL.md found in uploaded files")
+
+            self._record_install(name, "ava", "upload")
+            return {"ok": True, "name": name, "path": str(target_dir)}
+        except Exception:
+            if target_dir.exists():
+                shutil.rmtree(target_dir, ignore_errors=True)
+            raise
+
+    def _record_install(self, name: str, source: str, method: str, git_url: str | None = None) -> None:
+        if not self.db:
+            return
+        now = self._now_iso()
+        try:
+            self.db.execute(
+                """INSERT INTO skill_config (name, source, enabled, installed_at, install_method, git_url, updated_at)
+                   VALUES (?, ?, 1, ?, ?, ?, ?)
+                   ON CONFLICT(name) DO UPDATE SET
+                     source = ?, enabled = 1, installed_at = ?, install_method = ?, git_url = ?, updated_at = ?""",
+                (name, source, now, method, git_url, now,
+                 source, now, method, git_url, now),
+            )
+            self.db.commit()
+        except Exception as e:
+            logger.warning("Failed to record skill install: {}", e)
+
+    # ─── Skills — delete ─────────────────────────────────────────────────────────
+
     def delete_skill(self, name: str) -> dict[str, Any]:
-        """Delete a workspace skill."""
-        skill_dir = self.workspace_skills_dir / name
-        
+        """Delete an ava/skills/ skill."""
+        skill_dir = self.builtin_skills_dir / name
+
         if not skill_dir.exists():
             raise FileNotFoundError(f"Skill '{name}' not found")
-        
-        # Only allow deleting workspace skills
-        if not str(skill_dir).startswith(str(self.workspace_skills_dir)):
+
+        # Only allow deleting ava/skills/ skills
+        if not str(skill_dir.resolve()).startswith(str(self.builtin_skills_dir.resolve())):
             raise PermissionError("Cannot delete built-in skills")
-        
+
         shutil.rmtree(skill_dir)
+
+        # Remove config record
+        if self.db:
+            try:
+                self.db.execute("DELETE FROM skill_config WHERE name = ?", (name,))
+                self.db.commit()
+            except Exception as e:
+                logger.warning("Failed to remove skill config: {}", e)
+
         return {"ok": True, "name": name}
