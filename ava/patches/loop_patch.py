@@ -238,6 +238,24 @@ def apply_loop_patch() -> str:
     AgentLoop._run_agent_loop = patched_run_agent_loop
 
     # ------------------------------------------------------------------
+    # 3b. Patch _save_turn to fix skip mismatch with compressed history.
+    #     context_patch's HistorySummarizer/Compressor reduce history size,
+    #     but upstream skip = 1 + len(original_history), which overshoots
+    #     all_msgs length and causes new messages to be silently dropped.
+    #     Fix: use _last_build_msg_count (set by context_patch) as the
+    #     actual number of non-system messages in build_messages output.
+    # ------------------------------------------------------------------
+    original_save_turn = AgentLoop._save_turn
+
+    def fixed_save_turn(self_loop, session, messages, skip):
+        corrected = getattr(self_loop, "_last_build_msg_count", None)
+        if corrected is not None:
+            skip = 1 + corrected  # 1 for system + compressed history (excl. user)
+        original_save_turn(self_loop, session, messages, skip)
+
+    AgentLoop._save_turn = fixed_save_turn
+
+    # ------------------------------------------------------------------
     # 4. Patch _process_message to record rich token usage per turn
     # ------------------------------------------------------------------
     original_process_message = AgentLoop._process_message
@@ -271,6 +289,13 @@ def apply_loop_patch() -> str:
                 user_msg = getattr(msg, "content", "") or ""
                 output_content = getattr(result, "content", "") or ""
                 system_prompt = getattr(self, "_last_system_prompt", "") or ""
+                # Deduplicate: only store system_prompt when it changes from last recorded value
+                prev_sys = getattr(self, "_prev_recorded_system_prompt", "")
+                if system_prompt == prev_sys:
+                    system_prompt_to_store = ""
+                else:
+                    system_prompt_to_store = system_prompt
+                    self._prev_recorded_system_prompt = system_prompt
                 provider_name = type(self.provider).__name__.lower().replace("provider", "")
 
                 # Estimate current-turn user message tokens via tiktoken (only for first call)
@@ -294,7 +319,7 @@ def apply_loop_patch() -> str:
                         hist = session.get_history(max_messages=10)
                         if hist:
                             conversation_history = _json.dumps(
-                                [{"role": m.get("role", ""), "content": str(m.get("content", ""))[:500]}
+                                [{"role": m.get("role", ""), "content": str(m.get("content", ""))[:200]}
                                  for m in hist],
                                 ensure_ascii=False,
                             )
@@ -313,7 +338,7 @@ def apply_loop_patch() -> str:
                         # Only attach user message / output on first and last calls
                         user_message=(user_msg[:1000] if i == 0 else ""),
                         output_content=(output_content[:4000] if i == len(llm_calls) - 1 else ""),
-                        system_prompt=system_prompt[:2000],
+                        system_prompt=system_prompt_to_store,
                         conversation_history=(conversation_history if i == 0 else ""),
                         finish_reason=finish_reason,
                         model_role="tool_call" if is_tool_call else "chat",

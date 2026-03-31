@@ -119,12 +119,19 @@ def apply_context_patch() -> str:
             except Exception as exc:
                 logger.warning("CategorizedMemory injection failed: {}", exc)
 
-        # 5. 保存 system prompt 到 loop，供 token_stats 记录
+        # 5. 保存 system prompt 到 loop，供 token_stats 记录（完整保存，不截断）
         if loop and messages and messages[0].get("role") == "system":
             try:
-                loop._last_system_prompt = (messages[0]["content"] or "")[:500]
+                loop._last_system_prompt = messages[0]["content"] or ""
             except Exception:
                 pass
+
+        # 6. 记录压缩后的历史消息数（不含 system 和当前 user），供 _save_turn 计算正确的 skip。
+        #    HistorySummarizer/Compressor 会减少历史长度，导致上游 skip = 1 + len(原始history)
+        #    大于 all_msgs 实际长度，使新消息无法被保存。
+        #    build_messages 返回 [system, history..., user_msg]，历史数 = len - 2。
+        if loop:
+            loop._last_build_msg_count = len(messages) - 2  # 不含 system 和当前 user
 
         return messages
 
