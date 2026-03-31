@@ -133,15 +133,36 @@ class TestStoragePatch:
         assert "sess:2" in keys
 
     def test_upsert(self, patched_manager):
-        """T5.6: saving same key twice keeps latest version."""
-        s1 = _make_session(messages=[{"role": "user", "content": "v1", "timestamp": "t1"}])
-        patched_manager.save(s1)
+        """T5.6: saving same key twice — incremental append keeps old + adds new."""
+        s = _make_session(messages=[{"role": "user", "content": "v1", "timestamp": "t1"}])
+        patched_manager.save(s)
 
-        s2 = _make_session(messages=[{"role": "user", "content": "v2", "timestamp": "t2"}])
-        patched_manager.save(s2)
+        # Append a new message (simulates real usage: append-only)
+        s.messages.append({"role": "assistant", "content": "v2", "timestamp": "t2"})
+        patched_manager.save(s)
 
         loaded = patched_manager._load("test:123")
-        assert loaded.messages[0]["content"] == "v2"
+        assert len(loaded.messages) == 2
+        assert loaded.messages[0]["content"] == "v1"
+        assert loaded.messages[1]["content"] == "v2"
+
+    def test_clear_then_save(self, patched_manager):
+        """T5.6b: clearing session via .clear() and re-adding messages replaces DB."""
+        s = _make_session(messages=[
+            {"role": "user", "content": "old", "timestamp": "t1"},
+            {"role": "assistant", "content": "old reply", "timestamp": "t2"},
+        ])
+        patched_manager.save(s)
+
+        # Simulate session.clear() + new messages
+        s.clear()
+        s.add_message("user", "new")
+        s.add_message("assistant", "new reply")
+        patched_manager.save(s)
+
+        loaded = patched_manager._load("test:123")
+        assert loaded.messages[0]["content"] == "new"
+        assert loaded.messages[1]["content"] == "new reply"
 
     def test_cache_updated(self, patched_manager):
         """T5.7: save updates _cache."""

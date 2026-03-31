@@ -30,18 +30,32 @@ def apply_storage_patch() -> str:
     original_list = SessionManager.list_sessions
 
     def patched_save(self: SessionManager, session: Session) -> None:
-        """Save session to SQLite database."""
+        """Save session to SQLite database (incremental append).
+
+        Only inserts messages whose seq >= current DB count, avoiding the
+        destructive DELETE-then-INSERT pattern that caused history loss.
+        A full rewrite is only performed when messages were actually removed
+        from the in-memory list (e.g. session.clear() or retain_recent_legal_suffix).
+        """
+        import json as _json
+
         conn = db._get_conn()
-        
-        metadata_json = __import__("json").dumps(session.metadata, ensure_ascii=False)
-        token_stats_json = __import__("json").dumps(
+
+        metadata_json = _json.dumps(session.metadata, ensure_ascii=False)
+        token_stats_json = _json.dumps(
             session.metadata.get("token_stats", {}), ensure_ascii=False
         )
-        
+
         conn.execute(
-            """INSERT OR REPLACE INTO sessions
+            """INSERT INTO sessions
                (key, created_at, updated_at, metadata, last_consolidated, last_completed, token_stats)
-               VALUES (?, ?, ?, ?, ?, ?, ?)""",
+               VALUES (?, ?, ?, ?, ?, ?, ?)
+               ON CONFLICT(key) DO UPDATE SET
+                   updated_at = excluded.updated_at,
+                   metadata = excluded.metadata,
+                   last_consolidated = excluded.last_consolidated,
+                   last_completed = excluded.last_completed,
+                   token_stats = excluded.token_stats""",
             (
                 session.key,
                 session.created_at.isoformat(),
@@ -52,20 +66,53 @@ def apply_storage_patch() -> str:
                 token_stats_json,
             ),
         )
-        
+
         session_row = conn.execute(
             "SELECT id FROM sessions WHERE key = ?", (session.key,)
         ).fetchone()
-        
+
         if session_row:
             session_id = session_row["id"]
-            conn.execute("DELETE FROM session_messages WHERE session_id = ?", (session_id,))
-            
-            for seq, msg in enumerate(session.messages):
-                tool_calls_json = __import__("json").dumps(
-                    msg.get("tool_calls", []), ensure_ascii=False
-                ) if msg.get("tool_calls") else None
-                
+
+            # Count existing messages in DB
+            row = conn.execute(
+                "SELECT COUNT(*) as cnt FROM session_messages WHERE session_id = ?",
+                (session_id,),
+            ).fetchone()
+            db_count = row["cnt"] if row else 0
+
+            mem_count = len(session.messages)
+
+            # Detect if messages were reset (clear/retain/reassigned):
+            # Compare first message timestamp — if it differs, the list was rebuilt.
+            needs_rewrite = mem_count < db_count
+            if not needs_rewrite and db_count > 0 and mem_count > 0:
+                first_db = conn.execute(
+                    "SELECT timestamp FROM session_messages WHERE session_id = ? AND seq = 0",
+                    (session_id,),
+                ).fetchone()
+                if first_db:
+                    mem_ts = session.messages[0].get("timestamp", "")
+                    if first_db["timestamp"] != mem_ts:
+                        needs_rewrite = True
+
+            if needs_rewrite:
+                conn.execute("DELETE FROM session_messages WHERE session_id = ?", (session_id,))
+                start_seq = 0
+            else:
+                # Incremental: only append new messages
+                start_seq = db_count
+
+            for seq in range(start_seq, mem_count):
+                msg = session.messages[seq]
+                tool_calls_json = (
+                    _json.dumps(msg.get("tool_calls", []), ensure_ascii=False)
+                    if msg.get("tool_calls") else None
+                )
+                content = msg.get("content")
+                if content is not None and not isinstance(content, str):
+                    content = _json.dumps(content, ensure_ascii=False)
+
                 conn.execute(
                     """INSERT INTO session_messages
                        (session_id, seq, role, content, tool_calls, tool_call_id, name, reasoning_content, timestamp)
@@ -74,7 +121,7 @@ def apply_storage_patch() -> str:
                         session_id,
                         seq,
                         msg.get("role", ""),
-                        msg.get("content") if isinstance(msg.get("content"), str) else __import__("json").dumps(msg.get("content"), ensure_ascii=False) if msg.get("content") else None,
+                        content,
                         tool_calls_json,
                         msg.get("tool_call_id"),
                         msg.get("name"),
@@ -82,7 +129,7 @@ def apply_storage_patch() -> str:
                         msg.get("timestamp"),
                     ),
                 )
-        
+
         conn.commit()
         self._cache[session.key] = session
 
