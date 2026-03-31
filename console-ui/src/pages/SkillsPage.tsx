@@ -1,8 +1,8 @@
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, useRef } from 'react'
 import Editor from '@monaco-editor/react'
 import {
   Wrench, Puzzle, Plus, RefreshCw, Save, GitBranch, FolderOpen, Trash2, X,
-  Package, Pencil,
+  Package, Pencil, Upload, Bot,
 } from 'lucide-react'
 import { api } from '../api/client'
 import { useAuth } from '../stores/auth'
@@ -19,17 +19,43 @@ interface ToolInfo {
 
 interface SkillInfo {
   name: string
-  source: 'workspace' | 'builtin'
+  source: 'ava' | 'agents' | 'builtin'
   path: string
   enabled: boolean
   description: string
   always: boolean
+  install_method?: string | null
+  git_url?: string | null
 }
 
 interface FileData {
   path: string
   content: string
   mtime: number
+}
+
+// ── Toggle Switch ─────────────────────────────────────────────────────────
+
+function ToggleSwitch({ enabled, onToggle, disabled }: { enabled: boolean; onToggle: () => void; disabled?: boolean }) {
+  return (
+    <button
+      onClick={onToggle}
+      disabled={disabled}
+      title={enabled ? '点击禁用' : '点击启用'}
+      className={cn(
+        'relative inline-flex h-5 w-9 items-center rounded-full transition-colors',
+        enabled ? 'bg-[var(--success)]' : 'bg-[var(--bg-tertiary)]',
+        disabled && 'opacity-40 cursor-not-allowed',
+      )}
+    >
+      <span
+        className={cn(
+          'inline-block h-3.5 w-3.5 rounded-full bg-white transition-transform',
+          enabled ? 'translate-x-[18px]' : 'translate-x-[3px]',
+        )}
+      />
+    </button>
+  )
 }
 
 // ── Tools Section ──────────────────────────────────────────────────────────
@@ -101,7 +127,6 @@ function ToolsSection() {
         </div>
       )}
 
-      {/* Tools Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
         {tools.map(tool => (
           <div
@@ -165,14 +190,17 @@ function ToolsSection() {
 
 function SkillsSection() {
   const [skills, setSkills] = useState<SkillInfo[]>([])
-  const [showInstall, setShowInstall] = useState<'git' | 'path' | null>(null)
+  const [showInstall, setShowInstall] = useState<'git' | 'path' | 'upload' | null>(null)
   const [gitUrl, setGitUrl] = useState('')
   const [localPath, setLocalPath] = useState('')
   const [skillName, setSkillName] = useState('')
   const [installing, setInstalling] = useState(false)
   const [deleting, setDeleting] = useState<string | null>(null)
+  const [toggling, setToggling] = useState<string | null>(null)
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
   const { canEdit, isAdmin } = useAuth()
+  const fileInputRef = useRef<HTMLInputElement>(null)
+  const [selectedFiles, setSelectedFiles] = useState<FileList | null>(null)
 
   const loadSkills = useCallback(async () => {
     try {
@@ -184,6 +212,22 @@ function SkillsSection() {
   }, [])
 
   useEffect(() => { loadSkills() }, [loadSkills])
+
+  const toggleSkill = async (name: string, enabled: boolean) => {
+    setToggling(name)
+    setMessage(null)
+    try {
+      await api('/skills/toggle', {
+        method: 'PUT',
+        body: JSON.stringify({ name, enabled }),
+      })
+      setSkills(prev => prev.map(s => s.name === name ? { ...s, enabled } : s))
+    } catch (err: unknown) {
+      setMessage({ type: 'error', text: err instanceof Error ? err.message : '切换失败' })
+    } finally {
+      setToggling(null)
+    }
+  }
 
   const installFromGit = async () => {
     if (!gitUrl.trim()) return
@@ -227,6 +271,41 @@ function SkillsSection() {
     }
   }
 
+  const installFromUpload = async () => {
+    if (!selectedFiles || selectedFiles.length === 0) return
+    if (!skillName.trim()) {
+      setMessage({ type: 'error', text: '请输入技能名称' })
+      return
+    }
+    setInstalling(true)
+    setMessage(null)
+    try {
+      const formData = new FormData()
+      formData.append('name', skillName)
+      for (const file of Array.from(selectedFiles)) {
+        // webkitRelativePath preserves directory structure
+        const relativePath = (file as any).webkitRelativePath || file.name
+        formData.append('files', file, relativePath)
+      }
+      await api('/skills/install/upload', {
+        method: 'POST',
+        body: formData,
+        // Let browser set Content-Type with boundary for multipart
+        headers: {},
+      })
+      setMessage({ type: 'success', text: '技能上传安装成功' })
+      setShowInstall(null)
+      setSkillName('')
+      setSelectedFiles(null)
+      if (fileInputRef.current) fileInputRef.current.value = ''
+      loadSkills()
+    } catch (err: unknown) {
+      setMessage({ type: 'error', text: err instanceof Error ? err.message : '上传失败' })
+    } finally {
+      setInstalling(false)
+    }
+  }
+
   const deleteSkill = async (name: string) => {
     if (!confirm(`确定要删除技能 "${name}" 吗？`)) return
     setDeleting(name)
@@ -245,7 +324,8 @@ function SkillsSection() {
     }
   }
 
-  const workspaceSkills = skills.filter(s => s.source === 'workspace')
+  const avaSkills = skills.filter(s => s.source === 'ava')
+  const agentsSkills = skills.filter(s => s.source === 'agents')
   const builtinSkills = skills.filter(s => s.source === 'builtin')
 
   return (
@@ -265,14 +345,12 @@ function SkillsSection() {
             <RefreshCw className="w-4 h-4" />
           </button>
           {canEdit() && (
-            <div className="relative">
-              <button
-                onClick={() => setShowInstall(showInstall ? null : 'git')}
-                className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-[var(--accent)] hover:bg-[var(--accent-hover)] text-white text-sm font-medium"
-              >
-                <Plus className="w-4 h-4" /> 添加技能
-              </button>
-            </div>
+            <button
+              onClick={() => setShowInstall(showInstall ? null : 'git')}
+              className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-[var(--accent)] hover:bg-[var(--accent-hover)] text-white text-sm font-medium"
+            >
+              <Plus className="w-4 h-4" /> 添加技能
+            </button>
           )}
         </div>
       </div>
@@ -283,7 +361,7 @@ function SkillsSection() {
         </div>
       )}
 
-      {/* Install Modal */}
+      {/* Install Panel */}
       {showInstall && (
         <div className="bg-[var(--bg-secondary)] border border-[var(--border)] rounded-xl p-4">
           <div className="flex items-center justify-between mb-4">
@@ -292,31 +370,27 @@ function SkillsSection() {
               <X className="w-4 h-4" />
             </button>
           </div>
-          
+
           {/* Method Tabs */}
           <div className="flex gap-2 mb-4">
-            <button
-              onClick={() => setShowInstall('git')}
-              className={cn(
-                'flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition-colors',
-                showInstall === 'git'
-                  ? 'bg-[var(--accent)] text-white'
-                  : 'bg-[var(--bg-tertiary)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
-              )}
-            >
-              <GitBranch className="w-4 h-4" /> Git 仓库
-            </button>
-            <button
-              onClick={() => setShowInstall('path')}
-              className={cn(
-                'flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition-colors',
-                showInstall === 'path'
-                  ? 'bg-[var(--accent)] text-white'
-                  : 'bg-[var(--bg-tertiary)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
-              )}
-            >
-              <FolderOpen className="w-4 h-4" /> 本地路径
-            </button>
+            {([
+              { key: 'git' as const, icon: GitBranch, label: 'Git 仓库' },
+              { key: 'path' as const, icon: FolderOpen, label: '本地路径' },
+              { key: 'upload' as const, icon: Upload, label: '文件夹选择' },
+            ]).map(({ key, icon: Icon, label }) => (
+              <button
+                key={key}
+                onClick={() => setShowInstall(key)}
+                className={cn(
+                  'flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition-colors',
+                  showInstall === key
+                    ? 'bg-[var(--accent)] text-white'
+                    : 'bg-[var(--bg-tertiary)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]',
+                )}
+              >
+                <Icon className="w-4 h-4" /> {label}
+              </button>
+            ))}
           </div>
 
           {showInstall === 'git' && (
@@ -382,70 +456,209 @@ function SkillsSection() {
               </button>
             </div>
           )}
+
+          {showInstall === 'upload' && (
+            <div className="space-y-3">
+              <div>
+                <label className="text-xs text-[var(--text-secondary)] mb-1 block">技能名称</label>
+                <input
+                  type="text"
+                  value={skillName}
+                  onChange={(e) => setSkillName(e.target.value)}
+                  placeholder="my-skill"
+                  className="w-full px-3 py-2 rounded-lg bg-[var(--bg-primary)] border border-[var(--border)] text-sm"
+                />
+              </div>
+              <div>
+                <label className="text-xs text-[var(--text-secondary)] mb-1 block">选择技能文件夹</label>
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  /* @ts-expect-error webkitdirectory is non-standard */
+                  webkitdirectory=""
+                  directory=""
+                  multiple
+                  onChange={(e) => setSelectedFiles(e.target.files)}
+                  className="w-full px-3 py-2 rounded-lg bg-[var(--bg-primary)] border border-[var(--border)] text-sm file:mr-3 file:px-3 file:py-1 file:rounded file:border-0 file:bg-[var(--accent)]/10 file:text-[var(--accent)] file:text-xs file:font-medium"
+                />
+                {selectedFiles && selectedFiles.length > 0 && (
+                  <p className="text-xs text-[var(--text-secondary)] mt-1">
+                    已选择 {selectedFiles.length} 个文件
+                  </p>
+                )}
+              </div>
+              <button
+                onClick={installFromUpload}
+                disabled={!selectedFiles || selectedFiles.length === 0 || !skillName.trim() || installing}
+                className="w-full flex items-center justify-center gap-2 px-4 py-2 rounded-lg bg-[var(--accent)] hover:bg-[var(--accent-hover)] text-white text-sm font-medium disabled:opacity-40"
+              >
+                {installing ? '上传中...' : '上传安装'}
+              </button>
+            </div>
+          )}
         </div>
       )}
 
-      {/* Workspace Skills */}
-      {workspaceSkills.length > 0 && (
-        <div>
-          <h3 className="text-sm font-medium text-[var(--text-secondary)] mb-3 flex items-center gap-2">
-            <Package className="w-4 h-4" /> 工作区技能
-          </h3>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-            {workspaceSkills.map(skill => (
-              <SkillCard
-                key={skill.name}
-                skill={skill}
-                onDelete={isAdmin() ? () => deleteSkill(skill.name) : undefined}
-                deleting={deleting === skill.name}
-              />
-            ))}
-          </div>
-        </div>
+      {/* Ava Skills (custom) */}
+      {avaSkills.length > 0 && (
+        <SkillGroup
+          title="自定义技能"
+          icon={<Package className="w-4 h-4" />}
+          skills={avaSkills}
+          onToggle={canEdit() ? toggleSkill : undefined}
+          onDelete={isAdmin() ? deleteSkill : undefined}
+          toggling={toggling}
+          deleting={deleting}
+          colorClass="text-purple-400"
+          badgeClass="bg-purple-500/10 text-purple-400"
+        />
+      )}
+
+      {/* Agents Skills */}
+      {agentsSkills.length > 0 && (
+        <SkillGroup
+          title=".agents 技能"
+          icon={<Bot className="w-4 h-4" />}
+          skills={agentsSkills}
+          onToggle={canEdit() ? toggleSkill : undefined}
+          toggling={toggling}
+          deleting={deleting}
+          colorClass="text-amber-400"
+          badgeClass="bg-amber-500/10 text-amber-400"
+        />
       )}
 
       {/* Builtin Skills */}
       {builtinSkills.length > 0 && (
-        <div>
-          <h3 className="text-sm font-medium text-[var(--text-secondary)] mb-3 flex items-center gap-2">
-            <Wrench className="w-4 h-4" /> 内置技能
-          </h3>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-            {builtinSkills.map(skill => (
-              <SkillCard key={skill.name} skill={skill} />
-            ))}
-          </div>
+        <SkillGroup
+          title="内置技能"
+          icon={<Wrench className="w-4 h-4" />}
+          skills={builtinSkills}
+          onToggle={canEdit() ? toggleSkill : undefined}
+          toggling={toggling}
+          deleting={deleting}
+          colorClass="text-[var(--accent)]"
+          badgeClass="bg-[var(--accent)]/10 text-[var(--accent)]"
+        />
+      )}
+
+      {skills.length === 0 && (
+        <div className="text-center py-8 text-[var(--text-secondary)]">
+          暂无技能
         </div>
       )}
     </div>
   )
 }
 
-function SkillCard({ skill, onDelete, deleting }: { skill: SkillInfo; onDelete?: () => void; deleting?: boolean }) {
+// ── Skill Group ───────────────────────────────────────────────────────────
+
+function SkillGroup({
+  title,
+  icon,
+  skills,
+  onToggle,
+  onDelete,
+  toggling,
+  deleting,
+  colorClass,
+  badgeClass,
+}: {
+  title: string
+  icon: React.ReactNode
+  skills: SkillInfo[]
+  onToggle?: (name: string, enabled: boolean) => void
+  onDelete?: (name: string) => void
+  toggling: string | null
+  deleting: string | null
+  colorClass: string
+  badgeClass: string
+}) {
   return (
-    <div className="bg-[var(--bg-secondary)] border border-[var(--border)] rounded-xl p-4 hover:border-[var(--accent)]/50 transition-all group">
+    <div>
+      <h3 className={cn('text-sm font-medium text-[var(--text-secondary)] mb-3 flex items-center gap-2', colorClass)}>
+        {icon} {title}
+        <span className="text-xs font-normal">({skills.length})</span>
+      </h3>
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+        {skills.map(skill => (
+          <SkillCard
+            key={skill.name}
+            skill={skill}
+            onToggle={onToggle ? () => onToggle(skill.name, !skill.enabled) : undefined}
+            onDelete={onDelete ? () => onDelete(skill.name) : undefined}
+            toggling={toggling === skill.name}
+            deleting={deleting === skill.name}
+            badgeClass={badgeClass}
+          />
+        ))}
+      </div>
+    </div>
+  )
+}
+
+// ── Skill Card ────────────────────────────────────────────────────────────
+
+function SkillCard({
+  skill,
+  onToggle,
+  onDelete,
+  toggling,
+  deleting,
+  badgeClass,
+}: {
+  skill: SkillInfo
+  onToggle?: () => void
+  onDelete?: () => void
+  toggling?: boolean
+  deleting?: boolean
+  badgeClass: string
+}) {
+  const sourceLabels: Record<string, string> = {
+    ava: 'custom',
+    agents: '.agents',
+    builtin: 'builtin',
+  }
+
+  return (
+    <div className={cn(
+      'bg-[var(--bg-secondary)] border border-[var(--border)] rounded-xl p-4 transition-all group',
+      skill.enabled ? 'hover:border-[var(--accent)]/50' : 'opacity-60',
+    )}>
       <div className="flex items-start justify-between">
-        <div className="flex items-center gap-2">
-          <div className={cn(
-            'p-1.5 rounded-lg',
-            skill.source === 'workspace' ? 'bg-purple-500/10 text-purple-400' : 'bg-[var(--accent)]/10 text-[var(--accent)]'
-          )}>
+        <div className="flex items-center gap-2 min-w-0">
+          <div className={cn('p-1.5 rounded-lg shrink-0', badgeClass)}>
             <Puzzle className="w-4 h-4" />
           </div>
-          <span className="font-medium text-sm">{skill.name}</span>
+          <span className="font-medium text-sm truncate">{skill.name}</span>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 shrink-0 ml-2">
           {skill.always && (
             <span className="text-[10px] px-1.5 py-0.5 rounded bg-[var(--success)]/10 text-[var(--success)]">always</span>
           )}
-          {skill.source === 'workspace' && (
-            <span className="text-[10px] px-1.5 py-0.5 rounded bg-purple-500/10 text-purple-400">workspace</span>
-          )}
+          <span className={cn('text-[10px] px-1.5 py-0.5 rounded', badgeClass)}>
+            {sourceLabels[skill.source]}
+          </span>
         </div>
       </div>
+
       <p className="text-xs text-[var(--text-secondary)] mt-2 line-clamp-2">{skill.description || '暂无描述'}</p>
+
       <div className="flex items-center justify-between mt-3 pt-2 border-t border-[var(--border)]">
-        <span className="text-[10px] text-[var(--text-secondary)]/60 font-mono truncate max-w-[70%]">{skill.path.split('/').slice(-2).join('/')}</span>
+        <div className="flex items-center gap-2">
+          {onToggle && (
+            <ToggleSwitch
+              enabled={skill.enabled}
+              onToggle={onToggle}
+              disabled={toggling}
+            />
+          )}
+          {skill.install_method && (
+            <span className="text-[10px] text-[var(--text-secondary)]/60">
+              via {skill.install_method}
+            </span>
+          )}
+        </div>
         {onDelete && (
           <button
             onClick={onDelete}
