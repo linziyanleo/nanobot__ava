@@ -44,18 +44,15 @@
 
 ## 3. 参数配置来源
 
-压缩参数通过 `context._agent_loop` 反向引用从 `AgentLoop` 实例读取：
+当前实现通过 `context._agent_loop` 反向引用读取 `loop_patch` 注入的 summarizer / compressor 实例；若读取失败，则回退到 patch 内置默认值。
 
-| 参数 | 来源 | 默认值 |
-|------|------|--------|
-| Compressor.max_chars | `config.agents.defaults.context_compression.max_chars` | 50000 |
-| Compressor.protected_recent_messages | 同上 | 20 |
-| Compressor.max_old_turns | 同上 | 6 |
-| Summarizer.protect_recent | `config.agents.defaults.history_summarizer.protect_recent` | 6 |
-| Summarizer.tool_result_max_chars | 同上 | 400 |
+| 参数 | 当前实现来源 | 当前默认值 |
+|------|-------------|-----------|
+| Summarizer.protect_recent | `loop_patch` 尝试读取 `history_compressor.protect_recent`，失败时回退 | `6` |
+| Compressor.max_chars | `loop_patch` 尝试读取 `history_compressor.max_chars`，失败时回退 | `20000` |
 
-> `max_chars=50000`：中英混合对话约 6000-8000 tokens，避免过于激进的裁剪。
-> `protect_recent=6`：保护最近 ~3 轮的完整 tool call 结构不被 Summarizer 折叠。
+> 注意：这里和设计意图存在偏差。设计上希望读取 `config.agents.defaults.context_compression` / `history_summarizer`，但当前代码仍沿用旧的 `history_compressor.*` 读取路径并带默认回退。
+> 这不是立即的运行时冲突，但属于 spec 与实现不完全一致的技术债。
 
 ---
 

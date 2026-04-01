@@ -45,6 +45,15 @@ class TestSchemaPatch:
 
         assert "console" in GatewayConfig.model_fields
 
+    def test_api_config_exists(self):
+        """T1.3b: Config has api field after upstream API config sync."""
+        from ava.patches.a_schema_patch import apply_schema_patch
+
+        apply_schema_patch()
+        from nanobot.config.schema import Config
+
+        assert "api" in Config.model_fields
+
     def test_idempotent(self):
         """T1.4: calling apply twice does not error."""
         from ava.patches.a_schema_patch import apply_schema_patch

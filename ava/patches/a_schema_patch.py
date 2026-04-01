@@ -6,6 +6,7 @@ The fork adds or extends:
   - ConsoleConfig
   - ClaudeCodeConfig
   - TokenStatsConfig
+  - ApiConfig
   - Channel config classes (TelegramConfig, FeishuConfig, etc.)
   - GatewayConfig.console field
 

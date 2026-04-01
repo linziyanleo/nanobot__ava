@@ -7,7 +7,7 @@
 
 ## 1. 模块职责
 
-将 Web Console 作为独立的 uvicorn 服务启动，与 nanobot Gateway 在同一事件循环中并行运行。Console 监听独立端口，提供 Web 管理界面。
+将 Web Console 作为独立的 uvicorn 服务启动，与 nanobot Gateway 在同一事件循环中并行运行。Console 监听独立端口，提供 Web 管理界面；优先使用带 `AgentLoop` 引用的 full mode，拿不到 live loop 时降级到 standalone mode。
 
 ---
 
@@ -35,8 +35,11 @@
 
 | 配置项 | 来源 | 默认值 | 说明 |
 |--------|------|--------|------|
-| `CAFE_CONSOLE_PORT` | 环境变量 | `18791` | Console 监听端口 |
+| `config.gateway.console.port` | 配置文件 | `6688` | Console 首选监听端口 |
+| `CAFE_CONSOLE_PORT` | 环境变量 | `6688` | 未配置 `console.port` 时的端口兜底 |
 | `CAFE_CONSOLE_HOST` | 环境变量 | `0.0.0.0` | Console 监听地址 |
+| `config.gateway.console.secret_key` | 配置文件 | `"change-me-in-production-use-a-longer-key!"` | standalone 模式 JWT 密钥 |
+| `config.gateway.console.token_expire_minutes` | 配置文件 | `480` | standalone token 过期时间 |
 
 ---
 
@@ -47,7 +50,9 @@
 - `nanobot.cli.commands.app.registered_commands` — 注册的命令列表
 
 ### Sidecar 内部依赖
-- `ava.console.app.create_console_app` — Console FastAPI 应用工厂
+- `ava.console.app.create_console_app` — full mode 工厂（直接持有 AgentLoop）
+- `ava.console.app.create_console_app_standalone` — standalone mode 工厂（HTTP proxy）
+- `ava.patches.loop_patch.get_agent_loop()` — 提供 live AgentLoop 引用
 - `ava.launcher.register_patch` — 自注册机制
 
 ### 外部依赖
@@ -74,7 +79,11 @@ gateway_cmd.callback → patched_gateway → patched_asyncio_run → _with_conso
 - Gateway 主协程退出时，cancel Console 任务
 - `CancelledError` 被静默处理
 
-### 5.4 优雅降级
+### 5.4 Full mode / standalone mode
+- 若 `loop_patch` 已记录 live `AgentLoop`，优先走 `create_console_app()` full mode
+- 若没有 `AgentLoop` 引用，则退回 `create_console_app_standalone()`，通过 HTTP 代理 gateway
+
+### 5.5 优雅降级
 - `gateway` 命令在 Typer app 中未找到时：跳过 patch
 - `create_console_app()` 失败时：仅 warning，Gateway 正常启动
 
@@ -87,7 +96,8 @@ gateway_cmd.callback → patched_gateway → patched_asyncio_run → _with_conso
 | Gateway 命令查找 | 正确找到 `gateway` 回调 |
 | Gateway 未注册 | 命令不存在时优雅跳过 |
 | Console 启动 | Console uvicorn server 正确启动 |
-| Console 端口 | 使用 `CAFE_CONSOLE_PORT` 环境变量 |
+| Console 端口 | 优先读 `config.gateway.console.port`，否则回退 `CAFE_CONSOLE_PORT` |
+| Full/standalone 切换 | 有无 `AgentLoop` 引用时选择正确工厂 |
 | Console 失败 | `create_console_app()` 异常时 Gateway 不受影响 |
 | 生命周期 | Gateway 退出时 Console 被 cancel |
 | asyncio.run 恢复 | patch 后 `asyncio.run` 恢复原始版本 |
