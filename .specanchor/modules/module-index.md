@@ -1,6 +1,6 @@
 # Module Spec 索引
 
-> 最后更新：2026-03-26
+> 最后更新：2026-04-01
 
 ## Patch 模块（已实现）
 
@@ -13,8 +13,10 @@
 | `ava/patches/console_patch.py` | [console_patch_spec.md](console_patch_spec.md) | ✅ | Web Console 独立服务 |
 | `ava/patches/context_patch.py` | [context_patch_spec.md](context_patch_spec.md) | ✅ | 历史摘要+压缩+分类记忆注入 |
 | `ava/patches/loop_patch.py` | [loop_patch_spec.md](loop_patch_spec.md) | ✅ | AgentLoop 属性注入 + token 统计 |
+| `ava/patches/skills_patch.py` | — | ✅ | SkillsLoader 三源发现 + SQLite disabled filter |
 | `ava/patches/storage_patch.py` | [storage_patch_spec.md](storage_patch_spec.md) | ✅ | SQLite 存储层替换 |
 | `ava/patches/tools_patch.py` | [tools_patch_spec.md](tools_patch_spec.md) | ✅ | 5 个自定义工具注入 |
+| `ava/patches/transcription_patch.py` | — | ✅ | GroqTranscriptionProvider 代理注入 |
 
 ## 已接入模块
 

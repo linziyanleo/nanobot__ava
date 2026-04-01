@@ -20,37 +20,31 @@ def _apply_bus_patch():
 
 class TestBusPatch:
     def test_register_listener(self, bus):
-        """T8.1: registered listener is stored."""
-        cb = lambda event: None
-        bus.register_console_listener("sess1", cb)
-        assert "sess1" in bus._console_listeners
+        """T8.1: register returns and stores a queue listener."""
+        queue = bus.register_console_listener("sess1")
+        assert isinstance(queue, asyncio.Queue)
+        assert bus._console_listeners["sess1"] is queue
 
     def test_unregister_listener(self, bus):
         """T8.2: unregistered listener is removed."""
-        bus.register_console_listener("sess1", lambda e: None)
+        bus.register_console_listener("sess1")
         bus.unregister_console_listener("sess1")
         assert "sess1" not in getattr(bus, "_console_listeners", {})
 
     async def test_dispatch_event(self, bus):
-        """T8.3: dispatch calls the registered callback."""
-        received = []
+        """T8.3: dispatch enqueues the event for the registered session."""
+        queue = bus.register_console_listener("sess1")
+        event = {"type": "test"}
+        await bus.dispatch_to_console_listener("sess1", event)
+        received = await asyncio.wait_for(queue.get(), timeout=0.1)
+        assert received == event
 
-        async def cb(event):
-            received.append(event)
-
-        bus.register_console_listener("sess1", cb)
-        await bus.dispatch_to_console_listener("sess1", {"type": "test"})
-        assert len(received) == 1
-        assert received[0]["type"] == "test"
-
-    async def test_broken_listener_auto_removed(self, bus):
-        """T8.4: broken callback is auto-removed after exception."""
-        async def bad_cb(event):
-            raise RuntimeError("boom")
-
-        bus.register_console_listener("sess1", bad_cb)
-        await bus.dispatch_to_console_listener("sess1", {"type": "test"})
-        assert "sess1" not in bus._console_listeners
+    def test_re_register_listener_replaces_queue(self, bus):
+        """T8.4: repeated register replaces the previous queue for the same session."""
+        old_queue = bus.register_console_listener("sess1")
+        new_queue = bus.register_console_listener("sess1")
+        assert old_queue is not new_queue
+        assert bus._console_listeners["sess1"] is new_queue
 
     async def test_dispatch_no_listener(self, bus):
         """T8.5: dispatch to unregistered session is a no-op."""

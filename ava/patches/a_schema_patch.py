@@ -1,9 +1,10 @@
 """Replace nanobot.config.schema with ava fork before any other import.
 
-The fork adds:
-  - AgentDefaults: claude_code_model, vision_model, mini_model, voice_model, image_gen_model
+The fork adds or extends:
+  - AgentDefaults: vision_model, mini_model, image_gen_model, memory_tier,
+    memory_window, context_compression, in_loop_truncation, history_summarizer
   - ConsoleConfig
-  - ClaudeCodeConfig + ToolResultLimits
+  - ClaudeCodeConfig
   - TokenStatsConfig
   - Channel config classes (TelegramConfig, FeishuConfig, etc.)
   - GatewayConfig.console field

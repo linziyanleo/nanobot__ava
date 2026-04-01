@@ -1,8 +1,7 @@
 """Tests for a_schema_patch — Config Schema Fork injection."""
 
-import importlib
 import sys
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
 
 import pytest
 
@@ -34,7 +33,7 @@ class TestSchemaPatch:
         from nanobot.config.schema import AgentDefaults
 
         inst = AgentDefaults()
-        for field in ("vision_model", "mini_model", "voice_model", "image_gen_model"):
+        for field in ("vision_model", "mini_model", "image_gen_model"):
             assert hasattr(inst, field), f"Missing field: {field}"
 
     def test_console_config_exists(self):

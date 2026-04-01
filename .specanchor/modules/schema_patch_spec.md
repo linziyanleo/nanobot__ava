@@ -11,9 +11,9 @@
 用 `ava/forks/config/schema.py` 完整替换 `nanobot.config.schema` 模块，使系统支持多模型配置、Console 配置、ClaudeCode 工具配置等扩展字段。
 
 ### 新增/扩展的类和字段
-- `AgentDefaults`：新增 `claude_code_model`、`vision_model`、`mini_model`、`voice_model`、`image_gen_model`
+- `AgentDefaults`：新增 `vision_model`、`mini_model`、`image_gen_model`、`memory_tier`、`memory_window`、`context_compression`、`in_loop_truncation`、`history_summarizer`
 - `ConsoleConfig`：Console 启用/端口/密钥配置
-- `ClaudeCodeConfig` + `ToolResultLimits`：Claude Code 子代理配置
+- `ClaudeCodeConfig`：Claude Code 子代理配置
 - `TokenStatsConfig`：Token 使用统计配置
 - Channel Config 类：`TelegramConfig`、`FeishuConfig` 等（从各 channel 模块集中到 schema）
 - `GatewayConfig.console` 字段
@@ -74,7 +74,7 @@
 | 测试场景 | 验证内容 |
 |----------|----------|
 | Fork 替换成功 | `sys.modules["nanobot.config.schema"]._ava_fork` 为 True |
-| 扩展字段存在 | `AgentDefaults` 包含 `vision_model`、`mini_model` 等字段 |
+| 扩展字段存在 | `AgentDefaults` 包含 `vision_model`、`mini_model`、`image_gen_model` 等字段 |
 | ConsoleConfig | `GatewayConfig.console` 字段可用 |
 | 幂等性 | 两次调用不报错 |
 | Fork 文件缺失 | 优雅降级，不影响系统启动 |
