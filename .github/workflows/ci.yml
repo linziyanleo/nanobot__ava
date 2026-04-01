@@ -7,6 +7,71 @@ on:
     branches: [ main, nightly ]
 
 jobs:
+  guardrails:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+
+    - name: Verify nanobot/ guardrails
+      env:
+        EVENT_NAME: ${{ github.event_name }}
+        PUSH_BEFORE: ${{ github.event.before }}
+        PUSH_HEAD: ${{ github.sha }}
+        PR_BASE: ${{ github.event.pull_request.base.sha }}
+        PR_HEAD: ${{ github.event.pull_request.head.sha }}
+        PR_TITLE: ${{ github.event.pull_request.title }}
+        PR_BODY: ${{ github.event.pull_request.body }}
+        HEAD_COMMIT_MESSAGE: ${{ github.event.head_commit.message }}
+      run: |
+        set -euo pipefail
+
+        if [[ "${EVENT_NAME}" == "pull_request" ]]; then
+          base_sha="${PR_BASE}"
+          head_sha="${PR_HEAD}"
+          allow_text="${PR_TITLE}"$'\n'"${PR_BODY}"
+        else
+          base_sha="${PUSH_BEFORE}"
+          head_sha="${PUSH_HEAD}"
+          allow_text="${HEAD_COMMIT_MESSAGE}"
+        fi
+
+        if [[ -z "${base_sha}" || "${base_sha}" =~ ^0+$ ]]; then
+          base_sha="$(git rev-list --max-parents=0 "${head_sha}" | tail -1)"
+        fi
+
+        changed_files="$(git diff --name-only "${base_sha}" "${head_sha}" -- || true)"
+        nanobot_changed="$(printf '%s\n' "${changed_files}" | grep '^nanobot/' || true)"
+
+        if [[ -z "${nanobot_changed}" ]]; then
+          echo "✓ nanobot/ is untouched"
+          exit 0
+        fi
+
+        if ! printf '%s\n' "${changed_files}" | grep -qx 'ava/UPSTREAM_VERSION'; then
+          echo "✗ nanobot/ changed but ava/UPSTREAM_VERSION was not updated."
+          echo
+          echo "Changed files under nanobot/:"
+          printf '%s\n' "${nanobot_changed}"
+          exit 1
+        fi
+
+        if [[ "${allow_text}" != *"[allow-nanobot-patch]"* ]]; then
+          echo "✗ nanobot/ changed without [allow-nanobot-patch] marker."
+          echo
+          echo "Allowed exception cases:"
+          echo "  - upstream bugfix"
+          echo "  - upstream feature"
+          echo "  - upstream PR preparation"
+          echo
+          echo "Changed files under nanobot/:"
+          printf '%s\n' "${nanobot_changed}"
+          exit 1
+        fi
+
+        echo "✓ nanobot/ change acknowledged with UPSTREAM_VERSION update and allow marker"
+
   test:
     runs-on: ubuntu-latest
     strategy:

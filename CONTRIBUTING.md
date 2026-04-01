@@ -87,6 +87,22 @@ ruff check nanobot/
 ruff format nanobot/
 ```
 
+## Ava Sidecar Guardrails
+
+当前仓库包含 `ava/` Sidecar 扩展层。这里有一组额外的工程化约束，用来防止误改上游和 Spec 漂移：
+
+- 安装仓库级 hooks：`bash scripts/install-hooks.sh`
+- 默认禁止提交 `nanobot/` 目录改动；如确属上游 bugfix / upstream feature / upstream PR prep，本地可临时使用 `ALLOW_NANOBOT_PATCH=1`
+- 触碰 `nanobot/` 时，CI 还要求同时更新 `ava/UPSTREAM_VERSION`，并在 commit message 或 PR 标题/描述中写入 `[allow-nanobot-patch]`
+- `ava/UPSTREAM_VERSION` 用于记录“最后一次通过全量 patch / guardrail 验证的上游基线”
+
+建议在提交前至少执行：
+
+```bash
+pytest -q tests/patches -q
+pytest -q tests/guardrails -q
+```
+
 ## Code Style
 
 We care about more than passing lint. We want nanobot to stay small, calm, and readable.

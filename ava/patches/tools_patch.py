@@ -1,5 +1,7 @@
 """Monkey patch to inject CafeExt custom tools into AgentLoop."""
 
+from loguru import logger
+
 from nanobot.agent.loop import AgentLoop
 from ava.launcher import register_patch
 
@@ -24,6 +26,13 @@ def apply_tools_patch() -> str:
     Returns:
         str: Description of what was patched
     """
+    if not hasattr(AgentLoop, "_register_default_tools"):
+        logger.warning("tools_patch skipped: AgentLoop._register_default_tools not found")
+        return "tools_patch skipped (_register_default_tools not found)"
+
+    if getattr(AgentLoop._register_default_tools, "_ava_tools_patched", False):
+        return "tools_patch already applied (skipped)"
+
     original_register = AgentLoop._register_default_tools
 
     def patched_register_default_tools(self: AgentLoop) -> None:
@@ -78,7 +87,7 @@ def apply_tools_patch() -> str:
                 db=db,
             ))
 
-
+    patched_register_default_tools._ava_tools_patched = True
     AgentLoop._register_default_tools = patched_register_default_tools
     
     return "Registered 5 custom tools: claude_code, image_gen, vision, send_sticker, memory"

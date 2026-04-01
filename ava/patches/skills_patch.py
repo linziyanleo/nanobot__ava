@@ -49,6 +49,21 @@ def _get_disabled_skills() -> set[str]:
 def apply_skills_patch() -> str:
     from nanobot.agent.skills import SkillsLoader
 
+    missing = [
+        method_name
+        for method_name in ("__init__", "list_skills", "load_skill")
+        if not hasattr(SkillsLoader, method_name)
+    ]
+    if missing:
+        logger.warning(
+            "skills_patch skipped: SkillsLoader missing methods {}",
+            ", ".join(missing),
+        )
+        return f"skills_patch skipped (missing methods: {', '.join(missing)})"
+
+    if getattr(SkillsLoader.load_skill, "_ava_skills_patched", False):
+        return "skills_patch already applied (skipped)"
+
     original_init = SkillsLoader.__init__
     original_list = SkillsLoader.list_skills
     original_load = SkillsLoader.load_skill
@@ -143,6 +158,9 @@ def apply_skills_patch() -> str:
 
         return None
 
+    patched_init._ava_skills_patched = True
+    patched_list_skills._ava_skills_patched = True
+    patched_load_skill._ava_skills_patched = True
     SkillsLoader.__init__ = patched_init
     SkillsLoader.list_skills = patched_list_skills
     SkillsLoader.load_skill = patched_load_skill

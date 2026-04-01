@@ -95,10 +95,10 @@ register_patch("{patch_name}", apply_{module_name}_patch)
 所有 patch 在 `ava/launcher.py` 的 `apply_all_patches()` 中统一发现和执行。
 
 ### 3.2 执行顺序
-Patch 按文件名字母序发现（`sorted(patches_dir.glob("*_patch.py"))`），当前 9 个 patch 的执行顺序：
+Patch 按文件名字母序发现（`sorted(patches_dir.glob("*_patch.py"))`），当前 11 个 patch 的执行顺序：
 
 ```
-a_schema_patch → b_config_patch → bus_patch → channel_patch → console_patch → context_patch → loop_patch → storage_patch → tools_patch
+a_schema_patch → b_config_patch → bus_patch → channel_patch → console_patch → context_patch → loop_patch → skills_patch → storage_patch → tools_patch → transcription_patch
 ```
 
 | 序号 | 文件 | 注册名 | 职责 |
@@ -110,8 +110,10 @@ a_schema_patch → b_config_patch → bus_patch → channel_patch → console_pa
 | 5 | `console_patch.py` | `web_console` | Console 独立服务启动 |
 | 6 | `context_patch.py` | `context_builder` | 历史摘要+压缩+分类记忆注入 |
 | 7 | `loop_patch.py` | `agent_loop` | AgentLoop 属性注入 + token 统计 |
-| 8 | `storage_patch.py` | `sqlite_storage` | SQLite 存储替换 + db 共享 |
-| 9 | `tools_patch.py` | `custom_tools` | 自定义工具注册 |
+| 8 | `skills_patch.py` | `skills_loader` | Skills 三源发现 + disabled filter |
+| 9 | `storage_patch.py` | `sqlite_storage` | SQLite 存储替换 + db 共享 |
+| 10 | `tools_patch.py` | `custom_tools` | 自定义工具注册 |
+| 11 | `transcription_patch.py` | `transcription_proxy` | 转写代理注入 |
 
 **关键依赖链**：
 - `a_schema_patch` → `b_config_patch`（互斥，a 成功则 b 跳过）
@@ -160,7 +162,7 @@ def apply_xxx_patch() -> str:
 
 ### 5.1 测试文件位置
 ```
-tests/test_{module_name}_patch.py
+tests/patches/test_*.py
 ```
 
 ### 5.2 测试覆盖要求
@@ -219,7 +221,7 @@ class TestToolsPatch:
 - [ ] 保存了所有被替换方法的原始引用
 - [ ] 有拦截点存在性检查
 - [ ] 失败时打印 warning 日志而非静默失败
-- [ ] 对应的 `tests/test_{module}_patch.py` 已编写
+- [ ] 对应的 `tests/patches/test_*.py` 已编写
 - [ ] 测试覆盖了上述 5 个场景
 - [ ] 不修改 `nanobot/` 目录下的任何文件
 - [ ] `launcher.py` 的执行顺序注释已更新（如有必要）

@@ -37,6 +37,9 @@ def apply_console_patch() -> str:
         logger.warning("gateway command not found in Typer app — console patch skipped")
         return "Console patch skipped (gateway command not found)"
 
+    if getattr(gateway_cmd.callback, "_ava_console_patched", False):
+        return "console_patch already applied (skipped)"
+
     original_callback = gateway_cmd.callback
 
     import functools
@@ -168,6 +171,7 @@ def apply_console_patch() -> str:
             asyncio.run = original_asyncio_run  # ensure restore
 
     # Replace the callback in the CommandInfo (keep original name for Typer)
+    gateway._ava_console_patched = True
     gateway_cmd.callback = gateway
     cli_mod.gateway = gateway
 

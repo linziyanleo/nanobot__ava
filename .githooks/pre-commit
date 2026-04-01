@@ -1,0 +1,32 @@
+#!/usr/bin/env bash
+
+# Guardrail: block accidental upstream edits under nanobot/.
+# Use ALLOW_NANOBOT_PATCH=1 only for upstream bugfix / upstream PR preparation.
+
+set -euo pipefail
+
+if [[ "${ALLOW_NANOBOT_PATCH:-0}" == "1" ]]; then
+  echo "ALLOW_NANOBOT_PATCH=1 set, skipping nanobot/ commit guard."
+  exit 0
+fi
+
+changed="$(git diff --cached --name-only -- nanobot/ || true)"
+
+if [[ -n "${changed}" ]]; then
+  echo
+  echo "  ✗ COMMIT BLOCKED"
+  echo
+  echo "  nanobot/ is the upstream directory and must not be modified by default."
+  echo "  All customizations should go through ava/patches/ or other ava/ sidecar code."
+  echo
+  echo "  Files staged under nanobot/:"
+  while IFS= read -r path; do
+    [[ -n "${path}" ]] && echo "    ${path}"
+  done <<< "${changed}"
+  echo
+  echo "  If this change is for upstream bugfix / upstream PR prep, rerun with:"
+  echo
+  echo "    ALLOW_NANOBOT_PATCH=1 git commit ..."
+  echo
+  exit 1
+fi

@@ -20,6 +20,13 @@ def apply_transcription_patch() -> str:
     from pathlib import Path
     import json
 
+    if not hasattr(GroqTranscriptionProvider, "transcribe"):
+        logger.warning("transcription_patch skipped: transcribe not found")
+        return "transcription_patch skipped (transcribe not found)"
+
+    if getattr(GroqTranscriptionProvider.transcribe, "_ava_transcription_patched", False):
+        return "transcription_patch already applied (skipped)"
+
     # Read proxy from config
     _proxy: str | None = None
     try:
@@ -78,6 +85,7 @@ def apply_transcription_patch() -> str:
             logger.error("Groq transcription error (proxy={}): {}", proxy, e)
             return ""
 
+    patched_transcribe._ava_transcription_patched = True
     GroqTranscriptionProvider.transcribe = patched_transcribe
     return f"GroqTranscriptionProvider.transcribe patched with proxy={proxy}"
 

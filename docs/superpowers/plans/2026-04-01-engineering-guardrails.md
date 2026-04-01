@@ -104,7 +104,7 @@ uv run pytest tests/patches -q
 
 ## Task 1: Repo-tracked Hook
 
-**目标：** 不再直接生成 `.git/hooks/pre-commit` 作为“黑盒产物”，而是把 hook 脚本纳入仓库版本控制。
+**目标：** 不再直接生成 Git 默认 hooks 目录中的 `pre-commit` 作为“黑盒产物”，而是把 hook 脚本纳入仓库版本控制。
 
 ### 方案
 
@@ -120,13 +120,13 @@ git config core.hooksPath .githooks
 
 ### 具体任务
 
-- [ ] 创建 `.githooks/pre-commit`
-- [ ] 创建 `scripts/install-hooks.sh`
-- [ ] hook 必须支持如下逻辑：
+- [x] 创建 `.githooks/pre-commit`
+- [x] 创建 `scripts/install-hooks.sh`
+- [x] hook 必须支持如下逻辑：
   - 若 `ALLOW_NANOBOT_PATCH=1`，打印 bypass 提示并放行
   - 否则检查 `git diff --cached --name-only -- nanobot/`
   - 若命中，阻止 commit 并输出受影响文件列表
-- [ ] 在 `tests/guardrails/test_nanobot_guardrail.py` 中校验：
+- [x] 在 `tests/guardrails/test_nanobot_guardrail.py` 中校验：
   - `.githooks/pre-commit` 存在
   - `scripts/install-hooks.sh` 存在
   - hook 内容包含 `ALLOW_NANOBOT_PATCH`
@@ -156,18 +156,18 @@ git config core.hooksPath .githooks
 
 ### 具体任务
 
-- [ ] 新增 `guardrails` job
-- [ ] checkout 使用 `fetch-depth: 0`
-- [ ] 区分事件类型：
+- [x] 新增 `guardrails` job
+- [x] checkout 使用 `fetch-depth: 0`
+- [x] 区分事件类型：
   - `pull_request`：使用 `github.event.pull_request.base.sha` 和 `github.event.pull_request.head.sha`
   - `push`：使用 `github.event.before` 和 `github.sha`
-- [ ] 编写 shell 校验逻辑：
+- [x] 编写 shell 校验逻辑：
   - 计算变更文件列表
   - 若无 `nanobot/` 改动，直接通过
   - 若有 `nanobot/` 改动，则校验：
     - `ava/UPSTREAM_VERSION` 也在变更列表中
     - PR body、PR title 或最近 commit message 含 `[allow-nanobot-patch]`
-- [ ] 在失败输出里明确提示允许的例外场景：
+- [x] 在失败输出里明确提示允许的例外场景：
   - upstream bugfix
   - upstream feature
   - PR prep for upstream
@@ -193,22 +193,23 @@ git config core.hooksPath .githooks
 创建 `tests/guardrails/test_schema_drift.py`，至少包含以下检查：
 
 - [ ] `test_schema_files_exist`
+- [x] `test_schema_files_exist`
   - 上游 schema 和 fork schema 文件可读
-- [ ] `test_no_duplicate_class_defs`
+- [x] `test_no_duplicate_class_defs`
   - 同一文件内不允许出现重复 `ClassDef`
   - 当前 `ava/forks/config/schema.py` 中的重复 `MatrixConfig` 应先修复或显式处理
-- [ ] `test_no_unacknowledged_upstream_removals`
+- [x] `test_no_unacknowledged_upstream_removals`
   - fork 删除上游字段时，必须写入 `INTENTIONAL_REMOVALS`
-- [ ] `test_no_unacknowledged_upstream_additions`
+- [x] `test_no_unacknowledged_upstream_additions`
   - 上游新增字段时，fork 必须同步或在例外清单里解释
-- [ ] `test_shared_field_annotations_match_for_critical_classes`
+- [x] `test_shared_field_annotations_match_for_critical_classes`
   - 对关键类做 annotation 一致性检查：
     - `AgentDefaults`
     - `GatewayConfig`
     - `ToolsConfig`
     - `ProvidersConfig`
     - `MCPServerConfig`
-- [ ] `test_shared_field_defaults_match_for_critical_classes`
+- [x] `test_shared_field_defaults_match_for_critical_classes`
   - 对关键共享字段的默认值做 AST 层面的保守比较
 
 ### 例外机制
@@ -223,13 +224,13 @@ git config core.hooksPath .githooks
 
 ### 要检查的内容
 
-- [ ] 模块级 docstring 存在
-- [ ] 至少有一个 `apply_*_patch() -> str`
-- [ ] 存在 `register_patch(...)`
-- [ ] 存在拦截点检查
+- [x] 模块级 docstring 存在
+- [x] 至少有一个 `apply_*_patch() -> str`
+- [x] 存在 `register_patch(...)`
+- [x] 存在拦截点检查
   - `hasattr(...)`
   - 或等价的存在性检查，如 `Path.exists()`、`getattr(..., default)` 加明确 skip 分支
-- [ ] 每个 patch 都有对应 `tests/patches/test_*.py`
+- [x] 每个 patch 都有对应 `tests/patches/test_*.py`
 
 ### 需要修正原计划的点
 
@@ -243,20 +244,20 @@ git config core.hooksPath .githooks
 
 创建 `tests/guardrails/test_patch_runtime_contracts.py`，重点覆盖：
 
-- [ ] `test_apply_all_patches_twice_does_not_crash`
+- [x] `test_apply_all_patches_twice_does_not_crash`
   - 连续调用 `apply_all_patches()` 两次不应抛异常
-- [ ] `test_patch_registry_has_expected_patch_names`
+- [x] `test_patch_registry_has_expected_patch_names`
   - patch 注册名与实际文件集合一致
-- [ ] `test_context_patch_is_idempotent`
+- [x] `test_context_patch_is_idempotent`
   - 二次 apply 返回 skipped 或等价结果
-- [ ] `test_schema_patch_is_idempotent`
+- [x] `test_schema_patch_is_idempotent`
   - 二次 apply 返回 skipped
-- [ ] `test_missing_intercept_points_degrade_gracefully_for_selected_patches`
+- [x] `test_missing_intercept_points_degrade_gracefully_for_selected_patches`
   - 至少挑 2 到 3 个 patch 做 monkeypatch 验证：
     - `console_patch`
     - `context_patch`
     - `transcription_patch`
-- [ ] `test_apply_all_patches_matches_documented_count`
+- [x] `test_apply_all_patches_matches_documented_count`
   - 实际发现的 patch 数量与 Spec 索引一致
 
 ### 说明
@@ -270,8 +271,8 @@ git config core.hooksPath .githooks
 
 ### 6.1 UPSTREAM_VERSION
 
-- [ ] 创建 `ava/UPSTREAM_VERSION`
-- [ ] 文件格式建议：
+- [x] 创建 `ava/UPSTREAM_VERSION`
+- [x] 文件格式建议：
 
 ```text
 <upstream_commit_sha>
@@ -279,22 +280,22 @@ git config core.hooksPath .githooks
 # note: last full patch test baseline
 ```
 
-- [ ] 在 `README.md` 或 `CONTRIBUTING.md` 说明其用途
-- [ ] 在 CI guardrails 中加入规则：
+- [x] 在 `README.md` 或 `CONTRIBUTING.md` 说明其用途
+- [x] 在 CI guardrails 中加入规则：
   - 若 `nanobot/` 有变更，则 `ava/UPSTREAM_VERSION` 必须同步修改
 
 ### 6.2 Spec / Doc Sync Test
 
 创建 `tests/guardrails/test_spec_sync.py`，至少包含：
 
-- [ ] `test_module_index_covers_all_patch_files`
+- [x] `test_module_index_covers_all_patch_files`
   - `ava/patches/*_patch.py` 必须全部出现在 `.specanchor/modules/module-index.md`
-- [ ] `test_patch_specs_reference_existing_files`
+- [x] `test_patch_specs_reference_existing_files`
   - module index 中列出的 patch 文件必须真实存在
-- [ ] `test_schema_patch_spec_matches_current_field_set`
+- [x] `test_schema_patch_spec_matches_current_field_set`
   - schema Spec 中提到的扩展字段要与 fork 当前实现一致
-- [ ] `test_plan_and_repo_hook_paths_match`
-  - 计划文档里写的是 `.githooks/pre-commit`，不能再写回 `.git/hooks/pre-commit`
+- [x] `test_plan_and_repo_hook_paths_match`
+  - 计划文档里写的是 `.githooks/pre-commit`，不能再退回到 Git 默认 hooks 目录里的旧路径写法
 
 ### 备注
 
@@ -307,8 +308,8 @@ git config core.hooksPath .githooks
 
 ### README / CONTRIBUTING
 
-- [ ] 在 `README.md` 或 `CONTRIBUTING.md` 增加开发环境约束说明
-- [ ] 至少包含：
+- [x] 在 `README.md` 或 `CONTRIBUTING.md` 增加开发环境约束说明
+- [x] 至少包含：
   - 安装 hooks：`bash scripts/install-hooks.sh`
   - 例外场景说明
   - `ava/UPSTREAM_VERSION` 的更新要求
@@ -317,9 +318,9 @@ git config core.hooksPath .githooks
 
 创建 `docs/superpowers/evidence/engineering-guardrails-demo.md`，记录 3 个可复现演示：
 
-- [ ] Demo 1：尝试提交 `nanobot/` 修改，被 hook 拦截
-- [ ] Demo 2：上游 schema 新增字段时，`test_schema_drift.py` 报警
-- [ ] Demo 3：patch 缺少结构要件或 Spec 未同步时，guardrail 测试报错
+- [x] Demo 1：尝试提交 `nanobot/` 修改，被 hook 拦截
+- [x] Demo 2：上游 schema 新增字段时，`test_schema_drift.py` 报警
+- [x] Demo 3：patch 缺少结构要件或 Spec 未同步时，guardrail 测试报错
 
 每个 demo 都记录：
 
@@ -345,16 +346,16 @@ git config core.hooksPath .githooks
 
 | 约束 | 验证方式 | 状态 |
 |------|----------|------|
-| `tests/patches/` 基线全绿 | `uv run pytest tests/patches -q` | ❌ 待实现 |
-| 本地提交 `nanobot/` 改动时默认被拦截 | `.githooks/pre-commit` | ❌ 待实现 |
-| 本地存在明确绕过机制 | `ALLOW_NANOBOT_PATCH=1 git commit ...` | ❌ 待实现 |
-| CI 检测到 `nanobot/` 改动时要求例外痕迹 | `.github/workflows/ci.yml` guardrails job | ❌ 待实现 |
-| schema 上游新增 / 删除 / 重复定义可被发现 | `tests/guardrails/test_schema_drift.py` | ❌ 待实现 |
-| patch 缺 docstring / apply / register / test coverage 时 CI 失败 | `tests/guardrails/test_patch_structure.py` | ❌ 待实现 |
-| patch 系统级幂等 / 降级契约可被发现 | `tests/guardrails/test_patch_runtime_contracts.py` | ❌ 待实现 |
-| patch / Spec / module-index / 计划文档不一致时 CI 失败 | `tests/guardrails/test_spec_sync.py` | ❌ 待实现 |
-| `nanobot/` 有改动时必须同步更新 `ava/UPSTREAM_VERSION` | guardrails job + repo file | ❌ 待实现 |
-| 演讲可以展示“护栏触发 -> 修复 -> 转绿”证据 | `docs/superpowers/evidence/engineering-guardrails-demo.md` | ❌ 待实现 |
+| `tests/patches/` 基线全绿 | `uv run pytest tests/patches -q` | ✅ 已完成 |
+| 本地提交 `nanobot/` 改动时默认被拦截 | `.githooks/pre-commit` | ✅ 已完成 |
+| 本地存在明确绕过机制 | `ALLOW_NANOBOT_PATCH=1 git commit ...` | ✅ 已完成 |
+| CI 检测到 `nanobot/` 改动时要求例外痕迹 | `.github/workflows/ci.yml` guardrails job | ✅ 已完成 |
+| schema 上游新增 / 删除 / 重复定义可被发现 | `tests/guardrails/test_schema_drift.py` | ✅ 已完成 |
+| patch 缺 docstring / apply / register / test coverage 时 CI 失败 | `tests/guardrails/test_patch_structure.py` | ✅ 已完成 |
+| patch 系统级幂等 / 降级契约可被发现 | `tests/guardrails/test_patch_runtime_contracts.py` | ✅ 已完成 |
+| patch / Spec / module-index / 计划文档不一致时 CI 失败 | `tests/guardrails/test_spec_sync.py` | ✅ 已完成 |
+| `nanobot/` 有改动时必须同步更新 `ava/UPSTREAM_VERSION` | guardrails job + repo file | ✅ 已完成 |
+| 演讲可以展示“护栏触发 -> 修复 -> 转绿”证据 | `docs/superpowers/evidence/engineering-guardrails-demo.md` | ✅ 已完成 |
 
 ## 非目标
 

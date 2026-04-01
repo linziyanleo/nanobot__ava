@@ -22,6 +22,21 @@ def apply_storage_patch() -> str:
     from nanobot.config.paths import get_data_dir
     from nanobot.session.manager import SessionManager, Session
 
+    missing = [
+        method_name
+        for method_name in ("save", "_load", "list_sessions")
+        if not hasattr(SessionManager, method_name)
+    ]
+    if missing:
+        logger.warning(
+            "storage_patch skipped: SessionManager missing methods {}",
+            ", ".join(missing),
+        )
+        return f"storage_patch skipped (missing methods: {', '.join(missing)})"
+
+    if getattr(SessionManager.save, "_ava_storage_patched", False):
+        return "storage_patch already applied (skipped)"
+
     db_path = get_data_dir() / "nanobot.db"
     db = Database(db_path)
 
@@ -215,6 +230,9 @@ def apply_storage_patch() -> str:
             for row in rows
         ]
 
+    patched_save._ava_storage_patched = True
+    patched_load._ava_storage_patched = True
+    patched_list._ava_storage_patched = True
     SessionManager.save = patched_save
     SessionManager._load = patched_load
     SessionManager.list_sessions = patched_list

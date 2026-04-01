@@ -34,6 +34,24 @@ def apply_channel_patch() -> str:
     """
     from nanobot.channels.telegram import TelegramChannel
 
+    missing = [
+        method_name
+        for method_name in ("send", "send_delta")
+        if not hasattr(TelegramChannel, method_name)
+    ]
+    if missing:
+        logger.warning(
+            "channel_patch skipped: TelegramChannel missing methods {}",
+            ", ".join(missing),
+        )
+        return f"channel_patch skipped (missing methods: {', '.join(missing)})"
+
+    if (
+        getattr(TelegramChannel.send, "_ava_channel_patched", False)
+        or getattr(TelegramChannel.send_delta, "_ava_channel_patched", False)
+    ):
+        return "channel_patch already applied (skipped)"
+
     # ------------------------------------------------------------------
     # 1. Patch send: message batching
     # ------------------------------------------------------------------
@@ -87,6 +105,7 @@ def apply_channel_patch() -> str:
             session_key=None,
         )
 
+    patched_send._ava_channel_patched = True
     TelegramChannel.send = patched_send
 
     # ------------------------------------------------------------------
@@ -129,9 +148,10 @@ def apply_channel_patch() -> str:
 
         await original_send_delta(self, chat_id, delta, metadata)
 
+    patched_send_delta._ava_channel_patched = True
     TelegramChannel.send_delta = patched_send_delta
 
-    return "TelegramChannel patched: message batching + voice transcription LLM fallback + send_delta typing fix"
+    return "TelegramChannel patched: message batching + send_delta typing fix"
 
 
 register_patch("channel_extensions", apply_channel_patch)

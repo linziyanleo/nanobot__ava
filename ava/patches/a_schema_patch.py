@@ -10,9 +10,9 @@ The fork adds or extends:
   - GatewayConfig.console field
 
 This patch must run FIRST (alphabetically before other patches).
-Rename to schema_patch.py so 's' < 't' (tools) but after 'c' (config_patch).
-Since this completely replaces the module, config_patch.py is superseded
-and can be removed or will be a no-op.
+Keep the `a_` prefix so it runs before the remaining patches.
+Since this completely replaces the module, config_patch.py becomes a
+no-op fallback when the fork file is missing.
 """
 
 from __future__ import annotations

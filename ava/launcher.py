@@ -5,11 +5,11 @@ Usage:
     python -m ava.launcher          # replaces `python -m nanobot`
 
 This module:
-1. Applies all registered patches (tools, console, storage, channels)
+1. Discovers and applies all registered patches under ava/patches
 2. Then delegates to the original nanobot CLI entry point
 
-Patches are applied in dependency order:
-    storage → tools → channels → console
+Patches are discovered in lexical file order so early schema/config patches
+can run before later runtime patches.
 """
 
 from __future__ import annotations

@@ -23,6 +23,13 @@ from ava.launcher import register_patch
 def apply_bus_patch() -> str:
     from nanobot.bus.queue import MessageBus
 
+    if not hasattr(MessageBus, "publish_outbound"):
+        logger.warning("bus_patch skipped: MessageBus.publish_outbound not found")
+        return "bus_patch skipped (publish_outbound not found)"
+
+    if getattr(MessageBus.publish_outbound, "_ava_bus_patched", False):
+        return "bus_patch already applied (skipped)"
+
     # --- register_console_listener ---
     def register_console_listener(self: MessageBus, session_key: str) -> asyncio.Queue:
         """Register a queue-based listener for console WebSocket events on a session.
@@ -86,6 +93,7 @@ def apply_bus_patch() -> str:
             except asyncio.QueueFull:
                 logger.warning("Console listener queue full for {}, dropping", session_key)
 
+    patched_publish_outbound._ava_bus_patched = True
     MessageBus.publish_outbound = patched_publish_outbound
 
     MessageBus.register_console_listener = register_console_listener

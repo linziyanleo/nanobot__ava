@@ -78,6 +78,10 @@ def sanitize_messages(messages: list[dict]) -> list[dict]:
 def apply_context_patch() -> str:
     from nanobot.agent.context import ContextBuilder
 
+    if not hasattr(ContextBuilder, "build_messages"):
+        logger.warning("context_patch skipped: ContextBuilder.build_messages not found")
+        return "context_patch skipped (build_messages not found)"
+
     if getattr(ContextBuilder.build_messages, "_ava_patched", False):
         return "context_patch already applied (skipped)"
 
@@ -146,6 +150,10 @@ def apply_context_patch() -> str:
         from nanobot.providers.base import LLMProvider
     except ImportError:
         logger.warning("context_patch: LLMProvider not found, skipping message sanitize patch")
+        return "ContextBuilder.build_messages patched (LLMProvider sanitize skipped)"
+
+    if not hasattr(LLMProvider, "chat_with_retry") or not hasattr(LLMProvider, "chat_stream_with_retry"):
+        logger.warning("context_patch: LLMProvider chat methods not found, skipping sanitize patch")
         return "ContextBuilder.build_messages patched (LLMProvider sanitize skipped)"
 
     if getattr(LLMProvider.chat_with_retry, "_ava_sanitize_patched", False):

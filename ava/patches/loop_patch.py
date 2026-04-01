@@ -59,6 +59,21 @@ def _get_or_create_db(workspace_path) -> object | None:
 def apply_loop_patch() -> str:
     from nanobot.agent.loop import AgentLoop
 
+    required_methods = [
+        "__init__",
+        "_set_tool_context",
+        "_run_agent_loop",
+        "_save_turn",
+        "_process_message",
+    ]
+    missing = [name for name in required_methods if not hasattr(AgentLoop, name)]
+    if missing:
+        logger.warning("loop_patch skipped: AgentLoop missing methods {}", missing)
+        return f"loop_patch skipped (missing methods: {', '.join(missing)})"
+
+    if getattr(AgentLoop._process_message, "_ava_loop_patched", False):
+        return "loop_patch already applied (skipped)"
+
     # ------------------------------------------------------------------
     # 1. Patch __init__ to inject extra attributes
     # ------------------------------------------------------------------
@@ -167,6 +182,7 @@ def apply_loop_patch() -> str:
         except Exception as exc:
             logger.warning("Failed to update tool refs after init: {}", exc)
 
+    patched_init._ava_loop_patched = True
     AgentLoop.__init__ = patched_init
 
     # ------------------------------------------------------------------
@@ -180,6 +196,7 @@ def apply_loop_patch() -> str:
             if hasattr(tool, "set_context"):
                 tool.set_context(channel, chat_id)
 
+    patched_set_tool_context._ava_loop_patched = True
     AgentLoop._set_tool_context = patched_set_tool_context
 
     # ------------------------------------------------------------------
@@ -235,6 +252,7 @@ def apply_loop_patch() -> str:
             "finish_reason": response.finish_reason or "",
         }
 
+    patched_run_agent_loop._ava_loop_patched = True
     AgentLoop._run_agent_loop = patched_run_agent_loop
 
     # ------------------------------------------------------------------
@@ -253,6 +271,7 @@ def apply_loop_patch() -> str:
             skip = 1 + corrected  # 1 for system + compressed history (excl. user)
         original_save_turn(self_loop, session, messages, skip)
 
+    fixed_save_turn._ava_loop_patched = True
     AgentLoop._save_turn = fixed_save_turn
 
     # ------------------------------------------------------------------
@@ -353,6 +372,7 @@ def apply_loop_patch() -> str:
 
         return result
 
+    patched_process_message._ava_loop_patched = True
     AgentLoop._process_message = patched_process_message
 
     return "AgentLoop patched: injected db/token_stats/media_service/categorized_memory/summarizer/compressor; _process_message records rich token usage"
