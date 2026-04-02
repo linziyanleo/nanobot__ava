@@ -156,6 +156,11 @@ cd nanobot
 pip install -e .
 ```
 
+> [!IMPORTANT]
+> This checkout also contains an `ava/` sidecar layer.
+> If you want sidecar-patched behavior from this repository, such as patched schema/config onboarding, Console gateway integration, SQLite storage, or custom tools, run commands through `python -m ava` inside the project environment instead of `nanobot`.
+> See [ava/README.md](ava/README.md) for the sidecar quick start.
+
 **Install with [uv](https://github.com/astral-sh/uv)** (stable, fast)
 
 ```bash
@@ -208,6 +213,12 @@ nanobot onboard
 ```
 
 Use `nanobot onboard --wizard` if you want the interactive setup wizard.
+
+If you are using the `ava/` sidecar from this repository, initialize through:
+
+```bash
+uv run python -m ava onboard
+```
 
 **2. Configure** (`~/.nanobot/config.json`)
 
