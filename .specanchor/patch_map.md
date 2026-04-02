@@ -64,6 +64,7 @@ uv run pytest tests/guardrails -q
 | `a_schema_patch.py` | `nanobot/config/schema.py` | 用 fork 完整替换 schema，承载 Console / ClaudeCode / TokenStats / Channel configs / API config 等扩展 | 高 | 保留，但必须持续同步 | upstream 新增基础配置类或字段时，优先同步 fork；若 sidecar 扩展显著减少，可考虑退化为更窄的 additive patch | `tests/patches/test_schema_patch.py` + `tests/guardrails/test_schema_drift.py` |
 | `b_config_patch.py` | `nanobot.config.schema.AgentDefaults` | fork 缺失时的降级字段注入 | 中 | 倾向后续删除 | 若 fork 路线稳定且不再需要 fallback，可整体移除 | `tests/patches/test_config_patch.py` |
 | `bus_patch.py` | `nanobot.bus.queue.MessageBus.publish_outbound` | Console queue listener 注入 | 低 | 保留 | 若 upstream 原生提供 console listener queue，再删除 | `tests/patches/test_bus_patch.py` |
+| `c_onboard_patch.py` | `nanobot/cli/commands.py:onboard` | `onboard refresh` 兼容层，保留旧 sidecar config 形状且不固化 `extra_config.json` overlay | 高 | 保留，但应持续收窄 | upstream 若原生提供“refresh 只补缺失默认值”的安全写回语义，可删除；若 `onboard` callback 重构，先复核包裹点 | `tests/patches/test_onboard_patch.py` |
 | `channel_patch.py` | `nanobot/channels/telegram.py` | Telegram 消息批处理 + `send_delta` 边界修复 | 中高 | 保留，但要持续收窄 | upstream 一旦覆盖 typing 清理 / `message_id is None` fallback，就删对应分支；若 upstream 出现原生 batching，整体 patch 需重判 | `tests/patches/test_channel_patch.py` |
 | `console_patch.py` | `nanobot/cli/commands.py` | 在 gateway 启动时并行注入 Web Console | 高 | 保留，但属于 CLI 热区 | upstream 若重构 gateway 启动方式，必须先读 patch spec；若未来有官方 console/runtime hook，再考虑迁移 | `tests/patches/test_console_patch.py` |
 | `context_patch.py` | `nanobot.agent.context.ContextBuilder`、`LLMProvider.chat_*` | 历史压缩、分类记忆注入、非 Claude provider 消息清洗 | 高 | 保留，但配置口径需要修债 | upstream 若把短期历史聚焦 / message sanitize 做进核心层，patch 应收窄；当前先修参数读取漂移 | `tests/patches/test_context_patch.py` |
@@ -83,9 +84,9 @@ uv run pytest tests/guardrails -q
 
 ### 热区 2: `nanobot/cli/commands.py`
 
-- 关联 patch：`console_patch`
+- 关联 patch：`console_patch`、`c_onboard_patch`
 - 现状：上游已新增 `serve` 命令，CLI 继续扩展
-- 策略：任何改 CLI 入口的需求，都先判断是不是应该做更稳定的 runtime hook，而不是继续盯死 `gateway` callback
+- 策略：任何改 CLI 入口的需求，都先判断是不是应该做更稳定的 runtime hook，而不是继续盯死 `gateway` / `onboard` callback
 
 ### 热区 3: `nanobot/config/schema.py`
 

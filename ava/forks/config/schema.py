@@ -1,90 +1,192 @@
-"""Configuration schema using Pydantic."""
+"""基于上游 schema 的 sidecar 配置模型。"""
 
+from __future__ import annotations
+
+import importlib.util
+import sys
 from pathlib import Path
-from typing import Literal
+from types import ModuleType
+from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
-from pydantic.alias_generators import to_camel
+from pydantic import AliasChoices, BaseModel, Field
 from pydantic_settings import BaseSettings
 
 
-class Base(BaseModel):
-    """Base model that accepts both camelCase and snake_case keys."""
+def _load_upstream_schema() -> ModuleType:
+    """加载未打 patch 的上游 schema，供本地 fork 继承。"""
+    injected = globals().get("_ava_upstream_schema")
+    if isinstance(injected, ModuleType):
+        injected_path = getattr(injected, "__file__", None)
+        current_path = Path(__file__).resolve()
+        if (
+            not getattr(injected, "_ava_fork", False)
+            and injected_path
+            and Path(injected_path).resolve() != current_path
+        ):
+            return injected
 
-    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
+    module_name = "_ava_upstream_config_schema"
+    cached = sys.modules.get(module_name)
+    if isinstance(cached, ModuleType):
+        return cached
+
+    upstream_path = Path(__file__).resolve().parents[3] / "nanobot" / "config" / "schema.py"
+    spec = importlib.util.spec_from_file_location(module_name, upstream_path)
+    if spec is None or spec.loader is None:
+        raise RuntimeError(f"无法加载上游 schema: {upstream_path}")
+
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[module_name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+_UPSTREAM = _load_upstream_schema()
+
+_SIDECAR_PROVIDER_NAMES = ("zenmux", "yunwu")
+
+
+def _dump_field_name(field_name: str, field_info: Any, by_alias: bool) -> str:
+    """按当前 dump 选项解析字段输出名。"""
+    if not by_alias:
+        return field_name
+    return field_info.serialization_alias or field_info.alias or field_name
+
+
+def _dump_model_like(
+    model: BaseModel,
+    *,
+    mode: str,
+    by_alias: bool,
+    exclude_none: bool,
+) -> dict[str, Any]:
+    """显式递归 dump 当前模型字段，避免继承模型沿用上游 serializer。"""
+    data: dict[str, Any] = {}
+    for field_name, field_info in type(model).model_fields.items():
+        if field_info.exclude is True:
+            continue
+
+        value = getattr(model, field_name)
+        if exclude_none and value is None:
+            continue
+
+        key = _dump_field_name(field_name, field_info, by_alias)
+        data[key] = _dump_value(value, mode=mode, by_alias=by_alias, exclude_none=exclude_none)
+
+    extras = getattr(model, "__pydantic_extra__", None) or {}
+    for key, value in extras.items():
+        if exclude_none and value is None:
+            continue
+        data[key] = _dump_value(value, mode=mode, by_alias=by_alias, exclude_none=exclude_none)
+
+    return data
+
+
+def _dump_value(
+    value: Any,
+    *,
+    mode: str,
+    by_alias: bool,
+    exclude_none: bool,
+) -> Any:
+    """递归序列化嵌套值。"""
+    if isinstance(value, BaseModel):
+        return _dump_model_like(value, mode=mode, by_alias=by_alias, exclude_none=exclude_none)
+    if isinstance(value, Path):
+        return str(value) if mode == "json" else value
+    if isinstance(value, dict):
+        return {
+            key: _dump_value(item, mode=mode, by_alias=by_alias, exclude_none=exclude_none)
+            for key, item in value.items()
+            if not (exclude_none and item is None)
+        }
+    if isinstance(value, list):
+        return [
+            _dump_value(item, mode=mode, by_alias=by_alias, exclude_none=exclude_none)
+            for item in value
+            if not (exclude_none and item is None)
+        ]
+    if isinstance(value, tuple):
+        dumped = [
+            _dump_value(item, mode=mode, by_alias=by_alias, exclude_none=exclude_none)
+            for item in value
+            if not (exclude_none and item is None)
+        ]
+        return dumped if mode == "json" else tuple(dumped)
+    return value
+
+
+class Base(_UPSTREAM.Base):
+    """沿用上游 alias / populate 规则的基础模型。"""
 
 
 class WhatsAppConfig(Base):
-    """WhatsApp channel configuration."""
+    """WhatsApp 渠道配置。"""
 
     enabled: bool = False
     bridge_url: str = "ws://localhost:3001"
-    bridge_token: str = ""  # Shared token for bridge auth (optional, recommended)
-    allow_from: list[str] = Field(default_factory=list)  # Allowed phone numbers
+    bridge_token: str = ""
+    allow_from: list[str] = Field(default_factory=list)
 
 
 class TelegramConfig(Base):
-    """Telegram channel configuration."""
+    """Telegram 渠道配置。"""
 
     enabled: bool = False
-    token: str = ""  # Bot token from @BotFather
-    allow_from: list[str] = Field(default_factory=list)  # Allowed user IDs or usernames
-    proxy: str | None = None  # HTTP/SOCKS5 proxy URL, e.g. "http://127.0.0.1:7890" or "socks5://127.0.0.1:1080"
-    reply_to_message: bool = False  # If true, bot replies quote the original message
-    react_emoji: str = "👀"  # Emoji reaction on received messages
-    group_policy: Literal["open", "mention"] = "mention"  # Group chat policy
-    connection_pool_size: int = 32  # Outbound API connection pool size
-    pool_timeout: float = 5.0  # Timeout when waiting for a free pooled connection
-    streaming: bool = True  # Enable streaming responses
-    user_typing_timeout: int = 0  # Seconds to wait for consecutive messages before sending to model; 0 = disabled
+    token: str = ""
+    allow_from: list[str] = Field(default_factory=list)
+    proxy: str | None = None
+    reply_to_message: bool = False
+    react_emoji: str = "👀"
+    group_policy: Literal["open", "mention"] = "mention"
+    connection_pool_size: int = 32
+    pool_timeout: float = 5.0
+    streaming: bool = True
+    user_typing_timeout: int = 0
 
 
 class FeishuConfig(Base):
-    """Feishu/Lark channel configuration using WebSocket long connection."""
+    """飞书渠道配置。"""
 
     enabled: bool = False
-    app_id: str = ""  # App ID from Feishu Open Platform
-    app_secret: str = ""  # App Secret from Feishu Open Platform
-    encrypt_key: str = ""  # Encrypt Key for event subscription (optional)
-    verification_token: str = ""  # Verification Token for event subscription (optional)
-    allow_from: list[str] = Field(default_factory=list)  # Allowed user open_ids
-    react_emoji: str = "THUMBSUP"  # Emoji type for message reactions (e.g. THUMBSUP, OK, DONE, SMILE)
+    app_id: str = ""
+    app_secret: str = ""
+    encrypt_key: str = ""
+    verification_token: str = ""
+    allow_from: list[str] = Field(default_factory=list)
+    react_emoji: str = "THUMBSUP"
 
 
 class DingTalkConfig(Base):
-    """DingTalk channel configuration using Stream mode."""
+    """钉钉渠道配置。"""
 
     enabled: bool = False
-    client_id: str = ""  # AppKey
-    client_secret: str = ""  # AppSecret
-    allow_from: list[str] = Field(default_factory=list)  # Allowed staff_ids
+    client_id: str = ""
+    client_secret: str = ""
+    allow_from: list[str] = Field(default_factory=list)
 
 
 class DiscordConfig(Base):
-    """Discord channel configuration."""
+    """Discord 渠道配置。"""
 
     enabled: bool = False
-    token: str = ""  # Bot token from Discord Developer Portal
-    allow_from: list[str] = Field(default_factory=list)  # Allowed user IDs
+    token: str = ""
+    allow_from: list[str] = Field(default_factory=list)
     gateway_url: str = "wss://gateway.discord.gg/?v=10&encoding=json"
-    intents: int = 37377  # GUILDS + GUILD_MESSAGES + DIRECT_MESSAGES + MESSAGE_CONTENT
+    intents: int = 37377
 
 
 class EmailConfig(Base):
-    """Email channel configuration (IMAP inbound + SMTP outbound)."""
+    """Email 渠道配置。"""
 
     enabled: bool = False
-    consent_granted: bool = False  # Explicit owner permission to access mailbox data
-
-    # IMAP (receive)
+    consent_granted: bool = False
     imap_host: str = ""
     imap_port: int = 993
     imap_username: str = ""
     imap_password: str = ""
     imap_mailbox: str = "INBOX"
     imap_use_ssl: bool = True
-
-    # SMTP (send)
     smtp_host: str = ""
     smtp_port: int = 587
     smtp_username: str = ""
@@ -92,30 +194,28 @@ class EmailConfig(Base):
     smtp_use_tls: bool = True
     smtp_use_ssl: bool = False
     from_address: str = ""
-
-    # Behavior
-    auto_reply_enabled: bool = True  # If false, inbound email is read but no automatic reply is sent
+    auto_reply_enabled: bool = True
     poll_interval_seconds: int = 30
     mark_seen: bool = True
     max_body_chars: int = 12000
     subject_prefix: str = "Re: "
-    allow_from: list[str] = Field(default_factory=list)  # Allowed sender email addresses
+    allow_from: list[str] = Field(default_factory=list)
 
 
 class MochatMentionConfig(Base):
-    """Mochat mention behavior configuration."""
+    """Mochat 提及行为配置。"""
 
     require_in_groups: bool = False
 
 
 class MochatGroupRule(Base):
-    """Mochat per-group mention requirement."""
+    """Mochat 群级规则。"""
 
     require_mention: bool = False
 
 
 class MochatConfig(Base):
-    """Mochat channel configuration."""
+    """Mochat 渠道配置。"""
 
     enabled: bool = False
     base_url: str = "https://mochat.io"
@@ -129,7 +229,7 @@ class MochatConfig(Base):
     watch_timeout_ms: int = 25000
     watch_limit: int = 100
     retry_delay_ms: int = 500
-    max_retry_attempts: int = 0  # 0 means unlimited retries
+    max_retry_attempts: int = 0
     claw_token: str = ""
     agent_user_id: str = ""
     sessions: list[str] = Field(default_factory=list)
@@ -137,65 +237,67 @@ class MochatConfig(Base):
     allow_from: list[str] = Field(default_factory=list)
     mention: MochatMentionConfig = Field(default_factory=MochatMentionConfig)
     groups: dict[str, MochatGroupRule] = Field(default_factory=dict)
-    reply_delay_mode: str = "non-mention"  # off | non-mention
+    reply_delay_mode: str = "non-mention"
     reply_delay_ms: int = 120000
 
 
 class SlackDMConfig(Base):
-    """Slack DM policy configuration."""
+    """Slack 私聊策略。"""
 
     enabled: bool = True
-    policy: str = "open"  # "open" or "allowlist"
-    allow_from: list[str] = Field(default_factory=list)  # Allowed Slack user IDs
+    policy: str = "open"
+    allow_from: list[str] = Field(default_factory=list)
 
 
 class SlackConfig(Base):
-    """Slack channel configuration."""
+    """Slack 渠道配置。"""
 
     enabled: bool = False
-    mode: str = "socket"  # "socket" supported
+    mode: str = "socket"
     webhook_path: str = "/slack/events"
-    bot_token: str = ""  # xoxb-...
-    app_token: str = ""  # xapp-...
+    bot_token: str = ""
+    app_token: str = ""
     user_token_read_only: bool = True
     reply_in_thread: bool = True
     react_emoji: str = "eyes"
     done_emoji: str = "white_check_mark"
-    allow_from: list[str] = Field(default_factory=list)  # Allowed Slack user IDs (sender-level)
-    group_policy: str = "mention"  # "mention", "open", "allowlist"
-    group_allow_from: list[str] = Field(default_factory=list)  # Allowed channel IDs if allowlist
+    allow_from: list[str] = Field(default_factory=list)
+    group_policy: str = "mention"
+    group_allow_from: list[str] = Field(default_factory=list)
     dm: SlackDMConfig = Field(default_factory=SlackDMConfig)
 
 
 class QQConfig(Base):
-    """QQ channel configuration using botpy SDK."""
+    """QQ 渠道配置。"""
 
     enabled: bool = False
-    app_id: str = ""  # 机器人 ID (AppID) from q.qq.com
-    secret: str = ""  # 机器人密钥 (AppSecret) from q.qq.com
-    allow_from: list[str] = Field(default_factory=list)  # Allowed user openids (empty = public access)
+    app_id: str = ""
+    secret: str = ""
+    allow_from: list[str] = Field(default_factory=list)
+
 
 class MatrixConfig(Base):
-    """Matrix (Element) channel configuration."""
+    """Matrix 渠道配置。"""
+
     enabled: bool = False
     homeserver: str = "https://matrix.org"
     access_token: str = ""
-    user_id: str = ""                       # e.g. @bot:matrix.org
+    user_id: str = ""
     device_id: str = ""
-    e2ee_enabled: bool = True               # end-to-end encryption support
-    sync_stop_grace_seconds: int = 2        # graceful sync_forever shutdown timeout
-    max_media_bytes: int = 20 * 1024 * 1024 # inbound + outbound attachment limit
+    e2ee_enabled: bool = True
+    sync_stop_grace_seconds: int = 2
+    max_media_bytes: int = 20 * 1024 * 1024
     allow_from: list[str] = Field(default_factory=list)
     group_policy: Literal["open", "mention", "allowlist"] = "open"
     group_allow_from: list[str] = Field(default_factory=list)
     allow_room_mentions: bool = False
 
-class ChannelsConfig(Base):
-    """Configuration for chat channels."""
 
-    send_progress: bool = True    # stream agent's text progress to the channel
-    send_tool_hints: bool = False  # stream tool-call hints (e.g. read_file("…"))
-    send_max_retries: int = Field(default=3, ge=0, le=10)  # Max delivery attempts (initial send included)
+class ChannelsConfig(_UPSTREAM.ChannelsConfig):
+    """在上游 extra=allow 的基础上，保留 sidecar 常用内建渠道默认结构。"""
+
+    model_config = _UPSTREAM.ChannelsConfig.model_config
+
     whatsapp: WhatsAppConfig = Field(default_factory=WhatsAppConfig)
     telegram: TelegramConfig = Field(default_factory=TelegramConfig)
     discord: DiscordConfig = Field(default_factory=DiscordConfig)
@@ -209,146 +311,114 @@ class ChannelsConfig(Base):
 
 
 class ContextCompressionConfig(Base):
-    """Context compression and history-retrieval fallback settings."""
+    """历史压缩配置。"""
 
-    enabled: bool = True  # Master switch for history compression pipeline
-    # max_chars is a character budget for compressed history.
-    # Chinese is ~10 chars/token, English ~4 chars/token, mixed ~6-8.
-    # 50000 chars ≈ 6000-8000 tokens — keeps history meaningful without flooding context.
+    enabled: bool = True
     max_chars: int = 50000
-    recent_turns: int = 10  # Always keep this many latest completed turns with highest priority
-    min_recent_turns: int = 4  # Never shrink below this many recent turns during budget trimming
-    max_old_turns: int = 6  # Max number of older turns retained by relevance ranking (raised from 4)
-    protected_recent_messages: int = 20  # Protect last N messages from compression entirely
-    enable_history_lookup_hint: bool = True  # Add memory.search_history hint when compressed context lacks query terms
-    bootstrap_max_chars: int = 16000  # Total size limit for all bootstrap files (AGENTS.md, SOUL.md, etc.)
+    recent_turns: int = 10
+    min_recent_turns: int = 4
+    max_old_turns: int = 6
+    protected_recent_messages: int = 20
+    enable_history_lookup_hint: bool = True
+    bootstrap_max_chars: int = 16000
 
 
 class InLoopTruncationConfig(Base):
-    """Per-tool output truncation limits applied during the agent loop.
-
-    Prevents large tool results (e.g. read_file 128K) from bloating every
-    subsequent LLM call in the same turn.
-    """
+    """单轮内工具输出截断配置。"""
 
     enabled: bool = True
-    read_file: int = 16000   # ~4K tokens — covers most source files
-    exec: int = 8000         # ~2K tokens — command output head/tail
-    web_fetch: int = 12000   # ~3K tokens — page content
-    claude_code: int = 16000 # ~4K tokens — heavy tool, deserves more context
-    default: int = 8000      # fallback for unlisted tools
+    read_file: int = 16000
+    exec: int = 8000
+    web_fetch: int = 12000
+    claude_code: int = 16000
+    default: int = 8000
 
     def limit_for(self, tool_name: str) -> int:
-        """Return the char limit for a given tool name."""
+        """返回指定工具的截断上限。"""
         return getattr(self, tool_name, self.default)
 
+
 class HistorySummarizerConfig(Base):
-    """Turn-level history summarization to reduce token usage."""
+    """历史摘要配置。"""
 
     enabled: bool = True
-    protect_recent: int = 6  # Keep last N messages unsummarized (≈3 full turns with tool calls)
-    tool_result_max_chars: int = 400  # Max chars per individual tool result summary
+    protect_recent: int = 6
+    tool_result_max_chars: int = 400
 
 
 class HeartbeatPhaseConfig(Base):
-    """Per-phase model override for heartbeat."""
+    """心跳阶段级模型覆盖配置。"""
 
-    model: str = ""  # Empty = use agent default (mini_model for phase1, model for phase2)
-
-
-class HeartbeatConfig(Base):
-    """Heartbeat service configuration."""
-
-    enabled: bool = True
-    interval_s: int = 30 * 60  # 30 minutes
-    keep_recent_messages: int = 8
-    phrase1: HeartbeatPhaseConfig = Field(default_factory=HeartbeatPhaseConfig)  # Phase 1 decision
-    phrase2: HeartbeatPhaseConfig = Field(default_factory=HeartbeatPhaseConfig)  # Phase 2 execution
+    model: str = ""
 
 
-class ApiConfig(Base):
-    """OpenAI-compatible API server configuration."""
+class AgentDefaults(_UPSTREAM.AgentDefaults):
+    """sidecar 扩展后的默认 agent 配置。"""
 
-    host: str = "127.0.0.1"  # Safer default: local-only bind.
-    port: int = 8900
-    timeout: float = 120.0  # Per-request timeout in seconds.
-
-
-class AgentDefaults(Base):
-    """Default agent configuration."""
-
-    workspace: str = "~/.nanobot/workspace"
     model: str = "anthropic/claude-opus-4-6"
-    vision_model: str = "google/gemini-3.1-flash-lite-preview"  # Model for vision/OCR tasks
-    mini_model: str = "google/gemini-3.1-flash-lite-preview"  # Lightweight model for simple tasks
-    image_gen_model: str = "google/gemini-3.1-flash-image-preview"  # Image generation model
-    memory_tier: Literal["default", "mini"] | None = "default"  # Model tier for memory consolidation
-    provider: str = "auto"  # Provider name (e.g. "anthropic", "openrouter") or "auto" for auto-detection
-    max_tokens: int = 8192
-    context_window_tokens: int = 65_536
-    temperature: float = 0.1
-    max_tool_iterations: int = 40
+    vision_model: str = "google/gemini-3.1-flash-lite-preview"
+    mini_model: str = "google/gemini-3.1-flash-lite-preview"
+    image_gen_model: str = "google/gemini-3.1-flash-image-preview"
+    memory_tier: Literal["default", "mini"] | None = "default"
     memory_window: int = 100
-    reasoning_effort: str | None = None  # low / medium / high — enables LLM thinking mode
-    timezone: str = "UTC"  # IANA timezone, e.g. "Asia/Shanghai", "America/New_York"
     context_compression: ContextCompressionConfig = Field(default_factory=ContextCompressionConfig)
     in_loop_truncation: InLoopTruncationConfig = Field(default_factory=InLoopTruncationConfig)
     history_summarizer: HistorySummarizerConfig = Field(default_factory=HistorySummarizerConfig)
-    heartbeat: HeartbeatConfig = Field(default_factory=HeartbeatConfig)
+    heartbeat: "HeartbeatConfig" = Field(default_factory=lambda: HeartbeatConfig())
 
 
-class AgentsConfig(Base):
-    """Agent configuration."""
+class AgentsConfig(_UPSTREAM.AgentsConfig):
+    """使用 sidecar AgentDefaults。"""
 
     defaults: AgentDefaults = Field(default_factory=AgentDefaults)
 
 
-class ProviderConfig(Base):
-    """LLM provider configuration."""
-
-    api_key: str = ""
-    api_base: str | None = None
-    extra_headers: dict[str, str] | None = None  # Custom headers (e.g. APP-Code for AiHubMix)
+class ProviderConfig(_UPSTREAM.ProviderConfig):
+    """沿用上游 provider 配置。"""
 
 
-class ProvidersConfig(Base):
-    """Configuration for LLM providers."""
+class ProvidersConfig(_UPSTREAM.ProvidersConfig):
+    """在上游 providers 基础上补 sidecar 私有 provider。"""
 
-    custom: ProviderConfig = Field(default_factory=ProviderConfig)  # Any OpenAI-compatible endpoint
-    zenmux: ProviderConfig = Field(default_factory=ProviderConfig)  # Zenmux (Anthropic proxy)
-    yunwu: ProviderConfig = Field(default_factory=ProviderConfig)  # Yunwu (Anthropic proxy)
-    azure_openai: ProviderConfig = Field(default_factory=ProviderConfig)  # Azure OpenAI (model = deployment name)
-    anthropic: ProviderConfig = Field(default_factory=ProviderConfig)
-    openai: ProviderConfig = Field(default_factory=ProviderConfig)
-    openrouter: ProviderConfig = Field(default_factory=ProviderConfig)
-    deepseek: ProviderConfig = Field(default_factory=ProviderConfig)
-    groq: ProviderConfig = Field(default_factory=ProviderConfig)
-    zhipu: ProviderConfig = Field(default_factory=ProviderConfig)
-    dashscope: ProviderConfig = Field(default_factory=ProviderConfig)  # 阿里云通义千问
-    vllm: ProviderConfig = Field(default_factory=ProviderConfig)
-    gemini: ProviderConfig = Field(default_factory=ProviderConfig)
-    moonshot: ProviderConfig = Field(default_factory=ProviderConfig)
-    minimax: ProviderConfig = Field(default_factory=ProviderConfig)
-    aihubmix: ProviderConfig = Field(default_factory=ProviderConfig)  # AiHubMix API gateway
-    siliconflow: ProviderConfig = Field(default_factory=ProviderConfig)  # SiliconFlow (硅基流动) API gateway
-    volcengine: ProviderConfig = Field(default_factory=ProviderConfig)  # VolcEngine (火山引擎) API gateway
-    openai_codex: ProviderConfig = Field(default_factory=ProviderConfig)  # OpenAI Codex (OAuth)
-    github_copilot: ProviderConfig = Field(default_factory=ProviderConfig)  # Github Copilot (OAuth)
-
-
+    zenmux: ProviderConfig = Field(default_factory=ProviderConfig)
+    yunwu: ProviderConfig = Field(default_factory=ProviderConfig)
+    openai_codex: ProviderConfig = Field(default_factory=ProviderConfig, exclude=True)
+    github_copilot: ProviderConfig = Field(default_factory=ProviderConfig, exclude=True)
 
 
 class ConsoleConfig(Base):
-    """Web console configuration."""
+    """Web Console 配置。"""
 
     enabled: bool = True
     port: int = 6688
     secret_key: str = "change-me-in-production-use-a-longer-key!"
-    token_expire_minutes: int = 480  # 8 hours
+    token_expire_minutes: int = 480
+
+
+class HeartbeatConfig(Base):
+    """在上游心跳配置上补充分阶段模型覆盖。"""
+
+    enabled: bool = True
+    interval_s: int = Field(
+        default=30 * 60,
+        validation_alias=AliasChoices("interval_s", "intervalS"),
+        serialization_alias="interval_s",
+    )
+    keep_recent_messages: int = Field(
+        default=8,
+        validation_alias=AliasChoices("keep_recent_messages", "keepRecentMessages"),
+        serialization_alias="keep_recent_messages",
+    )
+    phrase1: HeartbeatPhaseConfig = Field(default_factory=HeartbeatPhaseConfig)
+    phrase2: HeartbeatPhaseConfig = Field(default_factory=HeartbeatPhaseConfig)
+
+
+class ApiConfig(_UPSTREAM.ApiConfig):
+    """沿用上游 API 配置。"""
 
 
 class GatewayConfig(Base):
-    """Gateway/server configuration."""
+    """在上游 gateway 基础上挂 sidecar console。"""
 
     host: str = "0.0.0.0"
     port: int = 18790
@@ -356,72 +426,63 @@ class GatewayConfig(Base):
     console: ConsoleConfig = Field(default_factory=ConsoleConfig)
 
 
-class WebSearchConfig(Base):
-    """Web search tool configuration."""
-
-    api_key: str = ""  # Brave Search API key
-    max_results: int = 5
+class WebSearchConfig(_UPSTREAM.WebSearchConfig):
+    """沿用上游 Web 搜索配置。"""
 
 
-class WebToolsConfig(Base):
-    """Web tools configuration."""
-
-    proxy: str | None = None  # HTTP/SOCKS5 proxy URL, e.g. "http://127.0.0.1:7890" or "socks5://127.0.0.1:1080"
-    search: WebSearchConfig = Field(default_factory=WebSearchConfig)
+class WebToolsConfig(_UPSTREAM.WebToolsConfig):
+    """沿用上游 Web 工具配置。"""
 
 
-class ExecToolConfig(Base):
-    """Shell exec tool configuration."""
+class ExecToolConfig(_UPSTREAM.ExecToolConfig):
+    """为 sidecar exec 工具补充 auto_venv。"""
 
-    enable: bool = True
-    timeout: int = 60
-    path_append: str = ""
-    auto_venv: bool = True  # Auto-detect and activate venv in workspace
+    auto_venv: bool = True
 
 
-class MCPServerConfig(Base):
-    """MCP server connection configuration (stdio or HTTP)."""
-
-    command: str = ""  # Stdio: command to run (e.g. "npx")
-    args: list[str] = Field(default_factory=list)  # Stdio: command arguments
-    env: dict[str, str] = Field(default_factory=dict)  # Stdio: extra env vars
-    url: str = ""  # HTTP: streamable HTTP endpoint URL
-    headers: dict[str, str] = Field(default_factory=dict)  # HTTP: Custom HTTP Headers
-    tool_timeout: int = 30  # Seconds before a tool call is cancelled
+class MCPServerConfig(_UPSTREAM.MCPServerConfig):
+    """沿用上游 MCP 配置。"""
 
 
 class ClaudeCodeConfig(Base):
-    """Claude Code CLI tool configuration."""
+    """Claude Code 工具配置。"""
 
     default_project: str = ""
     model: str = "claude-sonnet-4-20250514"
     max_turns: int = 15
     allowed_tools: str = "Read,Edit,Bash,Glob,Grep"
     timeout: int = 600
-    api_key: str = ""  # ANTHROPIC_API_KEY for Claude Code subprocess
-    base_url: str = ""  # ANTHROPIC_BASE_URL for Claude Code subprocess
+    api_key: str = ""
+    base_url: str = ""
 
 
-class ToolsConfig(Base):
-    """Tools configuration."""
+class ToolsConfig(_UPSTREAM.ToolsConfig):
+    """在上游工具配置基础上补 sidecar 工具项。"""
 
-    web: WebToolsConfig = Field(default_factory=WebToolsConfig)
     exec: ExecToolConfig = Field(default_factory=ExecToolConfig)
     claude_code: ClaudeCodeConfig = Field(default_factory=ClaudeCodeConfig)
-    restrict_to_workspace: bool = False  # If true, restrict all tool access to workspace directory
-    restrict_config_file: bool = True  # If true, block agent from reading/writing/editing config.json
-    mcp_servers: dict[str, MCPServerConfig] = Field(default_factory=dict)
+    restrict_config_file: bool = Field(
+        default=True,
+        validation_alias=AliasChoices("restrictToConfigFile", "restrictConfigFile"),
+        serialization_alias="restrictToConfigFile",
+    )
 
 
 class TokenStatsConfig(Base):
-    """Token usage statistics configuration."""
+    """Token 统计配置。"""
 
     enabled: bool = True
-    record_full_request_payload: bool = False
+    record_full_request_payload: bool = Field(
+        default=False,
+        validation_alias=AliasChoices("record_full_request_payload", "recordFullRequestPayload"),
+        serialization_alias="record_full_request_payload",
+    )
 
 
 class Config(BaseSettings):
-    """Root configuration for nanobot."""
+    """sidecar 根配置。"""
+
+    model_config = _UPSTREAM.Config.model_config
 
     agents: AgentsConfig = Field(default_factory=AgentsConfig)
     token_stats: TokenStatsConfig = Field(default_factory=TokenStatsConfig)
@@ -433,79 +494,91 @@ class Config(BaseSettings):
 
     @property
     def workspace_path(self) -> Path:
-        """Get expanded workspace path."""
+        """返回展开后的 workspace 路径。"""
         return Path(self.agents.defaults.workspace).expanduser()
 
-    def _match_provider(self, model: str | None = None) -> tuple["ProviderConfig | None", str | None]:
-        """Match provider config and its registry name. Returns (config, spec_name)."""
-        from nanobot.providers.registry import PROVIDERS
+    def model_dump(self, *args: Any, **kwargs: Any) -> dict[str, Any]:
+        """显式递归序列化，确保 sidecar 扩展字段不会在导出时退回上游结构。"""
+        if args:
+            return super().model_dump(*args, **kwargs)
 
+        mode = kwargs.get("mode", "python")
+        include = kwargs.get("include")
+        exclude = kwargs.get("exclude")
+        context = kwargs.get("context")
+        by_alias = kwargs.get("by_alias", False)
+        exclude_unset = kwargs.get("exclude_unset", False)
+        exclude_defaults = kwargs.get("exclude_defaults", False)
+        exclude_none = kwargs.get("exclude_none", False)
+        round_trip = kwargs.get("round_trip", False)
+        fallback = kwargs.get("fallback")
+        serialize_as_any = kwargs.get("serialize_as_any", False)
+
+        if (
+            include is not None
+            or exclude is not None
+            or context is not None
+            or exclude_unset
+            or exclude_defaults
+            or round_trip
+            or fallback is not None
+            or serialize_as_any
+        ):
+            return super().model_dump(*args, **kwargs)
+
+        return _dump_model_like(
+            self,
+            mode=mode,
+            by_alias=bool(by_alias),
+            exclude_none=bool(exclude_none),
+        )
+
+    def _match_provider(
+        self,
+        model: str | None = None,
+    ) -> tuple["ProviderConfig | None", str | None]:
+        """兼容 sidecar 私有 provider，同时复用上游匹配逻辑。"""
         forced = self.agents.defaults.provider
-        if forced != "auto":
-            p = getattr(self.providers, forced, None)
-            return (p, forced) if p else (None, None)
+        normalized_forced = forced.replace("-", "_")
+        if normalized_forced in _SIDECAR_PROVIDER_NAMES:
+            provider = getattr(self.providers, normalized_forced, None)
+            return (provider, normalized_forced) if provider else (None, None)
 
         model_lower = (model or self.agents.defaults.model).lower()
-        model_normalized = model_lower.replace("-", "_")
         model_prefix = model_lower.split("/", 1)[0] if "/" in model_lower else ""
         normalized_prefix = model_prefix.replace("-", "_")
+        if normalized_prefix in _SIDECAR_PROVIDER_NAMES:
+            provider = getattr(self.providers, normalized_prefix, None)
+            return (provider, normalized_prefix) if provider else (None, None)
 
-        def _kw_matches(kw: str) -> bool:
-            kw = kw.lower()
-            return kw in model_lower or kw.replace("-", "_") in model_normalized
-
-        # Explicit provider prefix wins — prevents `github-copilot/...codex` matching openai_codex.
-        for spec in PROVIDERS:
-            p = getattr(self.providers, spec.name, None)
-            if p and model_prefix and normalized_prefix == spec.name:
-                if spec.is_oauth or p.api_key:
-                    return p, spec.name
-
-        # Match by keyword (order follows PROVIDERS registry)
-        for spec in PROVIDERS:
-            p = getattr(self.providers, spec.name, None)
-            if p and any(_kw_matches(kw) for kw in spec.keywords):
-                if spec.is_oauth or p.api_key:
-                    return p, spec.name
-
-        # Fallback: gateways first, then others (follows registry order)
-        # OAuth providers are NOT valid fallbacks — they require explicit model selection
-        for spec in PROVIDERS:
-            if spec.is_oauth:
-                continue
-            p = getattr(self.providers, spec.name, None)
-            if p and p.api_key:
-                return p, spec.name
-        return None, None
+        return _UPSTREAM.Config._match_provider(self, model)
 
     def get_provider(self, model: str | None = None) -> ProviderConfig | None:
-        """Get matched provider config (api_key, api_base, extra_headers). Falls back to first available."""
-        p, _ = self._match_provider(model)
-        return p
+        """返回匹配到的 provider 配置。"""
+        provider, _ = self._match_provider(model)
+        return provider
 
     def get_provider_name(self, model: str | None = None) -> str | None:
-        """Get the registry name of the matched provider (e.g. "deepseek", "openrouter")."""
+        """返回匹配到的 provider 名称。"""
         _, name = self._match_provider(model)
         return name
 
     def get_api_key(self, model: str | None = None) -> str | None:
-        """Get API key for the given model. Falls back to first available key."""
-        p = self.get_provider(model)
-        return p.api_key if p else None
+        """返回指定模型使用的 API key。"""
+        provider = self.get_provider(model)
+        return provider.api_key if provider else None
 
     def get_api_base(self, model: str | None = None) -> str | None:
-        """Get API base URL for the given model. Applies default URLs for known gateways."""
+        """返回指定模型使用的 API base。"""
         from nanobot.providers.registry import find_by_name
 
-        p, name = self._match_provider(model)
-        if p and p.api_base:
-            return p.api_base
-        # Only gateways get a default api_base here. Standard providers
-        # resolve their base URL from the registry in the provider constructor.
+        provider, name = self._match_provider(model)
+        if provider and provider.api_base:
+            return provider.api_base
+
         if name:
             spec = find_by_name(name)
-            if spec and spec.is_gateway and spec.default_api_base:
+            if spec and (spec.is_gateway or spec.is_local) and spec.default_api_base:
                 return spec.default_api_base
-        return None
 
-    model_config = ConfigDict(env_prefix="NANOBOT_", env_nested_delimiter="__")
+        return None

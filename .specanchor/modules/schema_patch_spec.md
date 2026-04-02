@@ -1,4 +1,4 @@
-# Module Spec: a_schema_patch — Config Schema Fork 注入
+# Module Spec: a_schema_patch — Config Schema 继承式 Fork 注入
 
 > 文件：`ava/patches/a_schema_patch.py`
 > 状态：✅ 已实现（Phase 2）
@@ -8,7 +8,9 @@
 
 ## 1. 模块职责
 
-用 `ava/forks/config/schema.py` 完整替换 `nanobot.config.schema` 模块，使系统支持多模型配置、Console 配置、ClaudeCode 工具配置等扩展字段。
+用 `ava/forks/config/schema.py` 替换 `nanobot.config.schema` 模块，但 fork 本身不再手拷整份上游 schema，而是以“继承上游共享类 + 仅补 sidecar 差异”的方式维护。
+
+这样可以在保留 sidecar 扩展字段的同时，自动吸收上游新增字段，避免 provider / MCP / web search / channel 结构继续静默漂移。
 
 ### 新增/扩展的类和字段
 - `AgentDefaults`：新增 `vision_model`、`mini_model`、`image_gen_model`、`memory_tier`、`memory_window`、`context_compression`、`in_loop_truncation`、`history_summarizer`
@@ -18,6 +20,11 @@
 - `ApiConfig`：OpenAI-compatible API 服务配置
 - Channel Config 类：`TelegramConfig`、`FeishuConfig` 等（从各 channel 模块集中到 schema）
 - `GatewayConfig.console` 字段
+- 上游共享字段自动继承恢复：
+  - `ProvidersConfig.mistral` / `ollama` / `ovms` / `stepfun` / `byteplus` / `byteplus_coding_plan` / `volcengine_coding_plan`
+  - `MCPServerConfig.type` / `enabled_tools`
+  - `WebSearchConfig.provider` / `base_url`
+  - `ChannelsConfig.extra="allow"` 语义（plugin channel 不再 round-trip 丢失）
 
 ---
 
@@ -31,8 +38,8 @@
 ### 拦截详情
 
 - **原始行为**：`nanobot.config.schema` 定义基础的 Pydantic 配置模型（`AgentDefaults`、`GatewayConfig` 等）
-- **修改后行为**：整个模块被替换为 `ava/forks/config/schema.py`，包含所有上游字段 + 扩展字段
-- **Patch 方式**：`importlib.util.spec_from_file_location` 加载 fork 模块 → 设置 `_ava_fork = True` 标记 → 替换 `sys.modules` 条目 → 更新包属性
+- **修改后行为**：整个模块仍由 `ava/forks/config/schema.py` 提供，但 fork 内部通过 `_ava_upstream_schema` 继承上游共享类，只对 sidecar 私有字段做最小 override
+- **Patch 方式**：`importlib.util.spec_from_file_location` 加载 fork 模块 → 先把 fork 临时注册到 `sys.modules["nanobot.config.schema"]`，确保 Pydantic 前向引用绑定当前 fork → 注入 `_ava_upstream_schema` 与 `_ava_fork = True` 标记 → 更新包属性与 loader `Config` 引用
 
 ---
 
@@ -40,6 +47,7 @@
 
 - 检查 `sys.modules["nanobot.config.schema"]._ava_fork` 标记
 - 若已标记为 True，直接跳过，返回 "schema already patched (skipped)"
+- 若当前 `sys.modules["nanobot.config.schema"]` 已经是 fork 模块但标记被清空，则直接复用现有模块并重新绑定 loader `Config`
 - Fork 文件不存在时优雅降级，返回描述性消息
 
 ---
@@ -75,8 +83,11 @@
 | 测试场景 | 验证内容 |
 |----------|----------|
 | Fork 替换成功 | `sys.modules["nanobot.config.schema"]._ava_fork` 为 True |
+| 继承字段恢复 | `ProvidersConfig` / `MCPServerConfig` / `WebSearchConfig` 包含上游新增字段 |
 | 扩展字段存在 | `AgentDefaults` 包含 `vision_model`、`mini_model`、`image_gen_model` 等字段 |
 | ConsoleConfig | `GatewayConfig.console` 字段可用 |
+| 前向引用绑定 | `Config.model_validate(...)` 生成的 `gateway.console` / `heartbeat.phrase1` 不再回落到上游类 |
+| Plugin channel 保留 | `ChannelsConfig` 能同时保留内建默认结构和未知 plugin 节点 |
 | 幂等性 | 两次调用不报错 |
 | Fork 文件缺失 | 优雅降级，不影响系统启动 |
 | 与 config_patch 互斥 | fork 存在时 config_patch 跳过 |

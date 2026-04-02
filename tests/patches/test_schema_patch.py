@@ -54,6 +54,69 @@ class TestSchemaPatch:
 
         assert "api" in Config.model_fields
 
+    def test_inherited_upstream_fields_exist(self):
+        """T1.3c: 上游新增的 provider / MCP / web search 字段会自动继承进 fork。"""
+        from ava.patches.a_schema_patch import apply_schema_patch
+
+        apply_schema_patch()
+        from nanobot.config.schema import MCPServerConfig, ProvidersConfig, WebSearchConfig
+
+        assert "mistral" in ProvidersConfig.model_fields
+        assert "ollama" in ProvidersConfig.model_fields
+        assert "ovms" in ProvidersConfig.model_fields
+        assert "stepfun" in ProvidersConfig.model_fields
+        assert "byteplus" in ProvidersConfig.model_fields
+        assert "byteplus_coding_plan" in ProvidersConfig.model_fields
+        assert "volcengine_coding_plan" in ProvidersConfig.model_fields
+
+        mcp = MCPServerConfig()
+        assert "type" in MCPServerConfig.model_fields
+        assert "enabled_tools" in MCPServerConfig.model_fields
+        assert mcp.enabled_tools == ["*"]
+
+        web_search = WebSearchConfig()
+        assert "provider" in WebSearchConfig.model_fields
+        assert "base_url" in WebSearchConfig.model_fields
+        assert web_search.provider == "brave"
+
+    def test_channels_keep_builtin_defaults_and_plugin_extras(self):
+        """T1.3d: ChannelsConfig 既保留内建默认结构，也保留未知 plugin 节点。"""
+        from ava.patches.a_schema_patch import apply_schema_patch
+
+        apply_schema_patch()
+        from nanobot.config.schema import ChannelsConfig
+
+        cfg = ChannelsConfig.model_validate({
+            "myplugin": {"enabled": True, "token": "abc"},
+        })
+
+        assert cfg.telegram.enabled is False
+        assert getattr(cfg, "myplugin")["enabled"] is True
+
+        dumped = cfg.model_dump(by_alias=True)
+        assert dumped["telegram"]["enabled"] is False
+        assert dumped["myplugin"]["token"] == "abc"
+
+    def test_root_config_dump_keeps_sidecar_fields_after_upstream_preimport(self):
+        """T1.3e: 即使上游 schema 已先被导入，根 Config dump 仍应导出 sidecar 字段。"""
+        import importlib
+        import nanobot.cli.commands as cli_mod
+        from ava.patches.a_schema_patch import apply_schema_patch
+
+        importlib.reload(cli_mod)
+        apply_schema_patch()
+
+        from nanobot.config.schema import Config
+
+        dumped = Config().model_dump(mode="json", by_alias=True)
+
+        assert dumped["agents"]["defaults"]["visionModel"] == "google/gemini-3.1-flash-lite-preview"
+        assert dumped["agents"]["defaults"]["heartbeat"]["interval_s"] == 1800
+        assert dumped["gateway"]["console"]["enabled"] is True
+        assert dumped["tools"]["exec"]["autoVenv"] is True
+        assert dumped["tools"]["claudeCode"]["model"] == "claude-sonnet-4-20250514"
+        assert dumped["token_stats"]["record_full_request_payload"] is False
+
     def test_idempotent(self):
         """T1.4: calling apply twice does not error."""
         from ava.patches.a_schema_patch import apply_schema_patch
@@ -82,7 +145,8 @@ class TestSchemaPatch:
         try:
             with patch.object(RealPath, "exists", fake_exists):
                 result = apply_schema_patch()
-            assert "not found" in result.lower() or "skipped" in result.lower()
+            lowered = result.lower()
+            assert "not found" in lowered or "skipped" in lowered or "reuse" in lowered
         finally:
             # Restore fork so subsequent tests aren't polluted
             if mod:

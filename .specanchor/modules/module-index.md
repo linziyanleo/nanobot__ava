@@ -1,6 +1,6 @@
 # Module Spec 索引
 
-> 最后更新：2026-04-01
+> 最后更新：2026-04-02
 
 ## Patch 模块（已实现）
 
@@ -9,6 +9,7 @@
 | `ava/patches/a_schema_patch.py` | [schema_patch_spec.md](schema_patch_spec.md) | ✅ | Config Schema 模块替换 |
 | `ava/patches/b_config_patch.py` | [config_patch_spec.md](config_patch_spec.md) | ✅ | Config 字段注入（降级方案） |
 | `ava/patches/bus_patch.py` | [bus_console_listener_spec.md](bus_console_listener_spec.md) | ✅ | MessageBus Console listener |
+| `ava/patches/c_onboard_patch.py` | [onboard_patch_spec.md](onboard_patch_spec.md) | ✅ | onboard refresh 旧配置兼容层 |
 | `ava/patches/channel_patch.py` | [channel_patch_spec.md](channel_patch_spec.md) | ✅ | 消息批处理 |
 | `ava/patches/console_patch.py` | [console_patch_spec.md](console_patch_spec.md) | ✅ | Web Console 独立服务 |
 | `ava/patches/context_patch.py` | [context_patch_spec.md](context_patch_spec.md) | ✅ | 历史摘要+压缩+分类记忆注入 |

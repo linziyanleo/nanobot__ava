@@ -110,10 +110,10 @@ register_patch("{patch_name}", apply_{module_name}_patch)
 
 ### 3.2 执行顺序
 
-Patch 按文件名字母序发现（`sorted(patches_dir.glob("*_patch.py"))`），当前 11 个 patch 的执行顺序：
+Patch 按文件名字母序发现（`sorted(patches_dir.glob("*_patch.py"))`），当前 12 个 patch 的执行顺序：
 
 ```
-a_schema_patch → b_config_patch → bus_patch → channel_patch → console_patch → context_patch → loop_patch → skills_patch → storage_patch → tools_patch → transcription_patch
+a_schema_patch → b_config_patch → bus_patch → c_onboard_patch → channel_patch → console_patch → context_patch → loop_patch → skills_patch → storage_patch → tools_patch → transcription_patch
 ```
 
 | 序号 | 文件 | 注册名 | 职责 |
@@ -121,18 +121,20 @@ a_schema_patch → b_config_patch → bus_patch → channel_patch → console_pa
 | 1 | `a_schema_patch.py` | `config_schema_fork` | 替换 config schema 模块 |
 | 2 | `b_config_patch.py` | `config_schema` | 降级方案：动态注入 config 字段 |
 | 3 | `bus_patch.py` | `bus_console_listener` | MessageBus 方法注入 |
-| 4 | `channel_patch.py` | `channel_extensions` | 消息批处理 |
-| 5 | `console_patch.py` | `web_console` | Console 独立服务启动 |
-| 6 | `context_patch.py` | `context_builder` | 历史摘要+压缩+分类记忆注入 |
-| 7 | `loop_patch.py` | `agent_loop` | AgentLoop 属性注入 + token 统计 |
-| 8 | `skills_patch.py` | `skills_loader` | Skills 三源发现 + disabled filter |
-| 9 | `storage_patch.py` | `sqlite_storage` | SQLite 存储替换 + db 共享 |
-| 10 | `tools_patch.py` | `custom_tools` | 自定义工具注册 |
-| 11 | `transcription_patch.py` | `transcription_proxy` | 转写代理注入 |
+| 4 | `c_onboard_patch.py` | `onboard_refresh_compat` | 旧 sidecar config refresh 兼容写回 |
+| 5 | `channel_patch.py` | `channel_extensions` | 消息批处理 |
+| 6 | `console_patch.py` | `web_console` | Console 独立服务启动 |
+| 7 | `context_patch.py` | `context_builder` | 历史摘要+压缩+分类记忆注入 |
+| 8 | `loop_patch.py` | `agent_loop` | AgentLoop 属性注入 + token 统计 |
+| 9 | `skills_patch.py` | `skills_loader` | Skills 三源发现 + disabled filter |
+| 10 | `storage_patch.py` | `sqlite_storage` | SQLite 存储替换 + db 共享 |
+| 11 | `tools_patch.py` | `custom_tools` | 自定义工具注册 |
+| 12 | `transcription_patch.py` | `transcription_proxy` | 转写代理注入 |
 
 **关键依赖链**：
 
 - `a_schema_patch` → `b_config_patch`（互斥，a 成功则 b 跳过）
+- `a_schema_patch` → `c_onboard_patch`（refresh 兼容层依赖 fork schema 的默认结构）
 - `context_patch` ← `loop_patch`（context_patch 运行时通过 `_agent_loop` 引用访问 loop 注入的 summarizer/compressor/memory）
 - `loop_patch` ← `storage_patch`（storage 调用 `loop_patch.set_shared_db()` 共享 db）
 - `loop_patch` → `tools_patch`（tools 依赖 loop 注入的 `self.token_stats`/`self.media_service`）
