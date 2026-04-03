@@ -302,7 +302,11 @@ export default function MediaPage() {
         ) : (
           <div
             className="gap-3"
-            style={{ columns: isMobile ? 2 : 'auto', columnWidth: isMobile ? undefined : '220px', columnGap: '0.75rem' }}
+            style={{
+              columns: isMobile ? 2 : 'auto',
+              columnWidth: isMobile ? undefined : '220px',
+              columnGap: '0.75rem',
+            }}
           >
             {data?.records.map(record => (
               <MasonryCard
@@ -319,76 +323,74 @@ export default function MediaPage() {
 
       {/* Footer: pagination */}
       <div className="shrink-0 border-t border-[var(--border)] pt-3 mt-3">
-      {totalPages > 1 && (
-        <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
-          <p className="text-sm text-[var(--text-secondary)]">
-            共 {data?.total} 条记录 · 第 {page} / {totalPages} 页 · 每页 {data?.size || 18} 张
-          </p>
+        {totalPages > 1 && (
+          <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
+            <p className="text-sm text-[var(--text-secondary)]">
+              共 {data?.total} 条记录 · 第 {page} / {totalPages} 页 · 每页 {data?.size || 18} 张
+            </p>
 
-          <div className="flex items-center gap-3">
-            <button
-              onClick={() => setPage(1)}
-              disabled={page <= 1}
-              title="首页"
-              className="p-2 rounded-lg bg-[var(--bg-secondary)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
-            >
-              <ChevronLeft className="w-4 h-4" />
-              <ChevronLeft className="w-4 h-4 -ml-2" />
-            </button>
-
-            <button
-              onClick={() => setPage(Math.max(1, page - 1))}
-              disabled={page <= 1}
-              title="上一页"
-              className="p-2 rounded-lg bg-[var(--bg-secondary)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
-            >
-              <ChevronLeft className="w-4 h-4" />
-            </button>
-
-            <div className="flex items-center gap-1">{renderPageNumbers()}</div>
-
-            <button
-              onClick={() => setPage(Math.min(totalPages, page + 1))}
-              disabled={page >= totalPages}
-              title="下一页"
-              className="p-2 rounded-lg bg-[var(--bg-secondary)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
-            >
-              <ChevronRight className="w-4 h-4" />
-            </button>
-
-            <button
-              onClick={() => setPage(totalPages)}
-              disabled={page >= totalPages}
-              title="末页"
-              className="p-2 rounded-lg bg-[var(--bg-secondary)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
-            >
-              <ChevronRight className="w-4 h-4" />
-              <ChevronRight className="w-4 h-4 -ml-2" />
-            </button>
-
-            <div className="flex items-center gap-2 ml-2">
-              <span className="text-sm text-[var(--text-secondary)]">跳至</span>
-              <input
-                type="number"
-                min="1"
-                max={totalPages}
-                value={jumpToPage}
-                onChange={e => setJumpToPage(e.target.value)}
-                onKeyDown={e => e.key === 'Enter' && handleJumpToPage()}
-                placeholder={String(page)}
-                className="w-16 px-2 py-1 text-sm text-center rounded-lg bg-[var(--bg-secondary)] border border-[var(--border)] text-[var(--text-primary)] focus:border-[var(--accent)] focus:outline-none"
-              />
+            <div className="flex items-center gap-3">
               <button
-                onClick={handleJumpToPage}
-                disabled={!jumpToPage || parseInt(jumpToPage) < 1 || parseInt(jumpToPage) > totalPages}
-                className="px-3 py-1 text-sm rounded-lg bg-[var(--accent)] hover:bg-[var(--accent-hover)] text-white disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                onClick={() => setPage(1)}
+                disabled={page <= 1}
+                title="首页"
+                className="p-2 rounded-lg bg-[var(--bg-secondary)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
               >
-                确定
+                首页
               </button>
+
+              <button
+                onClick={() => setPage(Math.max(1, page - 1))}
+                disabled={page <= 1}
+                title="上一页"
+                className="p-2 rounded-lg bg-[var(--bg-secondary)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+              >
+                <ChevronLeft className="w-4 h-4" />
+              </button>
+
+              <div className="flex items-center gap-1">{renderPageNumbers()}</div>
+
+              <button
+                onClick={() => setPage(Math.min(totalPages, page + 1))}
+                disabled={page >= totalPages}
+                title="下一页"
+                className="p-2 rounded-lg bg-[var(--bg-secondary)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+              >
+                <ChevronRight className="w-4 h-4" />
+              </button>
+
+              <button
+                onClick={() => setPage(totalPages)}
+                disabled={page >= totalPages}
+                title="末页"
+                className="p-2 rounded-lg bg-[var(--bg-secondary)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+              >
+                末页
+              </button>
+
+              <div className="flex items-center gap-2 ml-2">
+                <span className="text-sm text-[var(--text-secondary)]">跳至</span>
+                <input
+                  type="number"
+                  min="1"
+                  max={totalPages}
+                  value={jumpToPage}
+                  onChange={e => setJumpToPage(e.target.value)}
+                  onKeyDown={e => e.key === 'Enter' && handleJumpToPage()}
+                  placeholder={String(page)}
+                  className="w-16 px-2 py-1 text-sm text-center rounded-lg bg-[var(--bg-secondary)] border border-[var(--border)] text-[var(--text-primary)] focus:border-[var(--accent)] focus:outline-none"
+                />
+                <button
+                  onClick={handleJumpToPage}
+                  disabled={!jumpToPage || parseInt(jumpToPage) < 1 || parseInt(jumpToPage) > totalPages}
+                  className="px-3 py-1 text-sm rounded-lg bg-[var(--accent)] hover:bg-[var(--accent-hover)] text-white disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                >
+                  确定
+                </button>
+              </div>
             </div>
           </div>
-        </div>
-      )}
+        )}
       </div>
 
       {/* Detail Modal */}

@@ -446,7 +446,10 @@ const handlers = {
 
 const rl = createInterface({ input: process.stdin, terminal: false });
 
-rl.on("line", async (line) => {
+// 长时间运行的方法列表（不阻塞 RPC 循环）
+const longRunningMethods = new Set(["execute"]);
+
+rl.on("line", (line) => {
   let msg;
   try {
     msg = JSON.parse(line.trim());
@@ -467,10 +470,19 @@ rl.on("line", async (line) => {
     return;
   }
 
-  try {
-    await handler(id, params || {});
-  } catch (err) {
-    reply(id, false, { code: "INTERNAL_ERROR", message: err.message });
+  // 长时间运行的方法在后台执行，不阻塞其他 RPC（如 start_screencast、list_sessions）
+  const run = async () => {
+    try {
+      await handler(id, params || {});
+    } catch (err) {
+      reply(id, false, { code: "INTERNAL_ERROR", message: err.message });
+    }
+  };
+
+  if (longRunningMethods.has(method)) {
+    run(); // 不 await，放入后台
+  } else {
+    run(); // 同样不 await — readline 回调本身是同步的
   }
 });
 

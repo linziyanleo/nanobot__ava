@@ -49,6 +49,10 @@ class PageAgentTool(Tool):
         self._pending: dict[str, asyncio.Future] = {}
         # 推送事件订阅者 { session_id: [callback, ...] }
         self._subscribers: dict[str, list[Callable]] = {}
+        # 事件缓存：最近 N 条 activity 事件 + 最后一帧，供 WS 连接后回放
+        self._event_buffer: dict[str, list[dict]] = {}  # session_id -> recent events
+        self._last_frame: dict[str, dict] = {}  # session_id -> last frame event
+        self._EVENT_BUFFER_SIZE = 50
         self._lock = asyncio.Lock()
         # Context
         self._channel = "cli"
@@ -227,6 +231,10 @@ class PageAgentTool(Tool):
             msg = err.get("message", str(err)) if isinstance(err, dict) else str(err)
             return f"Error: {msg}"
 
+        # 清理事件缓存
+        self._event_buffer.pop(session_id, None)
+        self._last_frame.pop(session_id, None)
+
         return f"Session {session_id} closed."
 
     # ------------------------------------------------------------------
@@ -258,10 +266,24 @@ class PageAgentTool(Tool):
         return [session_id for session_id in sessions if isinstance(session_id, str)]
 
     def subscribe(self, session_id: str, callback: Callable) -> None:
-        """注册推送事件回调（frame/activity/status）。"""
+        """注册推送事件回调（frame/activity/status）。同时回放缓存事件。"""
         if session_id not in self._subscribers:
             self._subscribers[session_id] = []
         self._subscribers[session_id].append(callback)
+
+        # 回放缓存的 activity/status 事件
+        for evt in self._event_buffer.get(session_id, []):
+            try:
+                callback(evt)
+            except Exception:
+                pass
+        # 回放最后一帧
+        last_frame = self._last_frame.get(session_id)
+        if last_frame:
+            try:
+                callback(last_frame)
+            except Exception:
+                pass
 
     def unsubscribe(self, session_id: str, callback: Callable) -> None:
         """移除推送事件回调。"""
@@ -310,11 +332,11 @@ class PageAgentTool(Tool):
             # 空闲回收
             self._idle_task = asyncio.create_task(self._idle_watchdog())
 
-            # 发送 init 配置
-            await self._send_init()
+            # 发送 init 配置（直接写 stdin，不走 _rpc 以避免重入 lock）
+            await self._send_init_direct()
 
-    async def _send_init(self) -> None:
-        """发送 init 命令将配置传递给 runner。"""
+    async def _send_init_direct(self) -> None:
+        """在 lock 内直接发送 init，绕过 _rpc 避免死锁。"""
         cfg = self._config
         api_key = ""
         if cfg:
@@ -333,7 +355,20 @@ class PageAgentTool(Tool):
             "stepDelay": getattr(cfg, "step_delay", 0.4) if cfg else 0.4,
             "language": getattr(cfg, "language", "zh-CN") if cfg else "zh-CN",
         }
-        await self._rpc("init", params)
+
+        self._req_counter += 1
+        req_id = f"req-{self._req_counter}"
+        loop = asyncio.get_running_loop()
+        fut: asyncio.Future = loop.create_future()
+        self._pending[req_id] = fut
+
+        await self._write_stdin({"id": req_id, "method": "init", "params": params})
+
+        try:
+            await asyncio.wait_for(fut, timeout=10)
+        except asyncio.TimeoutError:
+            self._pending.pop(req_id, None)
+            logger.warning("page_agent: init RPC timeout")
 
     async def _read_stdout(self) -> None:
         """持续读取 runner stdout，分发 RPC 响应和推送事件。"""
@@ -358,7 +393,21 @@ class PageAgentTool(Tool):
 
                 # 无 id -> 推送事件（frame/activity/status）
                 session_id = msg.get("session_id")
-                if session_id and session_id in self._subscribers:
+                if not session_id:
+                    continue
+
+                # 缓存事件（无论是否有订阅者）
+                msg_type = msg.get("type")
+                if msg_type == "frame":
+                    self._last_frame[session_id] = msg
+                elif msg_type in ("activity", "status"):
+                    buf = self._event_buffer.setdefault(session_id, [])
+                    buf.append(msg)
+                    if len(buf) > self._EVENT_BUFFER_SIZE:
+                        buf[:] = buf[-self._EVENT_BUFFER_SIZE:]
+
+                # 分发给订阅者
+                if session_id in self._subscribers:
                     for cb in self._subscribers[session_id]:
                         try:
                             cb(msg)
@@ -408,7 +457,7 @@ class PageAgentTool(Tool):
             return
 
         try:
-            self._write_stdin({"id": "shutdown", "method": "shutdown", "params": {}})
+            await self._write_stdin({"id": "shutdown", "method": "shutdown", "params": {}})
             await asyncio.wait_for(self._process.wait(), timeout=5)
         except (asyncio.TimeoutError, Exception):
             try:
@@ -448,7 +497,7 @@ class PageAgentTool(Tool):
         fut: asyncio.Future = loop.create_future()
         self._pending[req_id] = fut
 
-        self._write_stdin({"id": req_id, "method": method, "params": params})
+        await self._write_stdin({"id": req_id, "method": method, "params": params})
 
         timeout = getattr(self._config, "timeout", 120) if self._config else 120
         try:
@@ -461,12 +510,13 @@ class PageAgentTool(Tool):
                 "error": {"code": "TIMEOUT", "message": f"RPC timeout after {timeout}s"},
             }
 
-    def _write_stdin(self, msg: dict) -> None:
-        """向 runner stdin 写入一行 JSON。"""
+    async def _write_stdin(self, msg: dict) -> None:
+        """向 runner stdin 写入一行 JSON 并 flush。"""
         if not self._process or not self._process.stdin:
             return
         data = json.dumps(msg, ensure_ascii=False) + "\n"
         self._process.stdin.write(data.encode("utf-8"))
+        await self._process.stdin.drain()
 
     # ------------------------------------------------------------------
     # 辅助

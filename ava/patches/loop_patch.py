@@ -200,26 +200,100 @@ def apply_loop_patch() -> str:
     AgentLoop._set_tool_context = patched_set_tool_context
 
     # ------------------------------------------------------------------
-    # 3. Patch _run_agent_loop to capture ALL per-iteration LLM usage.
-    #    Each LLM call (tool_call or stop) is recorded as a separate entry
-    #    in loop._llm_call_usages so patched_process_message can log them all.
+    # 3. Patch _run_agent_loop to record token usage per-iteration (immediately).
+    #    Each LLM call is written to DB right away so console can show progress
+    #    before the turn completes. Tool names are extracted from response.tool_calls.
+    #    The first record's id and last record's id are tracked so _process_message
+    #    can backfill user_message / output_content after the turn.
     # ------------------------------------------------------------------
     original_run_agent_loop = AgentLoop._run_agent_loop
 
     async def patched_run_agent_loop(self: AgentLoop, initial_messages, **kwargs):
         original_chat = self.provider.chat_with_retry
         original_chat_stream = self.provider.chat_stream_with_retry
-        # Reset per-turn call list
-        self._llm_call_usages = []
+        # Per-turn tracking
+        self._turn_record_ids = []  # DB row ids recorded in this turn
+        self._turn_iteration = 0
+
+        def _record_immediately(response):
+            """Extract usage + tool names from response and write to DB now."""
+            token_stats = getattr(self, "token_stats", None)
+            if not token_stats:
+                return
+
+            usage_data = _extract_usage(response)
+            finish_reason = usage_data["finish_reason"]
+            is_tool_call = finish_reason in ("tool_calls", "tool_use")
+
+            # Extract tool names from response.tool_calls
+            tool_names_list = []
+            try:
+                if hasattr(response, "tool_calls") and response.tool_calls:
+                    tool_names_list = [tc.name for tc in response.tool_calls if hasattr(tc, "name")]
+            except Exception:
+                pass
+            tool_names_str = ", ".join(tool_names_list)
+
+            sk = getattr(self, "_current_session_key", "") or ""
+            provider_name = type(self.provider).__name__.lower().replace("provider", "")
+            iteration = self._turn_iteration
+            self._turn_iteration += 1
+
+            # Estimate current-turn tokens only on first call
+            current_turn_tokens = 0
+            if iteration == 0:
+                try:
+                    from nanobot.utils.helpers import estimate_prompt_tokens
+                    user_msg = getattr(self, "_current_user_message", "") or ""
+                    if user_msg:
+                        current_turn_tokens = estimate_prompt_tokens(
+                            [{"role": "user", "content": user_msg}]
+                        )
+                except Exception:
+                    pass
+
+            # System prompt dedup
+            system_prompt = getattr(self, "_last_system_prompt", "") or ""
+            prev_sys = getattr(self, "_prev_recorded_system_prompt", "")
+            if system_prompt == prev_sys:
+                system_prompt_to_store = ""
+            else:
+                system_prompt_to_store = system_prompt
+                self._prev_recorded_system_prompt = system_prompt
+
+            try:
+                token_stats.record(
+                    model=self.model,
+                    provider=provider_name,
+                    usage=usage_data,
+                    session_key=sk,
+                    user_message="",  # backfilled after turn
+                    output_content="",  # backfilled after turn
+                    system_prompt=system_prompt_to_store,
+                    conversation_history="",  # backfilled after turn
+                    finish_reason=finish_reason,
+                    model_role="tool_call" if is_tool_call else "chat",
+                    cached_tokens=usage_data.get("cached_tokens"),
+                    cache_creation_tokens=usage_data.get("cache_creation_tokens"),
+                    current_turn_tokens=current_turn_tokens,
+                    tool_names=tool_names_str,
+                )
+                # Track the inserted row id for backfill
+                if token_stats._use_db:
+                    row = token_stats._db.fetchone("SELECT last_insert_rowid() as id")
+                    if row:
+                        self._turn_record_ids.append(row["id"])
+            except Exception as exc:
+                logger.warning("Failed to record token stats inline: {}", exc)
 
         async def intercepted_chat(*args, **kw):
             response = await original_chat(*args, **kw)
-            self._llm_call_usages.append(_extract_usage(response))
+            _record_immediately(response)
             return response
 
         async def intercepted_chat_stream(*args, **kw):
             response = await original_chat_stream(*args, **kw)
-            self._llm_call_usages.append(_extract_usage(response))
+            _record_immediately(response)
             return response
 
         self.provider.chat_with_retry = intercepted_chat
@@ -275,7 +349,9 @@ def apply_loop_patch() -> str:
     AgentLoop._save_turn = fixed_save_turn
 
     # ------------------------------------------------------------------
-    # 4. Patch _process_message to record rich token usage per turn
+    # 4. Patch _process_message to set context for inline recording,
+    #    then backfill user_message / output_content / conversation_history
+    #    on the first and last DB records after the turn completes.
     # ------------------------------------------------------------------
     original_process_message = AgentLoop._process_message
 
@@ -287,10 +363,12 @@ def apply_loop_patch() -> str:
         on_stream=None,
         on_stream_end=None,
     ):
-        # Snapshot before to detect new LLM call
-        usage_before = dict(getattr(self, "_last_usage", {}))
-        # Clear full usage capture so we can detect whether a new call happened
-        self._full_last_usage = {}
+        # Set context so intercepted_chat can use it for inline recording
+        sk = session_key or getattr(msg, "session_key", "")
+        self._current_session_key = sk
+        self._current_user_message = getattr(msg, "content", "") or ""
+        self._turn_record_ids = []
+        self._turn_iteration = 0
 
         result = await original_process_message(
             self, msg,
@@ -300,40 +378,19 @@ def apply_loop_patch() -> str:
             on_stream_end=on_stream_end,
         )
 
+        # Backfill user_message, output_content, conversation_history on DB records
         token_stats = getattr(self, "token_stats", None)
-        llm_calls = getattr(self, "_llm_call_usages", [])
-        if token_stats is not None and llm_calls:
+        record_ids = getattr(self, "_turn_record_ids", [])
+        if token_stats and token_stats._use_db and record_ids:
             try:
-                sk = session_key or getattr(msg, "session_key", "")
-                user_msg = getattr(msg, "content", "") or ""
-                output_content = getattr(result, "content", "") or ""
-                system_prompt = getattr(self, "_last_system_prompt", "") or ""
-                # Deduplicate: only store system_prompt when it changes from last recorded value
-                prev_sys = getattr(self, "_prev_recorded_system_prompt", "")
-                if system_prompt == prev_sys:
-                    system_prompt_to_store = ""
-                else:
-                    system_prompt_to_store = system_prompt
-                    self._prev_recorded_system_prompt = system_prompt
-                provider_name = type(self.provider).__name__.lower().replace("provider", "")
+                user_msg = (getattr(msg, "content", "") or "")[:1000]
+                output_content = (getattr(result, "content", "") or "")[:4000]
 
-                # Estimate current-turn user message tokens via tiktoken (only for first call)
-                current_turn_tokens = 0
-                try:
-                    from nanobot.utils.helpers import estimate_prompt_tokens
-                    if user_msg:
-                        current_turn_tokens = estimate_prompt_tokens(
-                            [{"role": "user", "content": user_msg}]
-                        )
-                except Exception:
-                    pass
-
-                # Build conversation_history from session (last 10 turns, JSON)
+                # Build conversation_history
                 conversation_history = ""
                 try:
                     import json as _json
-                    key = sk or getattr(msg, "session_key", "")
-                    session = self.sessions.get_or_create(key) if key else None
+                    session = self.sessions.get_or_create(sk) if sk else None
                     if session:
                         hist = session.get_history(max_messages=10)
                         if hist:
@@ -345,30 +402,26 @@ def apply_loop_patch() -> str:
                 except Exception:
                     pass
 
-                # Record every LLM call in this turn (tool_call iterations + final stop)
-                for i, call_usage in enumerate(llm_calls):
-                    finish_reason = call_usage.get("finish_reason", "")
-                    is_tool_call = finish_reason in ("tool_calls", "tool_use")
-                    token_stats.record(
-                        model=self.model,
-                        provider=provider_name,
-                        usage=call_usage,
-                        session_key=sk,
-                        # Only attach user message / output on first and last calls
-                        user_message=(user_msg[:1000] if i == 0 else ""),
-                        output_content=(output_content[:4000] if i == len(llm_calls) - 1 else ""),
-                        system_prompt=system_prompt_to_store,
-                        conversation_history=(conversation_history if i == 0 else ""),
-                        finish_reason=finish_reason,
-                        model_role="tool_call" if is_tool_call else "chat",
-                        cached_tokens=call_usage.get("cached_tokens"),
-                        cache_creation_tokens=call_usage.get("cache_creation_tokens"),
-                        current_turn_tokens=(current_turn_tokens if i == 0 else 0),
-                    )
+                # Backfill first record: user_message + conversation_history
+                first_id = record_ids[0]
+                token_stats._db.execute(
+                    "UPDATE token_usage SET user_message = ?, conversation_history = ? WHERE id = ?",
+                    (user_msg, conversation_history, first_id),
+                )
+
+                # Backfill last record: output_content
+                last_id = record_ids[-1]
+                token_stats._db.execute(
+                    "UPDATE token_usage SET output_content = ? WHERE id = ?",
+                    (output_content, last_id),
+                )
+                token_stats._db.commit()
             except Exception as exc:
-                logger.warning("Failed to record token stats in loop_patch: {}", exc)
-        # Clear after recording
-        self._llm_call_usages = []
+                logger.warning("Failed to backfill token stats: {}", exc)
+
+        # Clear turn state
+        self._turn_record_ids = []
+        self._turn_iteration = 0
 
         return result
 

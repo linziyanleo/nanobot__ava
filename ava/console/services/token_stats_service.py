@@ -36,6 +36,7 @@ class TokenUsageRecord:
     cache_creation_tokens: int = 0
     cost_usd: float = 0.0
     current_turn_tokens: int = 0
+    tool_names: str = ""
 
 class TokenStatsCollector:
     """Collects per-call LLM token usage.
@@ -91,6 +92,7 @@ class TokenStatsCollector:
         cached_tokens: int | None = None,
         cache_creation_tokens: int | None = None,
         current_turn_tokens: int = 0,
+        tool_names: str = "",
     ) -> None:
         """Append a single LLM call record."""
         ts = datetime.now().isoformat()
@@ -115,13 +117,15 @@ class TokenStatsCollector:
                    (timestamp, model, provider, prompt_tokens, completion_tokens, total_tokens,
                     session_key, turn_seq, iteration, user_message, output_content,
                     system_prompt_preview, conversation_history, full_request_payload, finish_reason,
-                    model_role, cached_tokens, cache_creation_tokens, cost_usd, current_turn_tokens)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    model_role, cached_tokens, cache_creation_tokens, cost_usd, current_turn_tokens,
+                    tool_names)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
                     ts, model, provider, prompt_tokens, completion_tokens, total_tokens,
                     session_key, turn_seq, iteration, user_message, output_content,
                     system_prompt, conversation_history, full_request_payload, finish_reason,
                     model_role, cached_tokens, cache_creation_tokens, cost_usd, current_turn_tokens,
+                    tool_names,
                 ),
             )
             self._db.commit()
@@ -147,6 +151,7 @@ class TokenStatsCollector:
             cached_tokens=cached_tokens,
             cache_creation_tokens=cache_creation_tokens,
             cost_usd=cost_usd,
+            tool_names=tool_names,
         )
         with self._lock:
             self._records.append(rec)

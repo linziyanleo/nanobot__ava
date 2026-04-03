@@ -30,11 +30,12 @@ export default function BrowserPage() {
     }
   }, [activeSession])
 
+  // 无会话时 2s 快速轮询，有会话后放慢到 5s
   useEffect(() => {
     fetchSessions()
-    const interval = setInterval(fetchSessions, 5000)
+    const interval = setInterval(fetchSessions, sessions.length > 0 ? 5000 : 2000)
     return () => clearInterval(interval)
-  }, [fetchSessions])
+  }, [fetchSessions, sessions.length])
 
   // WebSocket 连接
   useEffect(() => {
@@ -54,10 +55,7 @@ export default function BrowserPage() {
 
     ws.onopen = () => {
       setConnected(true)
-      setActivities([])
-      setStatus('idle')
-      setPageUrl('')
-      setStepCount(0)
+      // 不清空 activities — 服务端会回放缓存事件
     }
 
     ws.onmessage = (event) => {

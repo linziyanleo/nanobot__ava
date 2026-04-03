@@ -48,6 +48,7 @@ interface TokenRecord {
   cached_tokens: number;
   cache_creation_tokens: number;
   cost_usd: number;
+  tool_names: string;
 }
 
 interface ModelStats {
@@ -676,7 +677,7 @@ export default function TokenStatsPage() {
                   <th className="text-right px-4 py-3 font-medium">Prompt</th>
                   <th className="text-right px-4 py-3 font-medium">Completion</th>
                   <th className="text-center px-4 py-3 font-medium">缓存</th>
-                  <th className="text-center px-4 py-3 font-medium">类型</th>
+                  <th className="text-center px-4 py-3 font-medium">调用</th>
                   <th className="text-right px-4 py-3 font-medium">Total</th>
                   <th className="text-right px-4 py-3 font-medium">Cost</th>
                   <th className="text-center px-4 py-3 font-medium"></th>
@@ -1027,17 +1028,24 @@ function RecordRow({
           {formatCacheStatus(r.cached_tokens || 0, r.cache_creation_tokens || 0)}
         </td>
         <td className="px-4 py-2.5 text-center">
-          <span
-            className={`inline-block px-1.5 py-0.5 rounded text-[10px] font-medium ${
-              r.finish_reason === 'tool_use' || r.finish_reason === 'tool_calls'
-                ? 'bg-amber-500/15 text-amber-400'
-                : r.finish_reason === 'end_turn' || r.finish_reason === 'stop'
+          {r.tool_names ? (
+            <span
+              className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-amber-500/15 text-amber-400 max-w-[120px] truncate"
+              title={r.tool_names}
+            >
+              {r.tool_names}
+            </span>
+          ) : (
+            <span
+              className={`inline-block px-1.5 py-0.5 rounded text-[10px] font-medium ${
+                r.finish_reason === 'end_turn' || r.finish_reason === 'stop'
                   ? 'bg-emerald-500/15 text-emerald-400'
                   : 'bg-gray-500/15 text-gray-400'
-            }`}
-          >
-            {r.finish_reason || '—'}
-          </span>
+              }`}
+            >
+              {r.finish_reason === 'end_turn' || r.finish_reason === 'stop' ? 'end' : r.finish_reason || '—'}
+            </span>
+          )}
         </td>
         <td className="px-4 py-2.5 text-right font-medium text-xs">{formatTokens(r.total_tokens)}</td>
         <td className="px-4 py-2.5 text-right text-xs">
