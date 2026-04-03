@@ -32,7 +32,7 @@ async def list_sessions():
     tool = _get_page_agent_tool()
     if not tool:
         return {"sessions": []}
-    return {"sessions": tool.get_active_sessions()}
+    return {"sessions": await tool.list_sessions()}
 
 
 @router.websocket("/ws/{session_id}")
@@ -64,6 +64,17 @@ async def page_agent_ws(websocket: WebSocket, session_id: str):
     except Exception as e:
         logger.warning("page_agent ws: failed to start screencast: {}", e)
         # screencast 启动失败不阻断连接，activity 事件仍然可以传输
+
+    try:
+        page_info = await tool.get_page_info(session_id)
+        if page_info.get("success"):
+            await websocket.send_text(json.dumps({
+                "type": "page_info",
+                "session_id": session_id,
+                **page_info.get("result", {}),
+            }, ensure_ascii=False))
+    except Exception as e:
+        logger.debug("page_agent ws: failed to fetch page info: {}", e)
 
     async def _sender():
         """从队列取事件发给 WS 客户端。"""

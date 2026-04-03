@@ -241,6 +241,22 @@ class PageAgentTool(Tool):
         """停止指定会话的 CDP 帧流。"""
         return await self._rpc("stop_screencast", {"session_id": session_id})
 
+    async def get_page_info(self, session_id: str) -> dict[str, Any]:
+        """返回结构化页面信息，供 console WS 初始化状态。"""
+        return await self._rpc("get_page_info", {"session_id": session_id})
+
+    async def list_sessions(self) -> list[str]:
+        """返回 runner 当前持有的会话列表。"""
+        if not self._process or self._process.returncode is not None:
+            return []
+
+        result = await self._rpc("list_sessions", {})
+        if not result.get("success"):
+            return []
+
+        sessions = result.get("result", {}).get("sessions", [])
+        return [session_id for session_id in sessions if isinstance(session_id, str)]
+
     def subscribe(self, session_id: str, callback: Callable) -> None:
         """注册推送事件回调（frame/activity/status）。"""
         if session_id not in self._subscribers:

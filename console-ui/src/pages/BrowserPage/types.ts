@@ -24,6 +24,14 @@ export interface StatusEvent {
   status: 'idle' | 'running' | 'completed' | 'error'
 }
 
+export interface PageInfoEvent {
+  type: 'page_info'
+  session_id: string
+  page_url: string
+  page_title?: string
+  viewport?: string
+}
+
 export interface StepEvent {
   type: 'step'
   session_id: string
@@ -39,7 +47,7 @@ export interface StepEvent {
   }
 }
 
-export type PageAgentEvent = ScreencastFrame | ActivityEvent | StatusEvent | StepEvent
+export type PageAgentEvent = ScreencastFrame | ActivityEvent | StatusEvent | PageInfoEvent | StepEvent
 
 /** Activity 面板中的事件条目 */
 export interface ActivityEntry {

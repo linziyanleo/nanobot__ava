@@ -12,6 +12,7 @@ from fastapi.staticfiles import StaticFiles
 
 from ava.console import auth
 from ava.console.middleware import setup_cors
+from ava.console.ui_build import prepare_console_ui_dist
 from ava.console.services.audit_service import AuditService
 from ava.console.services.chat_service import ChatService
 from ava.console.services.config_service import ConfigService
@@ -43,6 +44,25 @@ def get_services() -> Services:
     if _services is None:
         raise RuntimeError("Console services not initialized")
     return _services
+
+
+def _mount_console_spa(app: FastAPI) -> None:
+    static_dir = prepare_console_ui_dist()
+    if not static_dir:
+        return
+
+    assets_dir = static_dir / "assets"
+    if assets_dir.is_dir():
+        app.mount("/assets", StaticFiles(directory=str(assets_dir)), name="static-assets")
+
+    index_html = static_dir / "index.html"
+
+    @app.get("/{full_path:path}")
+    async def spa_fallback(full_path: str):
+        file_path = static_dir / full_path
+        if file_path.is_file():
+            return FileResponse(file_path)
+        return FileResponse(index_html)
 
 
 def create_console_app(
@@ -121,18 +141,7 @@ def create_console_app(
     app.include_router(skills_routes.router)
     app.include_router(page_agent_routes.router)
 
-    static_dir = Path(__file__).parent.parent.parent / "console-ui" / "dist"
-    if static_dir.exists():
-        app.mount("/assets", StaticFiles(directory=str(static_dir / "assets")), name="static-assets")
-
-        index_html = static_dir / "index.html"
-
-        @app.get("/{full_path:path}")
-        async def spa_fallback(request: Request, full_path: str):
-            file_path = static_dir / full_path
-            if file_path.is_file():
-                return FileResponse(file_path)
-            return FileResponse(index_html)
+    _mount_console_spa(app)
 
     return app
 
@@ -293,17 +302,6 @@ def create_console_app_standalone(
 
     # --- End chat proxy -------------------------------------------------
 
-    static_dir = Path(__file__).parent.parent.parent / "console-ui" / "dist"
-    if static_dir.exists():
-        app.mount("/assets", StaticFiles(directory=str(static_dir / "assets")), name="static-assets")
-
-        index_html = static_dir / "index.html"
-
-        @app.get("/{full_path:path}")
-        async def spa_fallback(request: Request, full_path: str):
-            file_path = static_dir / full_path
-            if file_path.is_file():
-                return FileResponse(file_path)
-            return FileResponse(index_html)
+    _mount_console_spa(app)
 
     return app

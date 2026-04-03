@@ -130,6 +130,20 @@ class TestRpcExecute:
 
 
 class TestSubscription:
+    @pytest.mark.asyncio
+    async def test_list_sessions_without_runner_returns_empty(self, tool):
+        assert await tool.list_sessions() == []
+
+    @pytest.mark.asyncio
+    async def test_list_sessions_filters_non_strings(self, tool):
+        tool._process = MagicMock(returncode=None)
+        mock_result = {
+            "success": True,
+            "result": {"sessions": ["s1", 123, "s2", None]},
+        }
+        with patch.object(tool, "_rpc", new_callable=AsyncMock, return_value=mock_result):
+            assert await tool.list_sessions() == ["s1", "s2"]
+
     def test_subscribe_and_unsubscribe(self, tool):
         cb = MagicMock()
         tool.subscribe("sess1", cb)
@@ -157,3 +171,14 @@ class TestSetContext:
         tool.set_context("telegram", "chat_123")
         assert tool._channel == "telegram"
         assert tool._chat_id == "chat_123"
+
+
+class TestPageInfoHelpers:
+    @pytest.mark.asyncio
+    async def test_get_page_info_passthrough(self, tool):
+        mock_result = {
+            "success": True,
+            "result": {"page_url": "https://example.com"},
+        }
+        with patch.object(tool, "_rpc", new_callable=AsyncMock, return_value=mock_result):
+            assert await tool.get_page_info("s_test") == mock_result

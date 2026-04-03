@@ -369,6 +369,12 @@ const handlers = {
     });
   },
 
+  async list_sessions(id) {
+    reply(id, true, {
+      sessions: Array.from(sessions.keys()),
+    });
+  },
+
   async close_session(id, params) {
     const { session_id: sid } = params;
     if (!sid || !sessions.has(sid)) {

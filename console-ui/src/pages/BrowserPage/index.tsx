@@ -1,12 +1,10 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
-import { useAuth } from '../../stores/auth'
 import { api } from '../../api/client'
 import ScreencastView from './ScreencastView'
 import ActivityPanel from './ActivityPanel'
 import type { PageAgentEvent, ActivityEntry } from './types'
 
 export default function BrowserPage() {
-  const { user } = useAuth()
   const [sessions, setSessions] = useState<string[]>([])
   const [activeSession, setActiveSession] = useState<string>('')
   const [connected, setConnected] = useState(false)
@@ -43,6 +41,7 @@ export default function BrowserPage() {
     if (!activeSession) {
       setConnected(false)
       setFrame(null)
+      setPageUrl('')
       return
     }
 
@@ -57,6 +56,7 @@ export default function BrowserPage() {
       setConnected(true)
       setActivities([])
       setStatus('idle')
+      setPageUrl('')
       setStepCount(0)
     }
 
@@ -83,6 +83,8 @@ export default function BrowserPage() {
           }
         } else if (msg.type === 'status') {
           setStatus(msg.status)
+        } else if (msg.type === 'page_info') {
+          setPageUrl(msg.page_url || '')
         }
       } catch {
         // ignore parse errors
@@ -91,10 +93,12 @@ export default function BrowserPage() {
 
     ws.onclose = () => {
       setConnected(false)
+      setPageUrl('')
     }
 
     ws.onerror = () => {
       setConnected(false)
+      setPageUrl('')
     }
 
     return () => {
