@@ -59,15 +59,30 @@
 
 - 现状：
   - 上游 `nanobot.cli.commands` 新增 OpenAI-compatible API `serve` 命令；
+  - `gateway` / `agent` 继续把更多 `AgentDefaults` 参数透传到 `AgentLoop`，`channels` 子命令也开始显式支持 `--config`；
   - sidecar 的 `console_patch` 仍通过包装 `gateway` callback + 临时替换 `asyncio.run` 来注入 Console。
 - 风险：
   - `cli.commands` 继续演进时，Console patch 很容易被间接影响；
+  - 如果 wrapper 内自己 `load_config()` 的时机或路径选错，就可能绕开用户传入的 config path；
   - 如果未来 Console 要和 `serve` 共存，入口策略需要重新评估。
 - 后续动作：
   - 每次 upstream 改 `nanobot/cli/commands.py` 都必须先查 [patch_map.md](./patch_map.md)；
+  - 增加一条带自定义 `--config` 的 console/gateway 回归，确认 patch 没有回退到默认配置；
   - 中期评估是否应把 Console 注入点从 `gateway` callback 下沉到更稳定的 runtime 入口。
 
-### 5. `channel_patch` 与上游 Telegram `send_delta` 存在部分重叠
+### 5. `context_patch` 与上游 `ContextBuilder` / `LLMProvider` 开始出现消息清洗重叠
+
+- 现状：
+  - upstream 已在 `ContextBuilder.build_messages()` 原生合并连续同角色消息；
+  - sidecar 仍在 `context_patch` 的 provider wrapper 里做 `sanitize_messages()`，同时负责历史压缩与分类记忆注入。
+- 风险：
+  - 如果 upstream 继续把 trailing assistant / provider-specific sanitize 做进核心层，context patch 很容易开始重复做同一件事；
+  - “历史压缩 / 记忆注入”和“消息清洗”耦在一个 patch 里，会让 overlap 判断越来越难。
+- 后续动作：
+  - 下次 upstream 改 `nanobot/agent/context.py` 或 `nanobot/providers/base.py` 时，优先评估 `sanitize_messages()` 是否应收窄为 trailing assistant / orphan cleanup；
+  - 若要继续保留 provider wrapper，至少把“历史处理”和“协议兼容清洗”的职责边界写得更清楚。
+
+### 6. `channel_patch` 与上游 Telegram `send_delta` 存在部分重叠
 
 - 现状：
   - 上游已覆盖 `stream_id` / `not_modified`；
@@ -78,7 +93,7 @@
   - 每次 upstream 改 `nanobot/channels/telegram.py`，先对照 [patch_map.md](./patch_map.md) 再决定 patch 是否收窄；
   - 一旦上游覆盖这两个边界，就删掉对应 patch 分支，而不是继续叠逻辑。
 
-### 6. 全量测试的本机环境依赖不稳定
+### 7. 全量测试的本机环境依赖不稳定
 
 - 现状：
   - 当前机器跑 `uv run pytest tests/ -q` 会在 Matrix 测试链路缺少 `nio/python-olm` 构建依赖时失败；
@@ -91,7 +106,7 @@
 
 ## P2
 
-### 7. `b_config_patch` 的长期价值需要重新判断
+### 8. `b_config_patch` 的长期价值需要重新判断
 
 - 现状：
   - `a_schema_patch` 已是主路径，`b_config_patch` 只是 fork 缺失时的降级方案。

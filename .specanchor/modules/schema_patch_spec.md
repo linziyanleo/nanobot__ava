@@ -21,6 +21,7 @@
 - Channel Config 类：`TelegramConfig`、`FeishuConfig` 等（从各 channel 模块集中到 schema）
 - `GatewayConfig.console` 字段
 - 上游共享字段自动继承恢复：
+  - `AgentDefaults.context_block_limit` / `max_tool_result_chars` / `provider_retry_mode`
   - `ProvidersConfig.mistral` / `ollama` / `ovms` / `stepfun` / `byteplus` / `byteplus_coding_plan` / `volcengine_coding_plan`
   - `MCPServerConfig.type` / `enabled_tools`
   - `WebSearchConfig.provider` / `base_url`

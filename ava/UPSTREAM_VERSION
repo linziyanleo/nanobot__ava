@@ -1,3 +1,3 @@
-63d646f731a505731e97909d114ce257c6de36bc
-# verified_at: 2026-04-01
-# note: upstream main merged; patch + guardrail baseline re-verified on sidecar branch
+7113ad34f4e8259fea0483b5a1835ccc66797610
+# verified_at: 2026-04-03
+# note: upstream main merged; resolved context.py merge conflict and re-verified patches/guardrails + targeted runtime/provider tests

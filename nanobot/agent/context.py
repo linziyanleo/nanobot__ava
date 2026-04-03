@@ -110,6 +110,20 @@ IMPORTANT: To send files (images, documents, audio, video) to the user, you MUST
             lines += [f"Channel: {channel}", f"Chat ID: {chat_id}"]
         return ContextBuilder._RUNTIME_CONTEXT_TAG + "\n" + "\n".join(lines)
 
+    @staticmethod
+    def _merge_message_content(left: Any, right: Any) -> str | list[dict[str, Any]]:
+        if isinstance(left, str) and isinstance(right, str):
+            return f"{left}\n\n{right}" if left else right
+
+        def _to_blocks(value: Any) -> list[dict[str, Any]]:
+            if isinstance(value, list):
+                return [item if isinstance(item, dict) else {"type": "text", "text": str(item)} for item in value]
+            if value is None:
+                return []
+            return [{"type": "text", "text": str(value)}]
+
+        return _to_blocks(left) + _to_blocks(right)
+
     def _load_bootstrap_files(self) -> str:
         """Load all bootstrap files from workspace."""
         parts = []
@@ -145,11 +159,17 @@ IMPORTANT: To send files (images, documents, audio, video) to the user, you MUST
 
         clean_history = self._sanitize_history(history, current_role)
 
-        return [
+        messages = [
             {"role": "system", "content": self.build_system_prompt(skill_names)},
             *clean_history,
-            {"role": current_role, "content": merged},
         ]
+        if messages[-1].get("role") == current_role:
+            last = dict(messages[-1])
+            last["content"] = self._merge_message_content(last.get("content"), merged)
+            messages[-1] = last
+            return messages
+        messages.append({"role": current_role, "content": merged})
+        return messages
 
     def _sanitize_history(
         self, history: list[dict[str, Any]], current_role: str = "user",

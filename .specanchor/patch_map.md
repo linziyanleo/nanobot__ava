@@ -61,14 +61,14 @@ uv run pytest tests/guardrails -q
 
 | Patch | 上游触点 | 当前职责 | 热度 | 当前判断 | 取舍信号 | 最低验证 |
 |------|----------|----------|------|----------|----------|----------|
-| `a_schema_patch.py` | `nanobot/config/schema.py` | 用 fork 完整替换 schema，承载 Console / ClaudeCode / TokenStats / Channel configs / API config 等扩展 | 高 | 保留，但必须持续同步 | upstream 新增基础配置类或字段时，优先同步 fork；若 sidecar 扩展显著减少，可考虑退化为更窄的 additive patch | `tests/patches/test_schema_patch.py` + `tests/guardrails/test_schema_drift.py` |
+| `a_schema_patch.py` | `nanobot/config/schema.py` | 用 fork 完整替换 schema，承载 Console / ClaudeCode / TokenStats / Channel configs / API config 等扩展 | 高 | 保留，但必须持续同步 | upstream 新增基础配置类或字段时，优先同步 fork；`2026-04-03` 起新增 `AgentDefaults.context_block_limit` / `max_tool_result_chars` / `provider_retry_mode`，当前靠继承自动吸收，后续若有 override 再单独复核 | `tests/patches/test_schema_patch.py` + `tests/guardrails/test_schema_drift.py` |
 | `b_config_patch.py` | `nanobot.config.schema.AgentDefaults` | fork 缺失时的降级字段注入 | 中 | 倾向后续删除 | 若 fork 路线稳定且不再需要 fallback，可整体移除 | `tests/patches/test_config_patch.py` |
 | `bus_patch.py` | `nanobot.bus.queue.MessageBus.publish_outbound` | Console queue listener 注入 | 低 | 保留 | 若 upstream 原生提供 console listener queue，再删除 | `tests/patches/test_bus_patch.py` |
 | `c_onboard_patch.py` | `nanobot/cli/commands.py:onboard` | `onboard refresh` 兼容层，保留旧 sidecar config 形状且不固化 `extra_config.json` overlay | 高 | 保留，但应持续收窄 | upstream 若原生提供“refresh 只补缺失默认值”的安全写回语义，可删除；若 `onboard` callback 重构，先复核包裹点 | `tests/patches/test_onboard_patch.py` |
 | `channel_patch.py` | `nanobot/channels/telegram.py` | Telegram 消息批处理 + `send_delta` 边界修复 | 中高 | 保留，但要持续收窄 | upstream 一旦覆盖 typing 清理 / `message_id is None` fallback，就删对应分支；若 upstream 出现原生 batching，整体 patch 需重判 | `tests/patches/test_channel_patch.py` |
-| `console_patch.py` | `nanobot/cli/commands.py` | 在 gateway 启动时并行注入 Web Console | 高 | 保留，但属于 CLI 热区 | upstream 若重构 gateway 启动方式，必须先读 patch spec；若未来有官方 console/runtime hook，再考虑迁移 | `tests/patches/test_console_patch.py` |
-| `context_patch.py` | `nanobot.agent.context.ContextBuilder`、`LLMProvider.chat_*` | 历史压缩、分类记忆注入、非 Claude provider 消息清洗 | 高 | 保留，但配置口径需要修债 | upstream 若把短期历史聚焦 / message sanitize 做进核心层，patch 应收窄；当前先修参数读取漂移 | `tests/patches/test_context_patch.py` |
-| `loop_patch.py` | `nanobot/agent/loop.py` | db/media/token stats/history 相关注入与 `_save_turn` 修复 | 很高 | 保留，但属于首要热区 | 上游 hook / runner / loop 每次变动都要重看；能迁到 hook 层的逻辑逐步迁出，减少深包装 | `tests/patches/test_loop_patch.py` |
+| `console_patch.py` | `nanobot/cli/commands.py` | 在 gateway 启动时并行注入 Web Console | 高 | 保留，但属于 CLI 热区 | upstream 若重构 gateway 启动方式，必须先读 patch spec；`2026-04-03` 起 CLI 会继续把更多 runtime 参数与 `--config` 语义下沉到命令层，console patch 每次都要确认它仍沿用当前 runtime config path，而不是偷偷回到默认配置 | `tests/patches/test_console_patch.py` |
+| `context_patch.py` | `nanobot.agent.context.ContextBuilder`、`LLMProvider.chat_*` | 历史压缩、分类记忆注入、非 Claude provider 消息清洗 | 高 | 保留，但已出现部分上游覆盖 | `2026-04-03` 起 upstream 已在 `ContextBuilder.build_messages()` 原生合并连续同角色消息；patch 应继续保留 history summarize/compress + memory injection + trailing assistant sanitize，但要警惕 provider wrapper 里的“再合并一次”变成重复逻辑；当前先修参数读取漂移 | `tests/patches/test_context_patch.py` + `tests/agent/test_context_prompt_cache.py` |
+| `loop_patch.py` | `nanobot/agent/loop.py` | db/media/token stats/history 相关注入与 `_save_turn` 修复 | 很高 | 保留，但属于首要热区 | 上游 hook / runner / loop 每次变动都要重看；`2026-04-03` 起还要额外复核 runtime checkpoint、`context_block_limit`、`max_tool_result_chars`、`provider_retry_mode` 这些新参数/状态面有没有被 patch 旁路；能迁到 hook 层的逻辑逐步迁出，减少深包装 | `tests/patches/test_loop_patch.py` + `tests/agent/test_loop_save_turn.py` |
 | `skills_patch.py` | `nanobot.agent.skills.SkillsLoader` | 三源 skill 发现 + disabled filter | 中 | 保留 | 若 upstream 支持多源发现和 enable/disable 管理，再重判是否删 patch | `tests/patches/test_skills_patch.py` |
 | `storage_patch.py` | `nanobot.session.manager.SessionManager` | SQLite 持久化、增量保存、db 共享 | 中 | 保留 | upstream 若原生引入等价 SQLite/session store，再看是否整体替换 | `tests/patches/test_storage_patch.py` |
 | `tools_patch.py` | `AgentLoop._register_default_tools` | 注入 `claude_code` / `image_gen` / `vision` / `send_sticker` / `memory` | 高 | 保留 | upstream 若原生支持这些工具或提供稳定扩展点，可转向更轻的注册 hook；不要在深热区反复堆逻辑 | `tests/patches/test_tools_patch.py` |
@@ -85,8 +85,8 @@ uv run pytest tests/guardrails -q
 ### 热区 2: `nanobot/cli/commands.py`
 
 - 关联 patch：`console_patch`、`c_onboard_patch`
-- 现状：上游已新增 `serve` 命令，CLI 继续扩展
-- 策略：任何改 CLI 入口的需求，都先判断是不是应该做更稳定的 runtime hook，而不是继续盯死 `gateway` / `onboard` callback
+- 现状：上游已新增 `serve` 命令，且继续把 runtime 参数与 `--config` 语义下沉到命令层
+- 策略：任何改 CLI 入口的需求，都先判断是不是应该做更稳定的 runtime hook，而不是继续盯死 `gateway` / `onboard` callback；同时确认 sidecar wrapper 没有绕开当前 config path
 
 ### 热区 3: `nanobot/config/schema.py`
 
@@ -99,3 +99,9 @@ uv run pytest tests/guardrails -q
 - 关联 patch：`channel_patch`
 - 现状：上游 streaming 逻辑持续演进
 - 策略：保持 patch 极窄，只保留 upstream 尚未覆盖的边界修复
+
+### 热区 5: `nanobot/agent/context.py` + `nanobot/providers/base.py`
+
+- 关联 patch：`context_patch`
+- 现状：上游已把“连续同角色消息合并”做到 `ContextBuilder.build_messages()`，同时在 provider base 加强 retry / heartbeat
+- 策略：下次 merge 先判定 `sanitize_messages()` 是否还能只保留 trailing assistant / 非 Claude 兼容逻辑，避免和上游核心消息整形重复

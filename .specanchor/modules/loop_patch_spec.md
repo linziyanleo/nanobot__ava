@@ -15,6 +15,9 @@
 - **Token 统计**：包装 `_run_agent_loop`（拦截 provider 调用获取原始 usage）和 `_process_message`（每轮记录完整字段）
 - **Database 共享**：通过 `set_shared_db()` 接收 storage_patch 的共享 Database 实例
 
+> `2026-04-03` 之后的注意点：upstream `AgentLoop` 已新增 `context_block_limit`、`max_tool_result_chars`、`provider_retry_mode` 以及 runtime checkpoint 相关状态面。
+> 当前 patch 之所以未被打断，依赖的是 `patched_init(*args, **kwargs)` / `patched_run_agent_loop(..., **kwargs)` 的透传包装；后续若 patch 改成显式签名，必须同步这些字段。
+
 ---
 
 ## 2. 拦截点列表

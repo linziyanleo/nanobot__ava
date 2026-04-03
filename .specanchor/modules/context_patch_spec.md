@@ -10,6 +10,12 @@
 
 拦截 `ContextBuilder.build_messages()`，在构建发给 LLM 的消息列表之前，应用两层无 LLM 开销的历史压缩，并在之后注入分类记忆。
 
+> `2026-04-03` 之后的边界：upstream 已在 `ContextBuilder.build_messages()` 内原生合并连续同角色消息。
+> 因此本 patch 的剩余独有价值主要是：
+> 1. history summarize / compress；
+> 2. categorized memory 注入；
+> 3. 对非 Claude provider 的 trailing assistant / 协议兼容清洗。
+
 ### 处理流程
 
 ```
@@ -39,6 +45,7 @@
 | 拦截点 | 类型 | 说明 |
 |--------|------|------|
 | `ContextBuilder.build_messages` | 方法替换 | 幂等保护：`_ava_patched` 标记 |
+| `LLMProvider.chat_with_retry` / `chat_stream_with_retry` | 方法替换 | 仅对非 Claude provider 做消息清洗 |
 
 ---
 
@@ -60,6 +67,7 @@
 
 ### 上游依赖
 - `nanobot.agent.context.ContextBuilder`
+- `nanobot.providers.base.LLMProvider`
 
 ### Sidecar 内部依赖
 - `ava.patches.loop_patch` — 提供 `self.context._agent_loop` 反向引用
@@ -79,3 +87,4 @@
 | 无 _agent_loop | 原始行为不受影响 |
 | 幂等性 | 二次 apply 返回 "skipped" |
 | 各步独立错误 | summarizer 失败不影响 compressor 和原始 build_messages |
+| 上游同角色合并兼容 | upstream 已原生 merge consecutive same-role messages 时，patch 不应破坏结果 |
