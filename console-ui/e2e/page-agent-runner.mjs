@@ -14,7 +14,16 @@
  */
 
 import { createInterface } from "node:readline";
+import { readFileSync } from "node:fs";
+import { resolve, dirname } from "node:path";
+import { fileURLToPath } from "node:url";
 import { chromium, firefox, webkit } from "playwright";
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const PAGE_AGENT_BUNDLE = readFileSync(
+  resolve(__dirname, "../node_modules/page-agent/dist/iife/page-agent.js"),
+  "utf-8"
+);
 
 // ---------------------------------------------------------------------------
 // 全局状态
@@ -113,14 +122,12 @@ async function executePageAgent(page, instruction) {
   const alreadyInjected = await page.evaluate(() => !!window.__pageAgentInjected);
 
   if (!alreadyInjected) {
-    // 通过 CDN 注入 page-agent IIFE bundle
-    await page.addScriptTag({
-      url: "https://cdn.jsdelivr.net/npm/page-agent@1.7.0/dist/iife/page-agent.js",
-    });
+    // 通过本地 bundle 内容注入 page-agent（避免 CSP 限制）
+    await page.addScriptTag({ content: PAGE_AGENT_BUNDLE });
     await page.evaluate(() => {
       window.__pageAgentInjected = true;
     });
-    log("page-agent injected via CDN");
+    log("page-agent injected via local bundle");
   }
 
   // 在页面上下文中创建 PageAgentCore 并执行
