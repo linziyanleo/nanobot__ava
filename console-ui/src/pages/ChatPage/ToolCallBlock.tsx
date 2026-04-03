@@ -1,5 +1,5 @@
 import { useState, useMemo, useEffect } from 'react'
-import { ChevronDown, ChevronRight, Wrench, Loader2, Image, Eye, Mic } from 'lucide-react'
+import { ChevronDown, ChevronRight, Wrench, Loader2, Image, Eye, Mic, Globe } from 'lucide-react'
 import { cn } from '../../lib/utils'
 import type { ToolCallWithResult } from './types'
 import { getContentText, imageUrl, extractImagePaths } from './utils'
@@ -54,6 +54,40 @@ function parseClaudeCodeResult(text: string): ClaudeCodeResult | null {
     duration: metaMatch ? `${(parseInt(metaMatch[2]) / 1000).toFixed(1)}s` : '?',
     cost: metaMatch ? `$${metaMatch[3]}` : '?',
     session: sessionMatch ? sessionMatch[1] : '',
+    body,
+  }
+}
+
+interface PageAgentResult {
+  status: string
+  steps: number
+  duration: string
+  sessionId: string
+  url: string
+  title: string
+  body: string
+}
+
+function parsePageAgentResult(text: string): PageAgentResult | null {
+  const statusMatch = text.match(/\[PageAgent (\w+)\]/)
+  if (!statusMatch) return null
+
+  const sessionMatch = text.match(/session=(\S+?)(?:\s*\||\s*$)/m)
+  const stepsMatch = text.match(/Steps:\s*(\d+)/)
+  const durationMatch = text.match(/Duration:\s*(\d+)ms/)
+  const urlMatch = text.match(/^URL:\s*(.+)/m)
+  const titleMatch = text.match(/^Title:\s*(.+)/m)
+
+  const bodyStart = text.indexOf('\n\n')
+  const body = bodyStart >= 0 ? text.slice(bodyStart + 2).trim() : ''
+
+  return {
+    status: statusMatch[1],
+    steps: stepsMatch ? parseInt(stepsMatch[1]) : 0,
+    duration: durationMatch ? `${(parseInt(durationMatch[1]) / 1000).toFixed(1)}s` : '?',
+    sessionId: sessionMatch ? sessionMatch[1] : '',
+    url: urlMatch ? urlMatch[1].trim() : '',
+    title: titleMatch ? titleMatch[1].trim() : '',
     body,
   }
 }
@@ -231,6 +265,150 @@ export function ToolCallBlock({ tc, isLoading }: ToolCallBlockProps) {
               <div className="flex items-center gap-1.5 text-cyan-400 py-1">
                 <Loader2 className="w-3 h-3 animate-spin" />
                 <span>Claude Code is working...</span>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+    )
+  }
+
+  if (fnName === 'page_agent') {
+    const instruction = (parsedArgs.instruction || '') as string
+    const paResult = resultText ? parsePageAgentResult(resultText) : null
+    const isSuccess = paResult?.status === 'SUCCESS'
+    const isError = paResult?.status === 'ERROR' || paResult?.status === 'TIMEOUT'
+
+    return (
+      <div className={cn(
+        'my-1.5 rounded-lg border text-xs overflow-hidden',
+        isSuccess ? 'border-emerald-500/30 bg-emerald-500/5'
+          : isError ? 'border-red-500/30 bg-red-500/5'
+          : 'border-[var(--border)] bg-[var(--bg-primary)]/50',
+      )}>
+        <button
+          onClick={() => setExpanded(!expanded)}
+          className="flex items-center gap-1.5 w-full px-3 py-2 text-left hover:bg-[var(--bg-tertiary)]/30 transition-colors"
+        >
+          {isLoading && !resultText ? (
+            <Loader2 className="w-3.5 h-3.5 shrink-0 animate-spin text-emerald-400" />
+          ) : expanded ? (
+            <ChevronDown className="w-3 h-3 shrink-0 text-[var(--text-secondary)]" />
+          ) : (
+            <ChevronRight className="w-3 h-3 shrink-0 text-[var(--text-secondary)]" />
+          )}
+          <Globe className="w-3.5 h-3.5 shrink-0 text-emerald-400" />
+          <span className="font-medium text-emerald-400">Page Agent</span>
+          {paResult && (
+            <>
+              <span className={cn(
+                'px-1.5 py-0.5 rounded text-[10px] font-medium ml-1',
+                isSuccess ? 'bg-emerald-500/15 text-emerald-400'
+                  : paResult.status === 'TIMEOUT' ? 'bg-amber-500/15 text-amber-400'
+                  : 'bg-red-500/15 text-red-400',
+              )}>
+                {paResult.status}
+              </span>
+              <span className="flex items-center gap-2 ml-2 text-[var(--text-secondary)]">
+                <span>{paResult.steps} steps</span>
+                <span>{paResult.duration}</span>
+                {paResult.sessionId && (
+                  <span className="font-mono text-[9px]">{paResult.sessionId.slice(0, 10)}</span>
+                )}
+              </span>
+            </>
+          )}
+          {isLoading && !resultText && (
+            <span className="text-emerald-400 ml-2">Browsing...</span>
+          )}
+          {!expanded && instruction && !isLoading && (
+            <span className="text-[var(--text-secondary)] truncate ml-2">— {instruction.slice(0, 60)}{instruction.length > 60 ? '...' : ''}</span>
+          )}
+        </button>
+
+        {expanded && (
+          <div className="px-3 pb-3 space-y-2 border-t border-[var(--border)]">
+            {paResult && (
+              <div className="flex flex-wrap gap-3 pt-2 text-[10px]">
+                <div className={cn(
+                  'px-2 py-1 rounded-md font-medium',
+                  isSuccess ? 'bg-emerald-500/15 text-emerald-400'
+                    : paResult.status === 'TIMEOUT' ? 'bg-amber-500/15 text-amber-400'
+                    : 'bg-red-500/15 text-red-400',
+                )}>
+                  {paResult.status}
+                </div>
+                <div className="flex items-center gap-1 text-[var(--text-secondary)]">
+                  <span>Steps:</span>
+                  <span className="text-[var(--text-primary)] font-medium">{paResult.steps}</span>
+                </div>
+                <div className="flex items-center gap-1 text-[var(--text-secondary)]">
+                  <span>Duration:</span>
+                  <span className="text-[var(--text-primary)] font-medium">{paResult.duration}</span>
+                </div>
+                {paResult.sessionId && (
+                  <div className="flex items-center gap-1 text-[var(--text-secondary)]">
+                    <span>Session:</span>
+                    <span className="font-mono text-[9px]">{paResult.sessionId}</span>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {instruction && (
+              <div className="pt-1">
+                <div className="text-[var(--text-secondary)] mb-0.5 font-medium">Instruction</div>
+                <pre className="bg-[var(--bg-tertiary)] rounded p-2 overflow-x-auto whitespace-pre-wrap text-[var(--text-primary)] max-h-48 overflow-y-auto">
+                  {instruction}
+                </pre>
+              </div>
+            )}
+
+            {paResult?.url && paResult.url !== 'unknown' && (
+              <div className="flex flex-wrap gap-x-4 gap-y-1 text-[10px]">
+                <div className="flex items-center gap-1 text-[var(--text-secondary)]">
+                  <span>URL:</span>
+                  <a
+                    href={paResult.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-[var(--accent)] hover:underline font-mono truncate max-w-[300px]"
+                  >
+                    {paResult.url}
+                  </a>
+                </div>
+                {paResult.title && paResult.title !== 'unknown' && (
+                  <div className="flex items-center gap-1 text-[var(--text-secondary)]">
+                    <span>Title:</span>
+                    <span className="text-[var(--text-primary)]">{paResult.title}</span>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {paResult?.body && (
+              <div>
+                <div className="text-[var(--text-secondary)] mb-0.5 font-medium">Result</div>
+                <pre className={cn(
+                  'rounded p-2 overflow-x-auto whitespace-pre-wrap max-h-80 overflow-y-auto',
+                  'bg-[var(--bg-tertiary)] text-[var(--text-primary)]',
+                )}>
+                  {paResult.body}
+                </pre>
+              </div>
+            )}
+            {!paResult && resultText && (
+              <div>
+                <div className="text-[var(--text-secondary)] mb-0.5 font-medium">Raw Output</div>
+                <pre className="bg-[var(--bg-tertiary)] rounded p-2 overflow-x-auto whitespace-pre-wrap text-[var(--text-primary)] max-h-64 overflow-y-auto">
+                  {resultText}
+                </pre>
+              </div>
+            )}
+            {isLoading && !resultText && (
+              <div className="flex items-center gap-1.5 text-emerald-400 py-1">
+                <Loader2 className="w-3 h-3 animate-spin" />
+                <span>Browsing...</span>
               </div>
             )}
           </div>

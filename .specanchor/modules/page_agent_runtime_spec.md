@@ -60,7 +60,7 @@ AgentLoop._register_default_tools()
 
 | action | 必填参数 | 返回形态 | 说明 |
 |--------|----------|----------|------|
-| `execute` | `instruction` | 文本 | 返回 session、URL、Title 和 page-agent 的文本结果 |
+| `execute` | `instruction` | 结构化文本 | `[PageAgent STATUS] session=... \| Steps \| Duration` + URL + Title + body |
 | `screenshot` | `session_id` | 文本 | 截图写入磁盘，并在可用时写入 `MediaService` |
 | `get_page_info` | `session_id` | 文本 | 返回页面 URL / Title / Viewport |
 | `close_session` | `session_id` | 文本 | 关闭对应 Playwright context/page |
@@ -69,6 +69,23 @@ AgentLoop._register_default_tools()
 
 - 对 agent 的最终返回是字符串，不是原始 JSON-RPC 字典
 - `session_id` 缺省时由工具生成 `s_<8hex>`，用于后续会话复用
+
+#### execute 返回格式
+
+```
+[PageAgent SUCCESS/ERROR/TIMEOUT] session=<id> | Steps: <N> | Duration: <N>ms
+URL: <current_url>
+Title: <page_title>
+
+<执行结果正文或错误信息>
+```
+
+STATUS 三层判定：
+1. `TIMEOUT`：Python 端 `_rpc()` 超时合成（不经过 runner）
+2. `ERROR`：RPC 失败（runner 异常），或 RPC 成功但 page-agent 内层 `result.success == false`
+3. `SUCCESS`：RPC 成功且 page-agent 内层 `result.success == true`
+
+首行保留 `session=` 格式以兼容下游消费者（如 `ava/skills/console_ui_regression/SKILL.md`）。
 
 ### 3.2 Console 复用接口
 
@@ -93,6 +110,31 @@ AgentLoop._register_default_tools()
 - 编码：每行一个 JSON
 - RPC 响应：带 `id`
 - 推送事件：无 `id`，包含 `type` 和 `session_id`
+
+#### execute 响应字段
+
+**成功**（`success: true`）：
+
+| 字段 | 说明 |
+|------|------|
+| `session_id` | 会话 ID |
+| `data` | page-agent 执行结果文本 |
+| `success` | page-agent 内层执行结果（true/false）|
+| `steps` | 执行步数 |
+| `duration` | 执行耗时（毫秒）|
+| `page_url` | 当前页面 URL |
+| `page_title` | 当前页面标题 |
+
+**失败**（`success: false`）：
+
+| 字段 | 说明 |
+|------|------|
+| `code` | 错误码（`EXECUTION_FAILED` / `MISSING_PARAM`）|
+| `message` | 错误描述 |
+| `session_id` | 会话 ID |
+| `duration` | 执行耗时（毫秒）|
+| `page_url` | 当前页面 URL（可能为 "unknown"）|
+| `page_title` | 当前页面标题（可能为 "unknown"）|
 
 当前 runner 方法集合：
 
@@ -177,7 +219,7 @@ AgentLoop._register_default_tools()
 - runner 只执行预定义 RPC，不接受任意 shell / JS 代码
 - screencast 只在 `browserType="chromium"` 时可用
 - `page-agent` 基于 DOM 文本理解页面；图片、Canvas、SVG 语义识别需要额外配合 `vision`
-- 当前 agent 返回格式是文本摘要，不保留完整结构化执行历史给上层 LLM
+- agent 返回格式是结构化文本（`[PageAgent STATUS] ...`），前端 `ToolCallBlock` 可解析展示专属卡片；旧格式降级为通用渲染
 
 ---
 
@@ -185,6 +227,6 @@ AgentLoop._register_default_tools()
 
 | 测试场景 | 验证内容 |
 |----------|----------|
-| `tests/tools/test_page_agent.py` | action 参数校验、字符串输出格式、disabled 分支、订阅/反订阅、`list_sessions()` 过滤、`get_page_info()` 透传 |
+| `tests/tools/test_page_agent.py` | action 参数校验、`[PageAgent STATUS]` 结构化输出格式、`_format_error_result` TIMEOUT/ERROR 格式化、内层 success=false 判定、disabled 分支、订阅/反订阅、`list_sessions()` 过滤、`get_page_info()` 透传 |
 | `tests/patches/test_tools_patch.py` | `tools_patch` 成功替换注册函数并包含 PageAgent 相关注册逻辑 |
 | 手动运行 | 真实 `node + playwright + page-agent` 集成、截图写盘、Chromium screencast、空闲自动回收 |

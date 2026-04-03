@@ -143,17 +143,45 @@ class PageAgentTool(Tool):
         })
 
         if not result.get("success"):
-            err = result.get("error", {})
-            msg = err.get("message", str(err)) if isinstance(err, dict) else str(err)
-            return f"Error: {msg}"
+            return self._format_error_result(result, session_id)
 
         r = result.get("result", {})
+        inner_success = r.get("success", True)
+        status = "SUCCESS" if inner_success else "ERROR"
+        steps = r.get("steps", 0)
+        duration = r.get("duration", 0)
         parts = [
-            f"[PageAgent] session={r.get('session_id', session_id)}",
+            f"[PageAgent {status}] session={r.get('session_id', session_id)} | Steps: {steps} | Duration: {duration}ms",
             f"URL: {r.get('page_url', 'unknown')}",
             f"Title: {r.get('page_title', 'unknown')}",
             "",
             r.get("data", "(no output)"),
+        ]
+        return "\n".join(parts)
+
+    @staticmethod
+    def _format_error_result(result: dict, fallback_session_id: str) -> str:
+        """将 RPC error / timeout 响应格式化为结构化文本。"""
+        err = result.get("error", {})
+        if isinstance(err, dict):
+            code = err.get("code", "")
+            msg = err.get("message", str(err))
+            sid = err.get("session_id", fallback_session_id)
+            duration = err.get("duration", 0)
+            page_url = err.get("page_url", "unknown")
+            page_title = err.get("page_title", "unknown")
+        else:
+            code, msg = "", str(err)
+            sid, duration = fallback_session_id, 0
+            page_url, page_title = "unknown", "unknown"
+
+        status = "TIMEOUT" if code == "TIMEOUT" else "ERROR"
+        parts = [
+            f"[PageAgent {status}] session={sid} | Steps: 0 | Duration: {duration}ms",
+            f"URL: {page_url}",
+            f"Title: {page_title}",
+            "",
+            f"Error: {msg}",
         ]
         return "\n".join(parts)
 

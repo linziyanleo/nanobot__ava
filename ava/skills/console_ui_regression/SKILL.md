@@ -28,7 +28,7 @@ metadata: {"nanobot":{"emoji":"🧪"}}
 
 page_agent 所有动作返回的都是**纯文本字符串**，不是结构化对象：
 
-- `execute` 返回格式：`[PageAgent] session=<id>\nURL: <url>\nTitle: <title>\n\n<执行结果描述>`
+- `execute` 返回格式：`[PageAgent SUCCESS/ERROR/TIMEOUT] session=<id> | Steps: <N> | Duration: <N>ms\nURL: <url>\nTitle: <title>\n\n<执行结果描述>`
 - `screenshot` 返回格式：`[PageAgent Screenshot]\nPath: <文件路径>\nMedia record: <record_id>`
 - `get_page_info` 返回格式：`URL: <url>\nTitle: <title>\nViewport: <viewport>`
 

@@ -29,7 +29,7 @@ export const navItems: NavItem[] = [
   { to: '/persona', icon: UserCog, label: '人设' },
   { to: '/skills', icon: Puzzle, label: '技能 & 工具' },
   { to: '/chat', icon: MessageSquare, label: '聊天' },
-  { to: '/browser', icon: Globe, label: '浏览器' },
+  // { to: '/browser', icon: Globe, label: '浏览器' },  // 暂时隐藏，浏览器工具收拢到对话内
   { to: '/tokens', icon: BarChart3, label: 'Token 统计' },
 ]
 

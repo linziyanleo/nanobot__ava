@@ -300,22 +300,20 @@ const handlers = {
     }
 
     const sessionId = sid || `s_${Date.now().toString(36)}`;
+    let session = null;
+    const startMs = Date.now();
 
     try {
-      const session = await getOrCreateSession(sessionId);
+      session = await getOrCreateSession(sessionId);
 
-      // 如果提供了 URL，先导航
       if (url) {
         await session.page.goto(url, { waitUntil: "domcontentloaded", timeout: 30000 });
       }
 
-      // 设置 activity 桥接
       await setupActivityBridge(sessionId, session.page);
 
-      // 执行 page-agent 指令
       const result = await executePageAgent(session.page, instruction);
 
-      // 获取当前页面信息
       const pageUrl = session.page.url();
       const pageTitle = await session.page.title();
 
@@ -324,11 +322,27 @@ const handlers = {
         data: result.data,
         success: result.success,
         steps: result.steps,
+        duration: Date.now() - startMs,
         page_url: pageUrl,
         page_title: pageTitle,
       });
     } catch (err) {
-      reply(id, false, { code: "EXECUTION_FAILED", message: err.message });
+      let pageUrl = url || "unknown";
+      let pageTitle = "unknown";
+      if (session?.page) {
+        try {
+          pageUrl = session.page.url();
+          pageTitle = await session.page.title();
+        } catch { /* ignore */ }
+      }
+      reply(id, false, {
+        code: "EXECUTION_FAILED",
+        message: err.message,
+        session_id: sessionId,
+        duration: Date.now() - startMs,
+        page_url: pageUrl,
+        page_title: pageTitle,
+      });
     }
   },
 
