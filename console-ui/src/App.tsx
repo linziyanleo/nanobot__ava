@@ -13,6 +13,7 @@ import ChatPage from './pages/ChatPage'
 import TokenStatsPage from './pages/TokenStatsPage'
 import UsersPage from './pages/UsersPage'
 import ScheduledTasksPage from './pages/ScheduledTasksPage'
+import BrowserPage from './pages/BrowserPage'
 
 function ProtectedRoute({ children, adminOnly = false }: { children: React.ReactNode; adminOnly?: boolean }) {
   const { user, loading } = useAuth()
@@ -51,6 +52,7 @@ export default function App() {
           <Route path="gateway" element={<Navigate to="/" replace />} />
           <Route path="tasks" element={<ScheduledTasksPage />} />
           <Route path="tokens" element={<TokenStatsPage />} />
+          <Route path="browser" element={<BrowserPage />} />
           <Route path="users" element={<ProtectedRoute adminOnly><UsersPage /></ProtectedRoute>} />
           {/* Legacy routes redirect */}
           <Route path="files" element={<Navigate to="/memory" replace />} />

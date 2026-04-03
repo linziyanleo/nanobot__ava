@@ -9,6 +9,7 @@ from ava.tools import (
     ClaudeCodeTool,
     ImageGenTool,
     MemoryTool,
+    PageAgentTool,
     StickerTool,
     VisionTool,
 )
@@ -79,6 +80,16 @@ def apply_tools_patch() -> str:
         
         self.tools.register(StickerTool())
 
+        # PageAgent tool
+        pa_cfg = getattr(getattr(config, "tools", None), "page_agent", None)
+        pa_enabled = pa_cfg.enabled if pa_cfg else True
+        if pa_enabled:
+            pa_tool = PageAgentTool(
+                config=pa_cfg,
+                media_service=getattr(self, 'media_service', None),
+            )
+            self.tools.register(pa_tool)
+
         categorized_memory = getattr(self, 'categorized_memory', None)
         db = getattr(self, 'db', None)
         if categorized_memory:
@@ -90,7 +101,7 @@ def apply_tools_patch() -> str:
     patched_register_default_tools._ava_tools_patched = True
     AgentLoop._register_default_tools = patched_register_default_tools
     
-    return "Registered 5 custom tools: claude_code, image_gen, vision, send_sticker, memory"
+    return "Registered 6 custom tools: claude_code, image_gen, vision, send_sticker, page_agent, memory"
 
 
 register_patch('custom_tools', apply_tools_patch)

@@ -21,7 +21,7 @@ class TestToolsPatch:
         from ava.patches.tools_patch import apply_tools_patch
 
         result = apply_tools_patch()
-        assert "5 custom tools" in result.lower() or "registered" in result.lower()
+        assert "6 custom tools" in result.lower() or "registered" in result.lower()
 
     def test_register_default_tools_replaced(self):
         """T4.2: _register_default_tools is replaced on AgentLoop class."""

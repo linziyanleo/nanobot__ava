@@ -106,6 +106,7 @@ def create_console_app(
         audit_routes,
         token_routes,
         skills_routes,
+        page_agent_routes,
     )
 
     app.include_router(auth_routes.router)
@@ -118,6 +119,7 @@ def create_console_app(
     app.include_router(audit_routes.router)
     app.include_router(token_routes.router)
     app.include_router(skills_routes.router)
+    app.include_router(page_agent_routes.router)
 
     static_dir = Path(__file__).parent.parent.parent / "console-ui" / "dist"
     if static_dir.exists():

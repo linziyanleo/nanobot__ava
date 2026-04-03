@@ -456,11 +456,66 @@ class ClaudeCodeConfig(Base):
     base_url: str = ""
 
 
+class PageAgentConfig(Base):
+    """通用 PageAgent 页面操作工具配置。"""
+
+    enabled: bool = True
+    api_base: str = Field(
+        default="",
+        validation_alias=AliasChoices("api_base", "apiBase"),
+        serialization_alias="apiBase",
+    )
+    api_key_env: str = Field(
+        default="PAGE_AGENT_API_KEY",
+        validation_alias=AliasChoices("api_key_env", "apiKeyEnv"),
+        serialization_alias="apiKeyEnv",
+    )
+    model: str = ""
+    headless: bool = True
+    browser_type: str = Field(
+        default="chromium",
+        validation_alias=AliasChoices("browser_type", "browserType"),
+        serialization_alias="browserType",
+    )
+    viewport_width: int = Field(
+        default=1280,
+        validation_alias=AliasChoices("viewport_width", "viewportWidth"),
+        serialization_alias="viewportWidth",
+    )
+    viewport_height: int = Field(
+        default=720,
+        validation_alias=AliasChoices("viewport_height", "viewportHeight"),
+        serialization_alias="viewportHeight",
+    )
+    max_steps: int = Field(
+        default=40,
+        validation_alias=AliasChoices("max_steps", "maxSteps"),
+        serialization_alias="maxSteps",
+    )
+    step_delay: float = Field(
+        default=0.4,
+        validation_alias=AliasChoices("step_delay", "stepDelay"),
+        serialization_alias="stepDelay",
+    )
+    timeout: int = 120
+    language: str = "zh-CN"
+    screenshot_dir: str = Field(
+        default="",
+        validation_alias=AliasChoices("screenshot_dir", "screenshotDir"),
+        serialization_alias="screenshotDir",
+    )
+
+
 class ToolsConfig(_UPSTREAM.ToolsConfig):
     """在上游工具配置基础上补 sidecar 工具项。"""
 
     exec: ExecToolConfig = Field(default_factory=ExecToolConfig)
     claude_code: ClaudeCodeConfig = Field(default_factory=ClaudeCodeConfig)
+    page_agent: PageAgentConfig = Field(
+        default_factory=PageAgentConfig,
+        validation_alias=AliasChoices("page_agent", "pageAgent"),
+        serialization_alias="pageAgent",
+    )
     restrict_config_file: bool = Field(
         default=True,
         validation_alias=AliasChoices("restrictToConfigFile", "restrictConfigFile"),
