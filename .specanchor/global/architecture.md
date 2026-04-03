@@ -2,10 +2,25 @@
 
 ## 核心原则
 
-1. **零侵入上游**：`nanobot/` 目录保持 100% 纯净，所有定制逻辑在 `ava/` 中实现
+1. **零侵入上游**：`nanobot/` 目录默认保持纯净，所有 sidecar 定制逻辑在 `ava/` 中实现
 2. **Monkey Patch 优先**：能通过运行时 patch 实现的功能，不做 Fork
 3. **Fork 作为最后手段**：Fork 文件放入 `ava/forks/`，通过路径覆盖机制生效
 4. **最小化拦截点**：patch 只作用于入口/出口（CLI 层、工具执行层、消息总线层）
+
+## 上游集成例外
+
+- 以下场景允许更新 `nanobot/`：
+  - 合并 `upstream/main` 时带入的上游变更
+  - 为解决 upstream merge conflict 做的最小 reconciliation
+  - 明确要回提 upstream 的 bugfix / 通用能力修改
+- 这些改动不视为 sidecar 定制；sidecar 定制仍必须落在 `ava/`
+- 若提交时 commit guard 因 `nanobot/` staged files 阻挡，可显式使用：
+
+```bash
+ALLOW_NANOBOT_PATCH=1 git commit ...
+```
+
+- 使用该参数时，提交说明或相关 Task Spec 中必须明确写出“这是 upstream 集成 / upstream 修复例外”，不能把它当作常规放行开关
 
 ## 目录结构
 

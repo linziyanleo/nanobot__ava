@@ -9,9 +9,21 @@
 
 ### 1.1 零上游污染原则
 
-- **绝对禁止**修改 `nanobot/` 目录下的任何文件
+- **默认禁止**修改 `nanobot/` 目录下的任何文件
 - 所有定制逻辑必须放在 `ava/` 目录中
 - Patch 通过 Python 运行时动态替换实现，不改变磁盘上的上游源码
+- 唯一例外：
+  - 合并 `upstream/main` 时带入的上游更新
+  - 解决 upstream merge conflict 的最小 reconciliation
+  - 修复上游 bug / 添加上游通用能力 / 为 upstream PR 做准备
+- 上述例外只适用于 upstream 集成，不适用于把 sidecar 逻辑直接写进 `nanobot/`
+- 若 commit guard 因 staged `nanobot/` 文件阻挡提交，可在确认属于上述例外后使用：
+
+```bash
+ALLOW_NANOBOT_PATCH=1 git commit ...
+```
+
+- 使用该参数时，必须在提交信息、Task Spec 或 Execute Log 中写明本次属于 upstream 集成例外
 
 ### 1.2 最小化拦截原则
 

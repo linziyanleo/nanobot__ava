@@ -7,7 +7,7 @@ specanchor:
   reviewer: "@Ziyan Lin"
   created: "2026-04-03"
   status: "in_progress"
-  last_change: "完成 upstream/main 合并与 context.py 冲突解法，patch/guardrails 与 targeted runtime/provider 回归通过，并同步更新 UPSTREAM_VERSION 与 patch 治理文档"
+  last_change: "补充 global spec：明确 upstream 集成例外可更新 nanobot/，并记录 ALLOW_NANOBOT_PATCH=1 作为 commit guard 放行参数"
   related_modules:
     - ".specanchor/modules/schema_patch_spec.md"
     - ".specanchor/modules/onboard_patch_spec.md"
@@ -168,6 +168,7 @@ specanchor:
 - [x] Step 6: 更新 `ava/UPSTREAM_VERSION`、`.specanchor/patch_map.md`、`.specanchor/TODO.md`、`context_patch_spec.md`、`schema_patch_spec.md`、`loop_patch_spec.md`。
 - [x] Step 7: 运行 `uv run pytest tests/guardrails/test_spec_sync.py -q` 与 `git diff --check`，均通过。
 - [x] Step 8: 尝试运行 `bash scripts/specanchor-check.sh task ...`，发现当前仓库不存在该脚本，无法执行 task freshness 脚本检查。
+- [x] Step 9: 更新 `.specanchor/global/architecture.md` 与 `.specanchor/global-patch-spec.md`，明确 upstream merge / upstream fix 场景可更新 `nanobot/`，并记录 `ALLOW_NANOBOT_PATCH=1 git commit ...` 为受限放行参数。
 
 ## 6. Review Verdict
 
@@ -175,6 +176,7 @@ specanchor:
 - Patch health: `tests/patches` 与 `tests/guardrails` 全通过，说明现有 sidecar 拦截点未被这次 upstream 变更打断。
 - Targeted runtime health: `context` / `loop` / `cli` / `provider` / `api` 相关 targeted 测试通过，说明这次 conflict resolution 没引入回归。
 - Spec sync: `UPSTREAM_VERSION` 与 patch 治理文档已同步到最新 upstream 基线。
+- Global rule sync: global spec 已补充 upstream 集成例外，避免“文档写绝对禁止”与实际 merge guard 放行流程冲突。
 - Residual risk:
   - `context_patch` 已进入“部分上游覆盖”状态，下一次 upstream 若继续把 sanitize 下沉到核心层，需要收窄 provider wrapper；
   - `loop_patch` 需继续盯住 runtime checkpoint 与新增 AgentDefaults 参数面；
