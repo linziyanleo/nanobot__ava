@@ -8,12 +8,12 @@
 |-----------|----------|------|------|
 | `ava/patches/a_schema_patch.py` | [schema_patch_spec.md](schema_patch_spec.md) | ✅ | Config Schema 模块替换 |
 | `ava/patches/b_config_patch.py` | [config_patch_spec.md](config_patch_spec.md) | ✅ | Config 字段注入（降级方案） |
-| `ava/patches/bus_patch.py` | [bus_console_listener_spec.md](bus_console_listener_spec.md) | ✅ | MessageBus Console listener |
+| `ava/patches/bus_patch.py` | [bus_console_listener_spec.md](bus_console_listener_spec.md) | ✅ | MessageBus Console + Observe 双套监听器 |
 | `ava/patches/c_onboard_patch.py` | [onboard_patch_spec.md](onboard_patch_spec.md) | ✅ | onboard refresh 旧配置兼容层 |
 | `ava/patches/channel_patch.py` | [channel_patch_spec.md](channel_patch_spec.md) | ✅ | 消息批处理 |
 | `ava/patches/console_patch.py` | [console_patch_spec.md](console_patch_spec.md) | ✅ | Web Console 独立服务 |
 | `ava/patches/context_patch.py` | [context_patch_spec.md](context_patch_spec.md) | ✅ | 历史摘要+压缩+分类记忆注入 |
-| `ava/patches/loop_patch.py` | [loop_patch_spec.md](loop_patch_spec.md) | ✅ | AgentLoop 属性注入 + token 统计 |
+| `ava/patches/loop_patch.py` | [loop_patch_spec.md](loop_patch_spec.md) | ✅ | AgentLoop 属性注入 + Token 统计 + Phase 0 预记录 + 实时广播 |
 | `ava/patches/skills_patch.py` | [skills_patch_spec.md](skills_patch_spec.md) | ✅ | SkillsLoader 三源发现 + SQLite disabled filter |
 | `ava/patches/storage_patch.py` | [storage_patch_spec.md](storage_patch_spec.md) | ✅ | SQLite 存储层替换 |
 | `ava/patches/tools_patch.py` | [tools_patch_spec.md](tools_patch_spec.md) | ✅ | 6 个自定义工具注入（含 page_agent） |

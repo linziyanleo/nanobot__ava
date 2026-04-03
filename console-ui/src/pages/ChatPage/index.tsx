@@ -10,7 +10,6 @@ import { SessionSidebar } from './SessionSidebar'
 import { MessageArea } from './MessageArea'
 
 const SESSION_LIST_POLL_MS = 30_000
-const MESSAGE_POLL_MS = 10_000
 
 export default function ChatPage() {
   const [sessions, setSessions] = useState<SessionMeta[]>([])
@@ -22,10 +21,14 @@ export default function ChatPage() {
   const [streaming, setStreaming] = useState('')
   const [thinkingStreaming, setThinkingStreaming] = useState('')
   const [sending, setSending] = useState(false)
+  const [processing, setProcessing] = useState(false)
   const [mobileSessionOpen, setMobileSessionOpen] = useState(false)
   const wsRef = useRef<WebSocket | null>(null)
   const wsReconnectTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const wsSessionId = useRef<string>('')
+  const observeWsRef = useRef<WebSocket | null>(null)
+  const observeReconnectTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const observeSessionKey = useRef<string>('')
   const initializedRef = useRef(false)
   const { isMobile } = useResponsiveMode()
   useAuth()
@@ -91,6 +94,60 @@ export default function ChatPage() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
+  const disconnectObserveWs = useCallback(() => {
+    if (observeReconnectTimer.current) {
+      clearTimeout(observeReconnectTimer.current)
+      observeReconnectTimer.current = null
+    }
+    observeWsRef.current?.close()
+    observeWsRef.current = null
+    observeSessionKey.current = ''
+    setProcessing(false)
+  }, [])
+
+  const connectObserveWs = useCallback((sessionKey: string) => {
+    disconnectObserveWs()
+    observeSessionKey.current = sessionKey
+    const ws = new WebSocket(wsUrl(`/chat/ws/observe/${encodeURIComponent(sessionKey)}`))
+
+    ws.onopen = () => {
+      loadSessionMessagesRef.current(sessionKey, true)
+    }
+
+    ws.onmessage = (e) => {
+      const data = JSON.parse(e.data)
+      if (data.type === 'message_arrived') {
+        const pendingMsg: RawMessage = {
+          role: 'user',
+          content: data.content,
+          timestamp: data.timestamp,
+        }
+        setTurns((prev) => [...prev, {
+          userMessage: pendingMsg,
+          assistantSteps: [],
+          isComplete: false,
+          startTime: data.timestamp,
+          toolCalls: [],
+        }])
+        setProcessing(true)
+      } else if (data.type === 'processing_started') {
+        setProcessing(true)
+      } else if (data.type === 'turn_completed') {
+        setProcessing(false)
+        loadSessionMessagesRef.current(sessionKey, true)
+      }
+    }
+
+    ws.onclose = () => {
+      if (observeSessionKey.current === sessionKey) {
+        observeReconnectTimer.current = setTimeout(() => connectObserveWs(sessionKey), 2000)
+      }
+    }
+
+    observeWsRef.current = ws
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [disconnectObserveWs])
+
   const loadSessionList = useCallback(async () => {
     try {
       const data = await api<SessionMeta[]>('/chat/sessions')
@@ -136,22 +193,26 @@ export default function ChatPage() {
     return () => clearInterval(timer)
   }, [loadSessionList])
 
-  // Current session message polling (10s, non-console only)
+  // Observe WS for non-console sessions (replaces 10s polling)
   useEffect(() => {
-    if (!activeSession || activeScene === 'console' || sending) return
-    const timer = setInterval(() => {
-      loadSessionMessages(activeSession, true)
-    }, MESSAGE_POLL_MS)
-    return () => clearInterval(timer)
-  }, [activeSession, activeScene, sending, loadSessionMessages])
+    if (!activeSession || activeScene === 'console') {
+      disconnectObserveWs()
+      return
+    }
+    connectObserveWs(activeSession)
+    return () => disconnectObserveWs()
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeSession, activeScene])
 
   const handleSessionSelect = (key: string) => {
     setActiveSession(key)
     setStreaming('')
     setThinkingStreaming('')
+    setProcessing(false)
     wsSessionId.current = ''
     if (wsReconnectTimer.current) { clearTimeout(wsReconnectTimer.current); wsReconnectTimer.current = null }
     wsRef.current?.close()
+    disconnectObserveWs()
     setMobileSessionOpen(false)
 
     loadSessionMessages(key)
@@ -168,8 +229,10 @@ export default function ChatPage() {
     wsSessionId.current = ''
     if (wsReconnectTimer.current) { clearTimeout(wsReconnectTimer.current); wsReconnectTimer.current = null }
     wsRef.current?.close()
+    disconnectObserveWs()
     setStreaming('')
     setThinkingStreaming('')
+    setProcessing(false)
 
     const sceneSessions = sessions.filter((s) => s.scene === scene)
     if (sceneSessions.length > 0) {
@@ -360,6 +423,7 @@ export default function ChatPage() {
           streaming={streaming}
           thinkingStreaming={thinkingStreaming}
           sending={sending}
+          processing={processing}
           onSend={handleSend}
           onRefresh={handleRefresh}
           isMobile={isMobile}

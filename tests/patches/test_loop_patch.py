@@ -88,3 +88,54 @@ class TestLoopPatch:
         apply_loop_patch()
         result = apply_loop_patch()
         assert "skipped" in result.lower()
+
+
+class TestTokenStatsRecordId:
+    """token_stats_service.record() 返回 record_id 和 update_record() 测试。"""
+
+    def test_record_returns_id(self, tmp_path):
+        from ava.storage import Database
+        db = Database(tmp_path / "test.db")
+        from ava.console.services.token_stats_service import TokenStatsCollector
+        collector = TokenStatsCollector(data_dir=tmp_path, db=db)
+
+        rid = collector.record(
+            model="test-model", provider="test",
+            usage={"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15},
+            session_key="test:1", finish_reason="stop",
+        )
+        assert rid is not None
+        assert isinstance(rid, int)
+
+    def test_update_record(self, tmp_path):
+        from ava.storage import Database
+        db = Database(tmp_path / "test.db")
+        from ava.console.services.token_stats_service import TokenStatsCollector
+        collector = TokenStatsCollector(data_dir=tmp_path, db=db)
+
+        rid = collector.record(
+            model="test-model", provider="test",
+            usage={"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
+            session_key="test:1", finish_reason="pending", model_role="pending",
+        )
+        collector.update_record(rid, prompt_tokens=100, finish_reason="stop", model_role="chat")
+
+        records = collector.get_records(limit=1)
+        assert len(records) == 1
+        assert records[0]["prompt_tokens"] == 100
+        assert records[0]["finish_reason"] == "stop"
+        assert records[0]["model_role"] == "chat"
+
+    def test_update_record_rejects_unknown_fields(self, tmp_path):
+        from ava.storage import Database
+        db = Database(tmp_path / "test.db")
+        from ava.console.services.token_stats_service import TokenStatsCollector
+        collector = TokenStatsCollector(data_dir=tmp_path, db=db)
+
+        rid = collector.record(
+            model="m", provider="p",
+            usage={"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
+        )
+        collector.update_record(rid, unknown_field="bad", prompt_tokens=50)
+        records = collector.get_records(limit=1)
+        assert records[0]["prompt_tokens"] == 50

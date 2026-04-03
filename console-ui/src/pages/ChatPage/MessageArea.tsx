@@ -16,13 +16,14 @@ interface MessageAreaProps {
   streaming: string
   thinkingStreaming: string
   sending: boolean
+  processing?: boolean
   onSend: (message: string) => void
   onRefresh: () => void
   isMobile?: boolean
   onToggleSessionPanel?: () => void
 }
 
-export function MessageArea({ session, turns, loading, isConsole, streaming, thinkingStreaming, sending, onSend, onRefresh, isMobile, onToggleSessionPanel }: MessageAreaProps) {
+export function MessageArea({ session, turns, loading, isConsole, streaming, thinkingStreaming, sending, processing, onSend, onRefresh, isMobile, onToggleSessionPanel }: MessageAreaProps) {
   const bottomRef = useRef<HTMLDivElement>(null)
   const scrollContainerRef = useRef<HTMLDivElement>(null)
   const isInitialScroll = useRef(true)
@@ -210,6 +211,18 @@ export function MessageArea({ session, turns, loading, isConsole, streaming, thi
                 <div className="max-w-[80%] px-4 py-2.5 rounded-2xl rounded-bl-md bg-[var(--bg-secondary)] border border-[var(--border)] text-sm">
                   <pre className="whitespace-pre-wrap font-[inherit]">{streaming}</pre>
                   <span className="inline-block w-2 h-4 bg-[var(--accent)] animate-pulse ml-0.5" />
+                </div>
+              </div>
+            )}
+            {processing && !streaming && (turns.length === 0 || turns[turns.length - 1]?.isComplete) && (
+              <div className="flex justify-start">
+                <div className="max-w-[80%] px-4 py-2.5 rounded-2xl rounded-bl-md bg-[var(--bg-secondary)] border border-[var(--border)] text-sm text-[var(--text-secondary)]">
+                  <span className="inline-flex items-center gap-1.5">
+                    <span className="inline-block w-1.5 h-1.5 rounded-full bg-[var(--accent)] animate-pulse" />
+                    <span className="inline-block w-1.5 h-1.5 rounded-full bg-[var(--accent)] animate-pulse [animation-delay:0.15s]" />
+                    <span className="inline-block w-1.5 h-1.5 rounded-full bg-[var(--accent)] animate-pulse [animation-delay:0.3s]" />
+                    <span className="ml-1">Processing...</span>
+                  </span>
                 </div>
               </div>
             )}

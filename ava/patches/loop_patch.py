@@ -9,7 +9,8 @@ Injected attributes (after __init__):
   - self.history_compressor  — HistoryCompressor instance
   - self.context._agent_loop — back-reference for context_patch to access loop
 
-Also patches _process_message to record token usage after each turn.
+Also patches _process_message to record token usage after each turn,
+and broadcasts observe events via MessageBus for real-time Console updates.
 
 Execution order note:
   storage_patch runs after this (s > l alphabetically).
@@ -209,10 +210,66 @@ def apply_loop_patch() -> str:
     original_run_agent_loop = AgentLoop._run_agent_loop
 
     async def patched_run_agent_loop(self: AgentLoop, initial_messages, **kwargs):
+        import json as _json
+        from datetime import datetime as _dt
+
+        sk = getattr(self, "_current_session_key", "") or ""
+        user_msg = getattr(self, "_current_user_message", "") or ""
+
+        # === 实时广播 + Phase 0 预记录（LLM 调用前，slash command 已过）===
+        self._phase0_record_id = None
+        if sk and user_msg:
+            bus = getattr(self, "bus", None)
+            if bus and hasattr(bus, "dispatch_observe_event"):
+                bus.dispatch_observe_event(sk, {
+                    "type": "message_arrived",
+                    "session_key": sk,
+                    "role": "user",
+                    "content": user_msg[:500],
+                    "timestamp": _dt.now().isoformat(),
+                })
+
+            token_stats = getattr(self, "token_stats", None)
+            if token_stats:
+                try:
+                    conv_history = _json.dumps(
+                        [{"role": m.get("role", ""), "content": str(m.get("content", ""))[:200]}
+                         for m in initial_messages if m.get("role") != "system"],
+                        ensure_ascii=False,
+                    )
+                except Exception:
+                    conv_history = ""
+                provider_name = type(self.provider).__name__.lower().replace("provider", "")
+                phase0_id = token_stats.record(
+                    model=self.model,
+                    provider=provider_name,
+                    usage={"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
+                    session_key=sk,
+                    user_message=user_msg[:1000],
+                    system_prompt=getattr(self, "_last_system_prompt", ""),
+                    conversation_history=conv_history,
+                    finish_reason="pending",
+                    model_role="pending",
+                )
+                self._phase0_record_id = phase0_id
+                if bus and hasattr(bus, "dispatch_observe_event") and phase0_id is not None:
+                    bus.dispatch_observe_event(sk, {
+                        "type": "token_recorded",
+                        "session_key": sk,
+                        "record_id": phase0_id,
+                        "phase": "pending",
+                    })
+
+            if bus and hasattr(bus, "dispatch_observe_event"):
+                bus.dispatch_observe_event(sk, {
+                    "type": "processing_started",
+                    "session_key": sk,
+                    "model": self.model,
+                })
+
         original_chat = self.provider.chat_with_retry
         original_chat_stream = self.provider.chat_stream_with_retry
-        # Per-turn tracking
-        self._turn_record_ids = []  # DB row ids recorded in this turn
+        self._turn_record_ids = []
         self._turn_iteration = 0
 
         def _record_immediately(response):
@@ -225,7 +282,6 @@ def apply_loop_patch() -> str:
             finish_reason = usage_data["finish_reason"]
             is_tool_call = finish_reason in ("tool_calls", "tool_use")
 
-            # Extract tool names from response.tool_calls
             tool_names_list = []
             try:
                 if hasattr(response, "tool_calls") and response.tool_calls:
@@ -234,25 +290,23 @@ def apply_loop_patch() -> str:
                 pass
             tool_names_str = ", ".join(tool_names_list)
 
-            sk = getattr(self, "_current_session_key", "") or ""
+            sk_inner = getattr(self, "_current_session_key", "") or ""
             provider_name = type(self.provider).__name__.lower().replace("provider", "")
             iteration = self._turn_iteration
             self._turn_iteration += 1
 
-            # Estimate current-turn tokens only on first call
             current_turn_tokens = 0
             if iteration == 0:
                 try:
                     from nanobot.utils.helpers import estimate_prompt_tokens
-                    user_msg = getattr(self, "_current_user_message", "") or ""
-                    if user_msg:
+                    u_msg = getattr(self, "_current_user_message", "") or ""
+                    if u_msg:
                         current_turn_tokens = estimate_prompt_tokens(
-                            [{"role": "user", "content": user_msg}]
+                            [{"role": "user", "content": u_msg}]
                         )
                 except Exception:
                     pass
 
-            # System prompt dedup
             system_prompt = getattr(self, "_last_system_prompt", "") or ""
             prev_sys = getattr(self, "_prev_recorded_system_prompt", "")
             if system_prompt == prev_sys:
@@ -261,16 +315,46 @@ def apply_loop_patch() -> str:
                 system_prompt_to_store = system_prompt
                 self._prev_recorded_system_prompt = system_prompt
 
+            # Phase 0 UPDATE: 第一次 LLM 调用完成后更新已有的 pending 记录
+            phase0_id = getattr(self, "_phase0_record_id", None)
+            if iteration == 0 and phase0_id is not None:
+                try:
+                    token_stats.update_record(
+                        phase0_id,
+                        prompt_tokens=usage_data["prompt_tokens"],
+                        completion_tokens=usage_data["completion_tokens"],
+                        total_tokens=usage_data["total_tokens"],
+                        cached_tokens=usage_data.get("cached_tokens", 0),
+                        cache_creation_tokens=usage_data.get("cache_creation_tokens", 0),
+                        finish_reason=finish_reason,
+                        model_role="tool_call" if is_tool_call else "chat",
+                        current_turn_tokens=current_turn_tokens,
+                        tool_names=tool_names_str,
+                    )
+                    self._turn_record_ids.append(phase0_id)
+                    self._phase0_record_id = None
+                    bus = getattr(self, "bus", None)
+                    if bus and hasattr(bus, "dispatch_observe_event"):
+                        bus.dispatch_observe_event(sk_inner, {
+                            "type": "token_recorded",
+                            "session_key": sk_inner,
+                            "record_id": phase0_id,
+                            "phase": "completed",
+                        })
+                except Exception as exc:
+                    logger.warning("Failed to update Phase 0 record: {}", exc)
+                return
+
             try:
-                token_stats.record(
+                rec_id = token_stats.record(
                     model=self.model,
                     provider=provider_name,
                     usage=usage_data,
-                    session_key=sk,
-                    user_message="",  # backfilled after turn
-                    output_content="",  # backfilled after turn
+                    session_key=sk_inner,
+                    user_message="",
+                    output_content="",
                     system_prompt=system_prompt_to_store,
-                    conversation_history="",  # backfilled after turn
+                    conversation_history="",
                     finish_reason=finish_reason,
                     model_role="tool_call" if is_tool_call else "chat",
                     cached_tokens=usage_data.get("cached_tokens"),
@@ -278,8 +362,9 @@ def apply_loop_patch() -> str:
                     current_turn_tokens=current_turn_tokens,
                     tool_names=tool_names_str,
                 )
-                # Track the inserted row id for backfill
-                if token_stats._use_db:
+                if rec_id is not None:
+                    self._turn_record_ids.append(rec_id)
+                elif token_stats._use_db:
                     row = token_stats._db.fetchone("SELECT last_insert_rowid() as id")
                     if row:
                         self._turn_record_ids.append(row["id"])
@@ -370,15 +455,26 @@ def apply_loop_patch() -> str:
         self._turn_record_ids = []
         self._turn_iteration = 0
 
-        result = await original_process_message(
-            self, msg,
-            session_key=session_key,
-            on_progress=on_progress,
-            on_stream=on_stream,
-            on_stream_end=on_stream_end,
-        )
+        try:
+            result = await original_process_message(
+                self, msg,
+                session_key=session_key,
+                on_progress=on_progress,
+                on_stream=on_stream,
+                on_stream_end=on_stream_end,
+            )
+        except Exception:
+            # Phase 0 异常处理：LLM 异常退出时将 pending 记录标记为 error
+            phase0_id = getattr(self, "_phase0_record_id", None)
+            token_stats = getattr(self, "token_stats", None)
+            if phase0_id is not None and token_stats:
+                try:
+                    token_stats.update_record(phase0_id, finish_reason="error", model_role="error")
+                except Exception:
+                    pass
+            raise
 
-        # Backfill user_message, output_content, conversation_history on DB records
+        # Backfill user_message, output_content on DB records
         token_stats = getattr(self, "token_stats", None)
         record_ids = getattr(self, "_turn_record_ids", [])
         if token_stats and token_stats._use_db and record_ids:
@@ -386,30 +482,12 @@ def apply_loop_patch() -> str:
                 user_msg = (getattr(msg, "content", "") or "")[:1000]
                 output_content = (getattr(result, "content", "") or "")[:4000]
 
-                # Build conversation_history
-                conversation_history = ""
-                try:
-                    import json as _json
-                    session = self.sessions.get_or_create(sk) if sk else None
-                    if session:
-                        hist = session.get_history(max_messages=10)
-                        if hist:
-                            conversation_history = _json.dumps(
-                                [{"role": m.get("role", ""), "content": str(m.get("content", ""))[:200]}
-                                 for m in hist],
-                                ensure_ascii=False,
-                            )
-                except Exception:
-                    pass
-
-                # Backfill first record: user_message + conversation_history
                 first_id = record_ids[0]
                 token_stats._db.execute(
-                    "UPDATE token_usage SET user_message = ?, conversation_history = ? WHERE id = ?",
-                    (user_msg, conversation_history, first_id),
+                    "UPDATE token_usage SET user_message = ? WHERE id = ? AND user_message = ''",
+                    (user_msg, first_id),
                 )
 
-                # Backfill last record: output_content
                 last_id = record_ids[-1]
                 token_stats._db.execute(
                     "UPDATE token_usage SET output_content = ? WHERE id = ?",
@@ -419,9 +497,24 @@ def apply_loop_patch() -> str:
             except Exception as exc:
                 logger.warning("Failed to backfill token stats: {}", exc)
 
+        # 广播 turn_completed（此时 _save_turn + sessions.save 已完成，DB 中消息已持久化）
+        if sk:
+            bus = getattr(self, "bus", None)
+            if bus and hasattr(bus, "dispatch_observe_event"):
+                try:
+                    session = self.sessions.get_or_create(sk)
+                    bus.dispatch_observe_event(sk, {
+                        "type": "turn_completed",
+                        "session_key": sk,
+                        "message_count": len(session.messages) if session else 0,
+                    })
+                except Exception:
+                    pass
+
         # Clear turn state
         self._turn_record_ids = []
         self._turn_iteration = 0
+        self._phase0_record_id = None
 
         return result
 

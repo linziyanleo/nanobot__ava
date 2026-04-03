@@ -13,6 +13,7 @@ import {
   SlidersHorizontal,
 } from 'lucide-react';
 import { useResponsiveMode } from '../hooks/useResponsiveMode';
+import ConversationHistoryView from '../components/ConversationHistoryView';
 import {
   BarChart,
   Bar,
@@ -120,6 +121,8 @@ const MODEL_ROLE_CONFIG: Record<string, { icon: string; label: string }> = {
   voice: { icon: '🎙️', label: '语音模型' },
   imageGen: { icon: '🎨', label: '图像生成' },
   claude_code: { icon: '💻', label: 'Claude Code' },
+  pending: { icon: '⏳', label: 'Processing...' },
+  error: { icon: '❌', label: '异常终止' },
 };
 
 function ModelRoleIcon({ role }: { role: string }) {
@@ -323,6 +326,18 @@ export default function TokenStatsPage() {
       void loadRecords(0);
     });
   }, [loadSummary, loadRecords]);
+
+  // Auto-refresh when pending records exist
+  const AUTO_REFRESH_MS = 5_000;
+  useEffect(() => {
+    const hasPending = records.some((r) => r.model_role === 'pending');
+    if (!hasPending) return;
+
+    const timer = setInterval(() => {
+      void loadRecords(page);
+    }, AUTO_REFRESH_MS);
+    return () => clearInterval(timer);
+  }, [records, page, loadRecords]);
 
   // When URL params change (navigation from other page), sync state and reload
   const mountedRef = useRef(false);
@@ -1022,8 +1037,8 @@ function RecordRow({
           <ModelRoleIcon role={r.model_role || 'default'} />
         </td>
         <td className="px-4 py-2.5 text-xs">{r.provider}</td>
-        <td className="px-4 py-2.5 text-right text-cyan-400 text-xs">{formatTokens(r.prompt_tokens)}</td>
-        <td className="px-4 py-2.5 text-right text-emerald-400 text-xs">{formatTokens(r.completion_tokens)}</td>
+        <td className="px-4 py-2.5 text-right text-cyan-400 text-xs">{r.model_role === 'pending' ? '—' : formatTokens(r.prompt_tokens)}</td>
+        <td className="px-4 py-2.5 text-right text-emerald-400 text-xs">{r.model_role === 'pending' ? '—' : formatTokens(r.completion_tokens)}</td>
         <td className="px-4 py-2.5 text-center">
           {formatCacheStatus(r.cached_tokens || 0, r.cache_creation_tokens || 0)}
         </td>
@@ -1101,15 +1116,9 @@ function RecordRow({
               {r.conversation_history && (
                 <div>
                   <p className="text-[var(--text-secondary)] mb-1">对话历史:</p>
-                  <CopyablePre className="bg-[var(--bg-primary)] rounded-lg p-3 text-xs whitespace-pre-wrap break-all max-h-64 overflow-y-auto text-[var(--text-secondary)]">
-                    {(() => {
-                      try {
-                        return JSON.stringify(JSON.parse(r.conversation_history), null, 2);
-                      } catch {
-                        return r.conversation_history;
-                      }
-                    })()}
-                  </CopyablePre>
+                  <div className="bg-[var(--bg-primary)] rounded-lg p-3">
+                    <ConversationHistoryView historyJson={r.conversation_history} />
+                  </div>
                 </div>
               )}
               {r.full_request_payload && r.full_request_payload.length > 0 && (

@@ -1,4 +1,4 @@
-# Module Spec: loop_patch — AgentLoop 属性注入与 Token 统计
+# Module Spec: loop_patch — AgentLoop 属性注入、Token 统计与实时广播
 
 > 文件：`ava/patches/loop_patch.py`
 > 状态：✅ 已实现
@@ -8,11 +8,13 @@
 
 ## 1. 模块职责
 
-为 `AgentLoop` 注入 ava 扩展属性，并在每次消息处理后记录完整的 token 使用情况（含缓存命中、当轮新增 tokens、对话历史）。
+为 `AgentLoop` 注入 ava 扩展属性，记录完整的 token 使用情况，并通过 MessageBus 广播消息生命周期事件实现 Console 实时更新。
 
 ### 核心能力
 - **属性注入**：在 `AgentLoop.__init__` 完成后绑定 db/token_stats/media_service/categorized_memory/history_summarizer/history_compressor
 - **Token 统计**：包装 `_run_agent_loop`（拦截 provider 调用获取原始 usage）和 `_process_message`（每轮记录完整字段）
+- **Phase 0 预记录**：在 `patched_run_agent_loop` 开头（LLM 调用前）写入 pending 状态的 token_usage 记录，首次 LLM 调用完成后 UPDATE 填入真实数值
+- **实时广播**：通过 `bus.dispatch_observe_event()` 广播 `message_arrived` / `processing_started` / `token_recorded` / `turn_completed` 四类生命周期事件
 - **Database 共享**：通过 `set_shared_db()` 接收 storage_patch 的共享 Database 实例
 
 > `2026-04-03` 之后的注意点：upstream `AgentLoop` 已新增 `context_block_limit`、`max_tool_result_chars`、`provider_retry_mode` 以及 runtime checkpoint 相关状态面。
@@ -26,10 +28,26 @@
 |--------|------|------|
 | `AgentLoop.__init__` | 方法包装 | 注入 6 个扩展属性 + back-reference |
 | `AgentLoop._set_tool_context` | 方法包装 | 同步更新 StickerTool 的 chat context |
-| `AgentLoop._run_agent_loop` | 方法包装 | 拦截 provider.chat_* 捕获完整 usage（cached_tokens、finish_reason 等）|
-| `AgentLoop._process_message` | 方法包装 | 记录每轮完整 token 统计 |
+| `AgentLoop._run_agent_loop` | 方法包装 | 开头广播 message_arrived + Phase 0 预记录 + processing_started；拦截 provider.chat_*；首次 LLM 调用 UPDATE Phase 0 |
+| `AgentLoop._save_turn` | 方法包装 | 修正 skip 与 compressed history 的不匹配 |
+| `AgentLoop._process_message` | 方法包装 | 记录每轮完整 token 统计 + turn 完成后广播 turn_completed + Phase 0 异常处理 |
 
-### 2.1 `_store_full_usage` 字段说明
+### 2.1 实时广播事件
+
+| 事件类型 | 触发位置 | payload |
+|----------|---------|---------|
+| `message_arrived` | `patched_run_agent_loop` 开头 | `{session_key, role, content, timestamp}` |
+| `processing_started` | `patched_run_agent_loop` 开头 | `{session_key, model}` |
+| `token_recorded` | Phase 0 写入 / UPDATE 时 | `{session_key, record_id, phase}` |
+| `turn_completed` | `patched_process_message` 中 original 返回后 | `{session_key, message_count}` |
+
+### 2.2 Phase 0 预记录
+
+在 `patched_run_agent_loop` 开头（此时 slash command 已过、`build_messages` 已调用），写入一条 `finish_reason="pending"`, `model_role="pending"` 的 token_usage 记录。`conversation_history` 使用 `initial_messages`（经过 context_patch summarize + compress 后的真实 LLM context），不是 `session.get_history(10)`。
+
+首次 LLM 调用完成后（`_record_immediately` 中 `iteration == 0`），UPDATE 该记录填入真实 token 数值。LLM 异常退出时，在 `patched_process_message` 的 except 块中将记录标记为 `finish_reason="error"`, `model_role="error"`。
+
+### 2.3 `_store_full_usage` 字段说明
 
 ```python
 loop._full_last_usage = {
@@ -42,7 +60,7 @@ loop._full_last_usage = {
 }
 ```
 
-### 2.2 `patched_process_message` 记录字段
+### 2.4 `patched_process_message` 记录字段
 
 | 字段 | 来源 |
 |------|------|
@@ -50,7 +68,7 @@ loop._full_last_usage = {
 | `cached_tokens` / `cache_creation_tokens` | `_full_last_usage._cached_tokens` 等（预解析）|
 | `current_turn_tokens` | tiktoken 估算 `msg.content` |
 | `system_prompt` | `self._last_system_prompt`（context_patch 设置，截 2000 字）|
-| `conversation_history` | session.get_history(10) JSON 序列化 |
+| `conversation_history` | Phase 0: initial_messages JSON 序列化（真实 LLM context）；backfill: 不再覆盖（Phase 0 已有） |
 | `user_message` | `msg.content`（截 1000 字）|
 | `output_content` | `result.content`（截 4000 字）|
 
@@ -99,6 +117,12 @@ def _get_or_create_db(workspace_path):
 | 属性注入 | 实例拥有 db/token_stats/media_service/categorized_memory/summarizer/compressor |
 | cached_tokens 修复 | DB 记录中 cached_tokens 非 0（Anthropic 缓存命中时）|
 | current_turn_tokens | DB 记录中有合理的 tiktoken 估算值 |
-| conversation_history | DB 记录中有最近 session 历史 JSON |
+| conversation_history | DB 记录中有 initial_messages 序列化的真实 LLM context |
+| record() 返回 id | token_stats.record() 返回插入行的 id |
+| update_record() | update_record() 更新指定字段，拒绝未知字段 |
+| Phase 0 预记录 | LLM 调用前 token_usage 表有 finish_reason="pending" 的记录 |
+| Phase 0 UPDATE | 首次 LLM 调用后 pending 记录被 UPDATE |
+| Phase 0 异常 | LLM 异常时 pending 记录被标记为 error |
+| 实时广播时序 | message_arrived → token_recorded(pending) → processing_started → turn_completed |
 | shared_db | set_shared_db() 后新 AgentLoop 获得共享 db |
 | 幂等性 | 多次 apply 不重复包装 |

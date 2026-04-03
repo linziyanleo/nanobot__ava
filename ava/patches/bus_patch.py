@@ -1,13 +1,16 @@
 """Patch to add Console WebSocket listener support to MessageBus.
 
-Adds three methods to MessageBus:
-  - register_console_listener(session_key) -> asyncio.Queue  — queue-based API
-  - unregister_console_listener(session_key)
-  - dispatch_to_console_listener(session_key, msg)  — puts OutboundMessage into queue
+Adds two sets of methods to MessageBus:
 
-chat_routes.py uses the queue-based API:
-    queue = bus.register_console_listener(session_key)
-    msg = await queue.get()
+Console listeners (OutboundMessage, 覆盖式注册, 用于 Console WS 双向会话):
+  - register_console_listener(session_key) -> asyncio.Queue
+  - unregister_console_listener(session_key)
+  - dispatch_to_console_listener(session_key, msg)
+
+Observe listeners (dict 生命周期事件, 追加式注册, 用于非 Console 会话只读订阅):
+  - register_observe_listener(session_key) -> asyncio.Queue
+  - unregister_observe_listener(session_key, queue)
+  - dispatch_observe_event(session_key, event)
 """
 
 from __future__ import annotations
@@ -100,7 +103,40 @@ def apply_bus_patch() -> str:
     MessageBus.unregister_console_listener = unregister_console_listener
     MessageBus.dispatch_to_console_listener = dispatch_to_console_listener
 
-    return "MessageBus patched with register/unregister/dispatch_to_console_listener"
+    # --- observe listener（生命周期事件，追加式注册，支持多 WS 同时观察同一 session）---
+    def register_observe_listener(self: MessageBus, session_key: str) -> asyncio.Queue:
+        """注册 observe listener queue，接收 dict 生命周期事件。"""
+        if not hasattr(self, "_observe_listeners"):
+            self._observe_listeners: dict[str, list[asyncio.Queue]] = {}
+        queue: asyncio.Queue = asyncio.Queue(maxsize=200)
+        self._observe_listeners.setdefault(session_key, []).append(queue)
+        return queue
+
+    def unregister_observe_listener(self: MessageBus, session_key: str, queue: asyncio.Queue) -> None:
+        """移除指定的 observe listener queue。"""
+        listeners = getattr(self, "_observe_listeners", {})
+        if session_key in listeners:
+            try:
+                listeners[session_key].remove(queue)
+            except ValueError:
+                pass
+            if not listeners[session_key]:
+                del listeners[session_key]
+
+    def dispatch_observe_event(self: MessageBus, session_key: str, event: dict) -> None:
+        """向指定 session_key 的所有 observe listener 广播生命周期事件。"""
+        listeners = getattr(self, "_observe_listeners", {})
+        for queue in listeners.get(session_key, []):
+            try:
+                queue.put_nowait(event)
+            except asyncio.QueueFull:
+                logger.warning("Observe listener queue full for {}, dropping event", session_key)
+
+    MessageBus.register_observe_listener = register_observe_listener
+    MessageBus.unregister_observe_listener = unregister_observe_listener
+    MessageBus.dispatch_observe_event = dispatch_observe_event
+
+    return "MessageBus patched with console + observe listeners"
 
 
 register_patch("bus_console_listener", apply_bus_patch)

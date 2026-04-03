@@ -55,3 +55,57 @@ class TestBusPatch:
         """T8.6: _console_listeners doesn't exist until first register."""
         fresh_bus = MessageBus()
         assert not hasattr(fresh_bus, "_console_listeners")
+
+
+class TestObserveListener:
+    """Tests for observe listener (生命周期事件，追加式注册)."""
+
+    def test_register_observe_listener(self, bus):
+        queue = bus.register_observe_listener("tg:123")
+        assert isinstance(queue, asyncio.Queue)
+        assert queue in bus._observe_listeners["tg:123"]
+
+    def test_multiple_observers_same_session(self, bus):
+        q1 = bus.register_observe_listener("tg:123")
+        q2 = bus.register_observe_listener("tg:123")
+        assert q1 is not q2
+        assert len(bus._observe_listeners["tg:123"]) == 2
+
+    def test_dispatch_observe_event_all_receive(self, bus):
+        q1 = bus.register_observe_listener("tg:123")
+        q2 = bus.register_observe_listener("tg:123")
+        event = {"type": "message_arrived", "content": "hello"}
+        bus.dispatch_observe_event("tg:123", event)
+        assert q1.get_nowait() == event
+        assert q2.get_nowait() == event
+
+    def test_dispatch_observe_no_listener(self, bus):
+        bus.dispatch_observe_event("nonexistent", {"type": "test"})
+
+    def test_unregister_observe_listener(self, bus):
+        q1 = bus.register_observe_listener("tg:123")
+        q2 = bus.register_observe_listener("tg:123")
+        bus.unregister_observe_listener("tg:123", q1)
+        assert q1 not in bus._observe_listeners.get("tg:123", [])
+        assert q2 in bus._observe_listeners["tg:123"]
+
+    def test_unregister_last_removes_key(self, bus):
+        q = bus.register_observe_listener("tg:123")
+        bus.unregister_observe_listener("tg:123", q)
+        assert "tg:123" not in bus._observe_listeners
+
+    def test_observe_queue_full(self, bus):
+        q = bus.register_observe_listener("tg:123")
+        for i in range(200):
+            bus.dispatch_observe_event("tg:123", {"i": i})
+        assert q.full()
+        bus.dispatch_observe_event("tg:123", {"overflow": True})
+        assert q.qsize() == 200
+
+    def test_observe_and_console_isolated(self, bus):
+        """observe listener 与 console_listener 互不干扰。"""
+        console_q = bus.register_console_listener("sess1")
+        observe_q = bus.register_observe_listener("sess1")
+        bus.dispatch_observe_event("sess1", {"type": "observe_event"})
+        assert observe_q.get_nowait() == {"type": "observe_event"}
+        assert console_q.empty()

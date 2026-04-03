@@ -93,15 +93,13 @@ class TokenStatsCollector:
         cache_creation_tokens: int | None = None,
         current_turn_tokens: int = 0,
         tool_names: str = "",
-    ) -> None:
-        """Append a single LLM call record."""
+    ) -> int | None:
+        """Append a single LLM call record. Returns the inserted row id (DB mode) or None."""
         ts = datetime.now().isoformat()
         prompt_tokens = usage.get("prompt_tokens", 0)
         completion_tokens = usage.get("completion_tokens", 0)
         total_tokens = usage.get("total_tokens", 0) or (prompt_tokens + completion_tokens)
 
-        # Resolve cached/cache_creation: prefer pre-parsed values passed by caller,
-        # fall back to parsing from the raw usage dict (OpenAI or Anthropic structure).
         if cached_tokens is None:
             prompt_details = usage.get("prompt_tokens_details")
             if isinstance(prompt_details, dict):
@@ -129,7 +127,8 @@ class TokenStatsCollector:
                 ),
             )
             self._db.commit()
-            return
+            row = self._db.fetchone("SELECT last_insert_rowid() as id")
+            return row["id"] if row else None
 
         rec = TokenUsageRecord(
             timestamp=ts,
@@ -159,6 +158,25 @@ class TokenStatsCollector:
             if len(self._records) > self._max_records:
                 self._records = self._records[-self._max_records:]
         self.flush()
+
+    def update_record(self, record_id: int, **fields) -> None:
+        """Update specific fields of an existing token_usage record by id (DB mode only)."""
+        if not self._use_db or not fields:
+            return
+        allowed = {
+            "prompt_tokens", "completion_tokens", "total_tokens",
+            "user_message", "output_content", "system_prompt_preview",
+            "conversation_history", "finish_reason", "model_role",
+            "cached_tokens", "cache_creation_tokens", "cost_usd",
+            "current_turn_tokens", "tool_names",
+        }
+        updates = {k: v for k, v in fields.items() if k in allowed}
+        if not updates:
+            return
+        set_clause = ", ".join(f"{k} = ?" for k in updates)
+        params = list(updates.values()) + [record_id]
+        self._db.execute(f"UPDATE token_usage SET {set_clause} WHERE id = ?", params)
+        self._db.commit()
 
     def _build_filter(
         self,

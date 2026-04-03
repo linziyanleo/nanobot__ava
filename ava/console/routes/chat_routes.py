@@ -56,6 +56,38 @@ async def get_messages(
     """Full message history for any session, including tool_calls and reasoning."""
     return _get_chat_service().get_messages(session_key)
 
+@router.websocket("/ws/observe/{session_key:path}")
+async def observe_ws(websocket: WebSocket, session_key: str):
+    """只读 WebSocket，订阅 MessageBus observe listener 推送非 Console 会话的实时事件。"""
+    user = await auth.get_ws_user(websocket)
+    await websocket.accept()
+
+    svc_chat = _get_chat_service()
+    bus = svc_chat._agent.bus
+    queue = bus.register_observe_listener(session_key)
+
+    try:
+        async def sender():
+            while True:
+                event = await queue.get()
+                await websocket.send_text(json.dumps(event, ensure_ascii=False))
+
+        async def receiver():
+            while True:
+                await websocket.receive_text()
+
+        sender_task = asyncio.create_task(sender())
+        try:
+            await receiver()
+        finally:
+            sender_task.cancel()
+    except WebSocketDisconnect:
+        pass
+    finally:
+        bus.unregister_observe_listener(session_key, queue)
+        logger.debug("Observe WS listener cleaned up for {}", session_key)
+
+
 @router.websocket("/ws/{session_id}")
 async def chat_ws(websocket: WebSocket, session_id: str):
     user = await auth.get_ws_user(websocket)
