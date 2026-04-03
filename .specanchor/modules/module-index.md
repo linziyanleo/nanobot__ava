@@ -1,6 +1,6 @@
 # Module Spec 索引
 
-> 最后更新：2026-04-02
+> 最后更新：2026-04-03
 
 ## Patch 模块（已实现）
 
@@ -16,8 +16,15 @@
 | `ava/patches/loop_patch.py` | [loop_patch_spec.md](loop_patch_spec.md) | ✅ | AgentLoop 属性注入 + token 统计 |
 | `ava/patches/skills_patch.py` | [skills_patch_spec.md](skills_patch_spec.md) | ✅ | SkillsLoader 三源发现 + SQLite disabled filter |
 | `ava/patches/storage_patch.py` | [storage_patch_spec.md](storage_patch_spec.md) | ✅ | SQLite 存储层替换 |
-| `ava/patches/tools_patch.py` | [tools_patch_spec.md](tools_patch_spec.md) | ✅ | 5 个自定义工具注入 |
+| `ava/patches/tools_patch.py` | [tools_patch_spec.md](tools_patch_spec.md) | ✅ | 6 个自定义工具注入（含 page_agent） |
 | `ava/patches/transcription_patch.py` | [transcription_patch_spec.md](transcription_patch_spec.md) | ✅ | GroqTranscriptionProvider 代理注入 |
+
+## 功能模块（已实现）
+
+| 模块文件 | Spec 文件 | 状态 | 说明 |
+|---------|----------|------|------|
+| `ava/tools/page_agent.py` + `console-ui/e2e/page-agent-runner.mjs` | [page_agent_runtime_spec.md](page_agent_runtime_spec.md) | ✅ | `page_agent` tool、Node runner、JSON-RPC、screencast / activity 事件链 |
+| `ava/console/routes/page_agent_routes.py` + `console-ui/src/pages/BrowserPage/*` | [console_browser_page_spec.md](console_browser_page_spec.md) | ✅ | `/api/page-agent/*` 与 console-ui `/browser` 预览页链路 |
 
 ## 已接入模块
 
@@ -38,7 +45,7 @@
 | 模块路径 | 说明 |
 |---------|------|
 | `ava/console/` | Web Console 子应用（FastAPI + WebSocket） |
-| `ava/tools/` | 5 个自定义工具实现 |
+| `ava/tools/` | 6 个自定义工具实现（含 `page_agent`） |
 | `ava/storage/` | SQLite 数据库封装 |
 | `ava/channels/` | 消息批处理器实现 |
 | `ava/session/` | Session backfill 实现 |

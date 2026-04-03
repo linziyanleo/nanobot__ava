@@ -5,10 +5,12 @@ specanchor:
   author: "@fanghu"
   created: "2026-04-03"
   status: "draft"
-  last_change: "补充 console-ui 实时预览页面方案（CDP screencast + activity 事件流）"
+  last_change: "补齐 page_agent runtime / console-ui browser page module spec，并按当前实现修正文档引用"
   related_modules:
+    - ".specanchor/modules/page_agent_runtime_spec.md"
+    - ".specanchor/modules/console_browser_page_spec.md"
     - ".specanchor/modules/tools_patch_spec.md"
-    - ".specanchor/modules/config_patch_spec.md"
+    - ".specanchor/modules/schema_patch_spec.md"
   related_tasks:
     - ".specanchor/tasks/2026-04-02_console-ui-page-agent-autotest-spec.md"
   flow_type: "standard"
@@ -332,15 +334,14 @@ Node -> Python（stdout，每行一个 JSON）：
 | `ava/patches/tools_patch.py` | 修改 | 注入 page_agent |
 | **配置层** | | |
 | `ava/forks/config/schema.py` | 修改 | 新增 PageAgentConfig |
-| `ava/patches/b_config_patch.py` | 修改 | fallback 字段注入 |
+| `ava/patches/b_config_patch.py` | 计划中未落地 | 当前实现未为 page_agent 追加 fallback 字段；无 fork schema 时退回工具默认配置 |
 | **后端 WebSocket** | | |
-| `ava/console/routes/page_agent.py` | 新增 | `/api/page-agent/ws/{session_id}` 端点，转发帧流 + activity 事件 |
+| `ava/console/routes/page_agent_routes.py` | 新增 | `/api/page-agent/ws/{session_id}` 端点，转发帧流 + activity 事件 |
 | `ava/console/app.py` | 修改 | 注册 page_agent 路由 |
 | **console-ui 前端** | | |
 | `console-ui/src/pages/BrowserPage/index.tsx` | 新增 | 实时预览主页面 |
 | `console-ui/src/pages/BrowserPage/ScreencastView.tsx` | 新增 | 画面帧渲染 |
-| `console-ui/src/pages/BrowserPage/ActivityPanel.tsx` | 新增 | activity 事件流侧边栏 |
-| `console-ui/src/pages/BrowserPage/StatusBar.tsx` | 新增 | 底部状态栏 |
+| `console-ui/src/pages/BrowserPage/ActivityPanel.tsx` | 新增 | activity 事件流侧边栏 + 底部状态区 |
 | `console-ui/src/pages/BrowserPage/types.ts` | 新增 | 类型定义 |
 | `console-ui/src/App.tsx` | 修改 | 新增 `/browser` 路由 |
 | `console-ui/src/components/layout/navItems.ts` | 修改 | 新增"浏览器"导航项 |
@@ -544,9 +545,8 @@ parameters = {
 - [ ] 10. 新增 `console-ui/src/pages/BrowserPage/`
   - [ ] 10a. `index.tsx` — 主容器：左右分栏（画面 + activity 侧边栏），session 选择器
   - [ ] 10b. `ScreencastView.tsx` — 画面渲染：WebSocket 接收 base64 帧 → `<img src="data:image/jpeg;base64,...">` 动态替换，保持 16:9 自适应
-  - [ ] 10c. `ActivityPanel.tsx` — activity 事件流：按时间倒序显示 thinking/executing/executed，不同类型不同图标和颜色
-  - [ ] 10d. `StatusBar.tsx` — 底部状态栏：当前 URL、agent 状态（idle/running/completed/error）、步骤计数（n/maxSteps）
-  - [ ] 10e. `types.ts` — ScreencastFrame、ActivityEvent、SessionInfo 等类型定义
+  - [ ] 10c. `ActivityPanel.tsx` — activity 事件流：按时间倒序显示 thinking/executing/executed，并承载底部状态区
+  - [ ] 10d. `types.ts` — ScreencastFrame、ActivityEvent、SessionInfo 等类型定义
 - [ ] 11. 修改 `console-ui/src/App.tsx` — 新增 `/browser` 路由
 - [ ] 12. 修改 `console-ui/src/components/layout/navItems.ts` — 新增"浏览器"导航项（Globe 图标）
 
@@ -616,4 +616,7 @@ parameters = {
 
 ## 9. Plan-Execution Diff
 
-- Any deviation from plan: None
+- Any deviation from plan:
+  - `page_agent` 最终没有落在 `b_config_patch` fallback 字段注入上；未启用 fork schema 时直接以默认配置运行
+  - 后端路由文件名实际为 `ava/console/routes/page_agent_routes.py`
+  - 前端状态栏未拆出 `StatusBar.tsx`，而是合并到 `ActivityPanel.tsx`

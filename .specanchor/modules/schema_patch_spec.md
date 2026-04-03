@@ -16,8 +16,10 @@
 - `AgentDefaults`：新增 `vision_model`、`mini_model`、`image_gen_model`、`memory_tier`、`memory_window`、`context_compression`、`in_loop_truncation`、`history_summarizer`
 - `ConsoleConfig`：Console 启用/端口/密钥配置
 - `ClaudeCodeConfig`：Claude Code 子代理配置
+- `PageAgentConfig`：page-agent 工具的 LLM / 浏览器 / 截图配置
 - `TokenStatsConfig`：Token 使用统计配置
 - `ApiConfig`：OpenAI-compatible API 服务配置
+- `ToolsConfig.page_agent`：`tools.pageAgent` / `tools.page_agent` 双别名入口
 - Channel Config 类：`TelegramConfig`、`FeishuConfig` 等（从各 channel 模块集中到 schema）
 - `GatewayConfig.console` 字段
 - 上游共享字段自动继承恢复：
@@ -65,7 +67,7 @@
 
 ### 被依赖（下游 patch 依赖本 patch）
 - `b_config_patch.py` — 检测 `_ava_fork` 标记决定是否跳过
-- `tools_patch.py` — 读取 `config.tools.claude_code`（fork schema 新字段）
+- `tools_patch.py` — 读取 `config.tools.claude_code` / `config.tools.page_agent`
 - `loop_patch.py` — 间接依赖（通过 config 读取扩展字段）
 
 ---
