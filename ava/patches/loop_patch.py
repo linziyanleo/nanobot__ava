@@ -246,6 +246,25 @@ def apply_loop_patch() -> str:
             logger.warning("Failed to init BackgroundTaskStore: {}", exc)
             self.bg_tasks = None
 
+        # LifecycleManager
+        try:
+            from ava.runtime.lifecycle import LifecycleManager
+            from nanobot.config.loader import load_config as _lc_load
+            _lc_cfg = _lc_load()
+            _gw_port = getattr(getattr(_lc_cfg, "gateway", None), "port", 18790) or 18790
+            _console_port = getattr(
+                getattr(getattr(_lc_cfg, "gateway", None), "console", None), "port", 6688
+            ) or 6688
+            self.lifecycle_manager = LifecycleManager(
+                bg_store=getattr(self, "bg_tasks", None),
+                gateway_port=_gw_port,
+                console_port=_console_port,
+            )
+            self.lifecycle_manager.initialize()
+        except Exception as exc:
+            logger.warning("Failed to init LifecycleManager: {}", exc)
+            self.lifecycle_manager = None
+
         # Register /task, /task_cancel, /cc_status into upstream CommandRouter,
         # and override /stop to also cancel bg_tasks.
         if hasattr(self, "commands") and hasattr(self, "bg_tasks") and self.bg_tasks:
@@ -282,6 +301,9 @@ def apply_loop_patch() -> str:
                 if pa_tool := self.tools.get("page_agent"):
                     if hasattr(pa_tool, "_token_stats"):
                         pa_tool._token_stats = token_stats
+                if gc_tool := self.tools.get("gateway_control"):
+                    if hasattr(gc_tool, "_lifecycle"):
+                        gc_tool._lifecycle = getattr(self, "lifecycle_manager", None)
         except Exception as exc:
             logger.warning("Failed to update tool refs after init: {}", exc)
 

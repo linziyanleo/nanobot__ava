@@ -10,6 +10,7 @@ from ava.launcher import register_patch
 from ava.tools import (
     ClaudeCodeTool,
     CodexTool,
+    GatewayControlTool,
     ImageGenTool,
     MemoryTool,
     PageAgentTool,
@@ -109,6 +110,10 @@ def apply_tools_patch() -> str:
                 token_stats=getattr(self, 'token_stats', None),
             )
             self.tools.register(pa_tool)
+
+        self.tools.register(GatewayControlTool(
+            lifecycle=getattr(self, 'lifecycle_manager', None),
+        ))
 
         categorized_memory = getattr(self, 'categorized_memory', None)
         db = getattr(self, 'db', None)

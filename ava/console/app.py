@@ -86,6 +86,8 @@ def create_console_app(
 
     skill_dir = Path(__file__).parent.parent / "skills"
 
+    lifecycle_mgr = getattr(agent_loop, "lifecycle_manager", None) if agent_loop else None
+
     users = UserService(console_dir)
     users.ensure_default_admin()
 
@@ -95,7 +97,7 @@ def create_console_app(
         config=ConfigService(nanobot_dir),
         files=FileService(workspace, nanobot_dir),
         gateway=GatewayService(
-            skill_dir,
+            lifecycle=lifecycle_mgr,
             gateway_port=config.gateway.port,
             console_port=console_cfg.port,
         ),
@@ -188,7 +190,6 @@ def create_console_app_standalone(
         config=ConfigService(nanobot_dir),
         files=FileService(workspace, nanobot_dir),
         gateway=GatewayService(
-            skill_dir,
             gateway_port=gateway_port,
             console_port=console_port,
         ),

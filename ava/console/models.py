@@ -122,6 +122,11 @@ class GatewayStatus(BaseModel):
     uptime_seconds: float | None = None
     gateway_port: int | None = None
     console_port: int | None = None
+    supervised: bool = False
+    supervisor: str | None = None
+    restart_pending: bool = False
+    boot_generation: int = 0
+    last_exit_reason: str | None = None
 
 
 class GatewayRestartRequest(BaseModel):

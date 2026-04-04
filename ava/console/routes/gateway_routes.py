@@ -17,6 +17,13 @@ async def gateway_status(user: UserInfo = Depends(auth.require_role("admin", "ed
     return get_services().gateway.get_status()
 
 
+@router.get("/health")
+async def gateway_health():
+    """Health check 端点，无需认证，供 supervisor 和 restart verification 使用。"""
+    from ava.console.app import get_services
+    return get_services().gateway.health()
+
+
 @router.post("/restart")
 async def gateway_restart(
     body: GatewayRestartRequest,
