@@ -9,8 +9,8 @@ import {
   BarChart3,
   Timer,
   User,
-  Globe,
-} from 'lucide-react'
+  Cpu,
+} from 'lucide-react';
 import type { LucideIcon } from 'lucide-react'
 
 export interface NavItem {
@@ -24,6 +24,7 @@ export const navItems: NavItem[] = [
   { to: '/', icon: LayoutDashboard, label: '控制台' },
   { to: '/config', icon: Settings, label: '配置' },
   { to: '/tasks', icon: Timer, label: '定时任务' },
+  { to: '/bg-tasks', icon: Cpu, label: '后台任务' },
   { to: '/memory', icon: Brain, label: '记忆' },
   { to: '/media', icon: Image, label: '生成图片' },
   { to: '/persona', icon: UserCog, label: '人设' },
