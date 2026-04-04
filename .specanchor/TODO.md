@@ -104,9 +104,22 @@
   - 补一份本机依赖安装说明，至少说明 Matrix / `python-olm` 需要的构建工具；
   - 或者明确区分“patch/guardrails 回归”和“全量含 matrix extras 回归”。
 
+### 8. Page Agent headless 自动检测与配置三态
+
+- 现状：
+  - 当前 `PageAgentConfig.headless: bool = True`，用户需手动在 `extra_config.json` 中修改。
+  - 原计划改为 `headless: bool | None = None` 三态 + 启动时检测，但会破坏 `model_dump` 序列化契约。
+- 设计方向：
+  - 不修改 `PageAgentConfig` 模型，新增运行时属性 `PageAgentTool._resolved_headless`，纯内存态。
+  - 前端 Loading 提示（headed vs headless）需要前置数据源，不能依赖结果文本中的 `Mode` 字段（时序不对）。
+  - 可选方案：tool args 透传 headless 状态、config API、observe WS 事件流附带 headless 状态。
+- 后续动作：
+  - 独立 Spec 处理；
+  - 参考 `page-agent-chat-inline-display.md` §7.1。
+
 ## P2
 
-### 8. `b_config_patch` 的长期价值需要重新判断
+### 9. `b_config_patch` 的长期价值需要重新判断
 
 - 现状：
   - `a_schema_patch` 已是主路径，`b_config_patch` 只是 fork 缺失时的降级方案。
@@ -115,3 +128,39 @@
 - 后续动作：
   - 判断是否还需要保留 “字段注入” 这条备用路线；
   - 如果决定不保留，就删 patch、删 spec、删测试，而不是让它永远挂在那儿。
+
+## 远期方向
+
+### 10. Nanobot 自改进闭环（Self-Improvement Loop）
+
+- **详细 Spec**：[2026-04-04_coding-cli-and-self-improvement-loop.md](./tasks/2026-04-04_coding-cli-and-self-improvement-loop.md)
+- 目标：Nanobot 具备调用 Claude Code 和 Codex 改进自身的能力，并通过工具链对自身进行测试验证。
+- 核心架构决策：
+  1. **SpecAnchor 是 agent 间的共享内存协议**：会话知识持久化到 Spec，CLI Agent 通过读取 Spec 获取上下文，消除信息孤岛
+  2. **统一 BackgroundTaskStore**：不 patch 上游 SubagentManager（热区），在 `ava/agent/bg_tasks.py` 创建统一后台任务上下文层，"写多读一"模式覆盖 coding/cron/subagent
+  3. **origin_session_key 一等化**：直传正确的 session_key，不从 channel/chat_id 反推（修复 console 路由 bug）
+  4. **通知与上下文注入分离**：async_result 只是 UI 通知；模型感知后台任务通过 context_patch digest 注入 system prompt
+  5. **结果验证而非过程监督**：不关心 CLI Agent 的中间推理，只关心 `git diff` + 测试 + Spec 一致性检查
+  6. **三层实现**：Skill 做编排 → Tool 做封装 → Script 做检查
+- 工作流阶段：触发 → 设计（写 Spec）→ 开发（CLI 执行）→ 测试（pytest + lint + Page Agent）→ Git（commit）→ 检查（spec-check）→ 闭环（更新 Spec）
+- 前置条件：
+  - `claude_code` 工具已集成（✅ sync；❌ async 断头，Phase 1 补齐）
+  - BackgroundTaskStore 待实现（Phase 1）
+  - session_key 路由 bug 待修复（前置修复：`_current_session_key` + `set_context` 直传）
+  - async_result 链需落盘修复（结果写入 session history 后再通知）
+  - context_patch 需新增 task digest 注入（Phase 1）
+  - Codex CLI 工具待实现（Phase 2）
+  - Page Agent 工具已集成（✅）
+  - SpecAnchor 体系已建立（✅）
+  - `specanchor-check.sh` 已可用（✅）
+- 关键风险：
+  - session_key 路由 bug 影响所有 console 场景的后台任务，是 Phase 1 的阻塞项
+  - 自改进循环可能陷入"无效修改 → 测试失败 → 回退"的死循环，需要引入改动预算（$5/次）和回退阈值（最多重试 2 次）
+  - Spec 质量是整个系统的瓶颈——低质量 Spec 导致低质量输出
+  - 对 `nanobot/` 目录的隔离约束必须在自改进链路中严格执行
+- 后续动作：
+  - 前置修复：session_key 路由修复（`_current_session_key` + `set_context` 签名扩展）
+  - Phase 1：BackgroundTaskStore + coding 闭环 + context digest + 结果落盘 + 通用命令
+  - Phase 2：CodingCLIBase 通用化 + CodexCLITool + cron/subagent 事件源接入
+  - Phase 2.5（可选）：streaming 增强，支持实时 phase/todo/last_tool
+  - Phase 3：自改进闭环 Skill 设计与实现

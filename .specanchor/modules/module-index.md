@@ -1,6 +1,6 @@
 # Module Spec 索引
 
-> 最后更新：2026-04-03
+> 最后更新：2026-04-04
 
 ## Patch 模块（已实现）
 
@@ -23,6 +23,7 @@
 
 | 模块文件 | Spec 文件 | 状态 | 说明 |
 |---------|----------|------|------|
+| `ava/tools/claude_code.py` | [claude_code_tool_spec.md](claude_code_tool_spec.md) | 🟡 | `claude_code` tool 当前 sync 可用，async 改用 BackgroundTaskStore 模式（Phase 1 待实现） |
 | `ava/tools/page_agent.py` + `console-ui/e2e/page-agent-runner.mjs` | [page_agent_runtime_spec.md](page_agent_runtime_spec.md) | ✅ | `page_agent` tool、Node runner、JSON-RPC、screencast / activity 事件链 |
 | `ava/console/routes/page_agent_routes.py` + `console-ui/src/pages/BrowserPage/*` | [console_browser_page_spec.md](console_browser_page_spec.md) | ✅ | `/api/page-agent/*` 与 console-ui `/browser` 预览页链路 |
 
@@ -33,6 +34,12 @@
 | `ava/agent/categorized_memory.py` | `loop_patch` 注入 + `context_patch` 注入记忆 | ✅ | 分类记忆系统 |
 | `ava/agent/history_compressor.py` | `loop_patch` 注入 + `context_patch` 调用 | ✅ | 历史压缩器 |
 | `ava/agent/history_summarizer.py` | `loop_patch` 注入 + `context_patch` 调用 | ✅ | 历史摘要器 |
+
+## 计划新增模块
+
+| 模块文件 | Spec 文件 | 状态 | 说明 |
+|---------|----------|------|------|
+| `ava/agent/bg_tasks.py`（待新建） | [claude_code_tool_spec.md](claude_code_tool_spec.md) §5 | 📋 | `BackgroundTaskStore` — 统一后台任务上下文层（coding/cron/subagent），持久化 timeline，context digest 注入 |
 
 ## 已复制但未接入模块
 
