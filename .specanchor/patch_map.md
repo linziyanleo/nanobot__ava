@@ -20,7 +20,7 @@ git diff --name-only $(git merge-base HEAD upstream/main)..upstream/main -- nano
 ```
 
 1. 用下面的 patch map 对照这些改动落在哪些 patch 热区。
-2. 对每个命中的 patch，按“取舍规则”判断：
+2. 对每个命中的 patch，按"取舍规则"判断：
    - 上游已完整覆盖：删除 patch，并同步删测试 / spec
    - 上游部分覆盖：收窄 patch，只保留 sidecar 独有逻辑
    - 上游新增基础能力而 fork 未同步：优先同步 fork / spec，不要先加白名单
@@ -59,49 +59,104 @@ uv run pytest tests/guardrails -q
 
 ## 当前 Patch 全景
 
-| Patch | 上游触点 | 当前职责 | 热度 | 当前判断 | 取舍信号 | 最低验证 |
-|------|----------|----------|------|----------|----------|----------|
-| `a_schema_patch.py` | `nanobot/config/schema.py` | 用 fork 完整替换 schema，承载 Console / ClaudeCode / TokenStats / Channel configs / API config 等扩展 | 高 | 保留，但必须持续同步 | upstream 新增基础配置类或字段时，优先同步 fork；`2026-04-03` 起新增 `AgentDefaults.context_block_limit` / `max_tool_result_chars` / `provider_retry_mode`，当前靠继承自动吸收，后续若有 override 再单独复核 | `tests/patches/test_schema_patch.py` + `tests/guardrails/test_schema_drift.py` |
-| `b_config_patch.py` | `nanobot.config.schema.AgentDefaults` | fork 缺失时的降级字段注入 | 中 | 倾向后续删除 | 若 fork 路线稳定且不再需要 fallback，可整体移除 | `tests/patches/test_config_patch.py` |
-| `bus_patch.py` | `nanobot.bus.queue.MessageBus.publish_outbound` | Console queue listener 注入 | 低 | 保留 | 若 upstream 原生提供 console listener queue，再删除 | `tests/patches/test_bus_patch.py` |
-| `c_onboard_patch.py` | `nanobot/cli/commands.py:onboard` | `onboard refresh` 兼容层，保留旧 sidecar config 形状且不固化 `extra_config.json` overlay | 高 | 保留，但应持续收窄 | upstream 若原生提供“refresh 只补缺失默认值”的安全写回语义，可删除；若 `onboard` callback 重构，先复核包裹点 | `tests/patches/test_onboard_patch.py` |
-| `channel_patch.py` | `nanobot/channels/telegram.py` | Telegram 消息批处理 + `send_delta` 边界修复 | 中高 | 保留，但要持续收窄 | upstream 一旦覆盖 typing 清理 / `message_id is None` fallback，就删对应分支；若 upstream 出现原生 batching，整体 patch 需重判 | `tests/patches/test_channel_patch.py` |
-| `console_patch.py` | `nanobot/cli/commands.py` | 在 gateway 启动时并行注入 Web Console | 高 | 保留，但属于 CLI 热区 | upstream 若重构 gateway 启动方式，必须先读 patch spec；`2026-04-03` 起 CLI 会继续把更多 runtime 参数与 `--config` 语义下沉到命令层，console patch 每次都要确认它仍沿用当前 runtime config path，而不是偷偷回到默认配置 | `tests/patches/test_console_patch.py` |
-| `context_patch.py` | `nanobot.agent.context.ContextBuilder`、`LLMProvider.chat_*` | 历史压缩、分类记忆注入、非 Claude provider 消息清洗 | 高 | 保留，但已出现部分上游覆盖 | `2026-04-03` 起 upstream 已在 `ContextBuilder.build_messages()` 原生合并连续同角色消息；patch 应继续保留 history summarize/compress + memory injection + trailing assistant sanitize，但要警惕 provider wrapper 里的“再合并一次”变成重复逻辑；当前先修参数读取漂移 | `tests/patches/test_context_patch.py` + `tests/agent/test_context_prompt_cache.py` |
-| `loop_patch.py` | `nanobot/agent/loop.py` | db/media/token stats/history 相关注入与 `_save_turn` 修复 | 很高 | 保留，但属于首要热区 | 上游 hook / runner / loop 每次变动都要重看；`2026-04-03` 起还要额外复核 runtime checkpoint、`context_block_limit`、`max_tool_result_chars`、`provider_retry_mode` 这些新参数/状态面有没有被 patch 旁路；能迁到 hook 层的逻辑逐步迁出，减少深包装 | `tests/patches/test_loop_patch.py` + `tests/agent/test_loop_save_turn.py` |
-| `skills_patch.py` | `nanobot.agent.skills.SkillsLoader` | 三源 skill 发现 + disabled filter | 中 | 保留 | 若 upstream 支持多源发现和 enable/disable 管理，再重判是否删 patch | `tests/patches/test_skills_patch.py` |
-| `storage_patch.py` | `nanobot.session.manager.SessionManager` | SQLite 持久化、增量保存、db 共享 | 中 | 保留 | upstream 若原生引入等价 SQLite/session store，再看是否整体替换 | `tests/patches/test_storage_patch.py` |
-| `tools_patch.py` | `AgentLoop._register_default_tools` | 注入 `claude_code` / `image_gen` / `vision` / `send_sticker` / `memory` | 高 | 保留 | upstream 若原生支持这些工具或提供稳定扩展点，可转向更轻的注册 hook；不要在深热区反复堆逻辑 | `tests/patches/test_tools_patch.py` |
-| `transcription_patch.py` | `nanobot/providers/transcription.py` | 给 Groq transcription 注入 proxy | 低 | 保留 | upstream 一旦支持 proxy 配置，直接删除 | `tests/patches/test_transcription_patch.py` |
+> 上次对照：upstream `04a41e31` (2026-04-04)
+
+| Patch | 上游触点 | 当前职责 | 热度 | 当前判断 | 最低验证 |
+|-------|----------|----------|------|----------|----------|
+| `a_schema_patch` | `config/schema.py` | fork 完整替换 schema | **极高** | 保留，必须同步 | `test_schema_patch` + `test_schema_drift` |
+| `b_config_patch` | `AgentDefaults` | fork 降级字段注入 | 低 | 倾向删除 | `test_config_patch` |
+| `bus_patch` | `MessageBus.publish_outbound` | Console queue listener | 低 | 保留 | `test_bus_patch` |
+| `c_onboard_patch` | `cli/commands.py:onboard` | refresh 兼容层 | 中 | 保留，收窄 | `test_onboard_patch` |
+| `channel_patch` | `channels/telegram.py` | 消息批处理 + send_delta 修复 | 中 | 保留，收窄 | `test_channel_patch` |
+| `console_patch` | `cli/commands.py` | gateway 启动注入 Console | **高** | 保留 | `test_console_patch` |
+| `context_patch` | `ContextBuilder` + `LLMProvider.chat_*` | 历史压缩 + 记忆注入 + 消息清洗 | **高** | 保留，变得更关键 | `test_context_patch` |
+| `loop_patch` | `agent/loop.py` | db/token/bg_tasks/lifecycle 注入 | **极高** | 保留 | `test_loop_patch` |
+| `skills_patch` | `SkillsLoader` | 三源发现 + disabled filter | 低 | 保留 | `test_skills_patch` |
+| `storage_patch` | `SessionManager` | SQLite 持久化 + db 共享 | 低 | 保留 | `test_storage_patch` |
+| `tools_patch` | `_register_default_tools` | 8 个自定义工具注入 | **高** | 保留 | `test_tools_patch` |
+| `templates_patch` | `sync_workspace_templates` | ava/templates → workspace overlay | 中 | 保留 | — |
+| `transcription_patch` | `transcription.py` | Groq proxy 注入 | 低 | 保留 | `test_transcription_patch` |
+
+### 本轮取舍详情
+
+#### `a_schema_patch` — 保留，必须同步
+
+upstream 新增：`DreamConfig`（依赖 `CronSchedule`）、`AgentDefaults.dream`、`WebToolsConfig.enable`、`ToolsConfig.ssrf_whitelist`、`ProvidersConfig.xiaomi_mimo`。`WebSearchConfig.provider` 默认值 `"brave"` → `"duckduckgo"`。
+
+fork 通过 `_UPSTREAM.AgentDefaults` 继承，大部分自动吸收。需显式验证：
+- `DreamConfig` 模块级 `from nanobot.cron.types import CronSchedule` 在 fork 加载时是否解析正确
+- `ProvidersConfig` fork 覆盖了父类、需确认 `xiaomi_mimo` 不丢失
+
+#### `console_patch` — 合并热点
+
+upstream `gateway()` 参数 `web_search_config`/`web_proxy` → `web_config`。新增 Dream cron 注册和 `restart_notice` 消费。console_patch 若 callback 级包裹（不重构参数），参数透传安全；但 Dream/restart 新逻辑需确认不被包裹遮蔽。
+
+#### `context_patch` — 变得更关键
+
+upstream 删除 `_sanitize_history()` → `build_messages` 不再内置 trailing assistant 清理。我们的 provider 级 `sanitize_messages()` 成为唯一清理点。`_build_identity` 改用 Jinja2 但我们不覆盖。安全。
+
+#### `loop_patch` — 合并热点
+
+upstream `__init__` 参数 `web_search_config`/`web_proxy` → `web_config`；`self.memory_consolidator` → `self.consolidator`；新增 `self.dream`；新注册 `GlobTool`/`GrepTool`。
+
+`patched_init` 用 `original_init(self, *args, **kwargs)` 透传安全。ava 代码中无 `memory_consolidator` 引用。
+
+#### `tools_patch` — 需更新 TOOLS.md
+
+upstream 在 `_register_default_tools` 新增 `GlobTool`/`GrepTool`、Web 工具条件化（`if self.web_config.enable`）。`original_register(self)` 前缀调用安全。需在 `TOOLS.md` 记录 `grep`/`glob`。
 
 ## 当前热区提醒
 
-### 热区 1: `nanobot/agent/loop.py`
+### 热区 1: `nanobot/agent/loop.py` — 极高
 
 - 关联 patch：`loop_patch`、`tools_patch`、间接影响 `context_patch`
-- 现状：上游已引入 `AgentHook` / `CompositeHook`
-- 策略：每次 merge 这里都先判断能否把 sidecar 逻辑迁到 hook 层，而不是继续深包 `_process_message`
+- 本轮变更：`MemoryConsolidator` → `Consolidator` + `Dream`；参数合并 `web_config`；新增 `GlobTool`/`GrepTool`；Web 条件化
+- 策略：参数透传无冲突；持续判断能否迁到 AgentHook 层
 
-### 热区 2: `nanobot/cli/commands.py`
+### 热区 2: `nanobot/cli/commands.py` — 高
 
 - 关联 patch：`console_patch`、`c_onboard_patch`
-- 现状：上游已新增 `serve` 命令，且继续把 runtime 参数与 `--config` 语义下沉到命令层
-- 策略：任何改 CLI 入口的需求，都先判断是不是应该做更稳定的 runtime hook，而不是继续盯死 `gateway` / `onboard` callback；同时确认 sidecar wrapper 没有绕开当前 config path
+- 本轮变更：gateway 参数重构 `web_config`；Dream cron 注册；`restart_notice` 消费
+- 策略：确认 console_patch 包裹不遮蔽 Dream/restart 逻辑
 
-### 热区 3: `nanobot/config/schema.py`
+### 热区 3: `nanobot/config/schema.py` — 极高
 
 - 关联 patch：`a_schema_patch`、`b_config_patch`
-- 现状：fork 仍是 sidecar 最大的 merge 成本来源
-- 策略：上游新增基础字段优先同步；只有明确“不跟”的字段才允许进入 `INTENTIONAL_REMOVALS`
+- 本轮变更：`DreamConfig`、`dream` 字段、`ssrf_whitelist`、`xiaomi_mimo`、`WebToolsConfig.enable`
+- 策略：fork 继承验证新类；`ProvidersConfig` 覆盖确认新 provider 不丢失
 
-### 热区 4: `nanobot/channels/telegram.py`
+### 热区 4: `nanobot/channels/telegram.py` — 中
 
 - 关联 patch：`channel_patch`
-- 现状：上游 streaming 逻辑持续演进
-- 策略：保持 patch 极窄，只保留 upstream 尚未覆盖的边界修复
+- 本轮变更：Dream 命令注册、`_normalize_telegram_command`、polling error 缩短
+- 策略：batch 逻辑与新命令不冲突
 
-### 热区 5: `nanobot/agent/context.py` + `nanobot/providers/base.py`
+### 热区 5: `nanobot/agent/context.py` + `nanobot/providers/base.py` — 高
 
 - 关联 patch：`context_patch`
-- 现状：上游已把“连续同角色消息合并”做到 `ContextBuilder.build_messages()`，同时在 provider base 加强 retry / heartbeat
-- 策略：下次 merge 先判定 `sanitize_messages()` 是否还能只保留 trailing assistant / 非 Claude 兼容逻辑，避免和上游核心消息整形重复
+- 本轮变更：`_sanitize_history` 删除；`_build_identity` Jinja2 化；`build_messages` 简化
+- 策略：provider 级 `sanitize_messages()` 现为唯一清理点，需保留
+
+### 热区 6: `nanobot/agent/tools/base.py` — 新增
+
+- 关联：所有 `ava/tools/*.py`
+- 本轮变更：新增 `Schema` 抽象类、`tool_parameters` 装饰器、`_validate` → `Schema.validate_json_schema_value`
+- 策略：自定义工具只用公开 API，不调 `_validate`，无冲突
+
+### 热区 7: `nanobot/agent/memory.py` — 新增
+
+- 关联：`context_patch`（通过 `self.context.memory` 引用）
+- 本轮变更：`MemoryConsolidator` → `Consolidator` + `Dream`；`MemoryStore` 完全重写（GitStore、history.jsonl）
+- 策略：`context_patch` 通过 `_agent_loop` 引用 summarizer/compressor，不直接调 `MemoryStore` 新 API
+
+## 上游新增能力概览
+
+| 新模块 / 文件 | 说明 | 对 sidecar 的影响 |
+|---------------|------|-------------------|
+| `agent/tools/search.py` | GrepTool + GlobTool | Agent 原生搜索，需在 `TOOLS.md` 中记录 |
+| `agent/tools/schema.py` | Schema 类型系统 | `tool_parameters` 装饰器可简化自定义工具定义 |
+| `utils/prompt_templates.py` | Jinja2 `render_template()` | 可复用于 sidecar 模板 |
+| `utils/gitstore.py` | Git 版本控制 for memory | Dream 基础设施 |
+| `utils/restart.py` | 环境变量 restart notice | 与 `LifecycleManager` 文件方案互补 |
+| `templates/agent/*.md` | 11 个 Jinja2 prompt 模板 | 减少硬编码 |
+| `providers/` | GPT-5 支持 + Codex provider 改动 | 自动可用 |

@@ -1,6 +1,6 @@
 # Module Spec 索引
 
-> 最后更新：2026-04-04
+> 最后更新：2026-04-04 (upstream 04a41e31 对照)
 
 ## Patch 模块（已实现）
 
@@ -13,10 +13,10 @@
 | `ava/patches/channel_patch.py` | [channel_patch_spec.md](channel_patch_spec.md) | ✅ | 消息批处理 |
 | `ava/patches/console_patch.py` | [console_patch_spec.md](console_patch_spec.md) | ✅ | Web Console 独立服务 |
 | `ava/patches/context_patch.py` | [context_patch_spec.md](context_patch_spec.md) | ✅ | 历史摘要+压缩+分类记忆注入 |
-| `ava/patches/loop_patch.py` | [loop_patch_spec.md](loop_patch_spec.md) | ✅ | AgentLoop 属性注入 + Token 统计 + Phase 0 预记录 + 实时广播 + CancelledError 异常终止记录 |
+| `ava/patches/loop_patch.py` | [loop_patch_spec.md](loop_patch_spec.md) | ✅ | AgentLoop 属性注入 + Token 统计 + Phase 0 预记录 + 实时广播 + CancelledError + LifecycleManager 初始化 |
 | `ava/patches/skills_patch.py` | [skills_patch_spec.md](skills_patch_spec.md) | ✅ | SkillsLoader 三源发现 + SQLite disabled filter |
 | `ava/patches/storage_patch.py` | [storage_patch_spec.md](storage_patch_spec.md) | ✅ | SQLite 存储层替换 |
-| `ava/patches/tools_patch.py` | [tools_patch_spec.md](tools_patch_spec.md) | ✅ | 7 个自定义工具注入（含 codex、page_agent） |
+| `ava/patches/tools_patch.py` | [tools_patch_spec.md](tools_patch_spec.md) | ✅ | 8 个自定义工具注入（含 codex、page_agent、gateway_control） |
 | `ava/patches/templates_patch.py` | — | ✅ | 模板同步覆盖：`ava/templates/` → workspace |
 | `ava/patches/transcription_patch.py` | [transcription_patch_spec.md](transcription_patch_spec.md) | ✅ | GroqTranscriptionProvider 代理注入 |
 
@@ -53,12 +53,26 @@
 | `ava/tools/gateway_control.py` | [lifecycle-and-frontend-hotupdate](../tasks/2026-04-04_lifecycle-and-frontend-hotupdate.md) §3.3 | ✅ | 生命周期控制工具（status / restart） |
 | `ava/console/ui_build.py` (rebuild 扩展) | [lifecycle-and-frontend-hotupdate](../tasks/2026-04-04_lifecycle-and-frontend-hotupdate.md) §3.4 | 📋 | 前端 rebuild 异步封装（Phase B） |
 
+## 上游新增能力（待 merge 后可用）
+
+> 以下模块随 upstream `04a41e31` 引入，merge 后自动可用。
+
+| 上游模块 | 说明 | sidecar 影响 |
+|----------|------|-------------|
+| `nanobot/agent/tools/search.py` | GrepTool + GlobTool 原生搜索 | `TOOLS.md` 需记录 |
+| `nanobot/agent/tools/schema.py` | `Schema` 类型 + `tool_parameters` 装饰器 | 可简化自定义工具定义 |
+| `nanobot/utils/prompt_templates.py` | Jinja2 `render_template()` | 模板引擎可复用 |
+| `nanobot/utils/gitstore.py` | Git 版本控制 for memory | Dream 基础设施 |
+| `nanobot/utils/restart.py` | 环境变量 restart notice | 与 `LifecycleManager` 互补 |
+| `nanobot/agent/memory.py` | `Consolidator` + `Dream` 双阶段记忆 | 替代 `MemoryConsolidator` |
+
 ## 其他模块
 
 | 模块路径 | 说明 |
 |---------|------|
 | `ava/console/` | Web Console 子应用（FastAPI + WebSocket） |
-| `ava/tools/` | 7 个自定义工具实现（含 `codex`、`page_agent`） |
+| `ava/tools/` | 8 个自定义工具实现（含 `codex`、`page_agent`、`gateway_control`） |
+| `ava/runtime/` | LifecycleManager 生命周期管理 |
 | `ava/storage/` | SQLite 数据库封装 |
 | `ava/channels/` | 消息批处理器实现 |
 | `ava/session/` | Session backfill 实现 |
