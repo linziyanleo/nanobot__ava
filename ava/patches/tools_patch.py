@@ -62,6 +62,7 @@ def apply_tools_patch() -> str:
             allowed_tools=cc_allowed_tools,
             timeout=cc_timeout,
             subagent_manager=self.subagents,
+            task_store=getattr(self, 'bg_tasks', None),
             cc_config=cc_cfg,
         ))
         

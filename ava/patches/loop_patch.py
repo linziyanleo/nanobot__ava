@@ -1,13 +1,14 @@
 """Monkey patch to inject ava capabilities into AgentLoop.
 
 Injected attributes (after __init__):
-  - self.db                  — shared Database instance (from storage_patch)
-  - self.token_stats         — TokenStatsCollector instance
-  - self.media_service       — MediaService instance (for image_gen tool)
-  - self.categorized_memory  — CategorizedMemoryStore instance
-  - self.history_summarizer  — HistorySummarizer instance
-  - self.history_compressor  — HistoryCompressor instance
-  - self.context._agent_loop — back-reference for context_patch to access loop
+  - self.db                      — shared Database instance (from storage_patch)
+  - self.token_stats             — TokenStatsCollector instance
+  - self.media_service           — MediaService instance (for image_gen tool)
+  - self.categorized_memory      — CategorizedMemoryStore instance
+  - self.history_summarizer      — HistorySummarizer instance
+  - self.history_compressor      — HistoryCompressor instance
+  - self.context._agent_loop     — back-reference for context_patch to access loop
+  - self._current_session_key    — correct session_key for current turn (fixes console routing)
 
 Also patches _process_message to record token usage after each turn,
 and broadcasts observe events via MessageBus for real-time Console updates.
@@ -55,6 +56,83 @@ def _get_or_create_db(workspace_path) -> object | None:
     except Exception as exc:
         logger.warning("Failed to create fallback Database: {}", exc)
         return None
+
+
+def _register_bg_task_commands(router, bg_store) -> None:
+    """Register /task, /task_cancel, /cc_status into upstream CommandRouter."""
+    from nanobot.bus.events import OutboundMessage
+
+    async def cmd_task(ctx):
+        parts = ctx.raw.strip().split()
+        task_id = None
+        verbose = False
+        for token in parts[1:]:
+            low = token.lower()
+            if low in {"-v", "--verbose", "verbose"}:
+                verbose = True
+            elif task_id is None:
+                task_id = token
+
+        snapshot = bg_store.get_status(
+            task_id=task_id,
+            session_key=None if task_id else ctx.key,
+        )
+        if task_id and snapshot["total"] == 0:
+            content = f"Task '{task_id}' not found."
+        elif snapshot["total"] == 0:
+            content = "No background tasks."
+        else:
+            lines = [
+                f"Background Tasks: {snapshot['running']} running / {snapshot['total']} tracked",
+            ]
+            visible = snapshot["tasks"] if (verbose or task_id) else snapshot["tasks"][:5]
+            for item in visible:
+                elapsed = item.get("elapsed_ms", 0)
+                lines.append(
+                    f"- [{item['task_type']}:{item['task_id']}] {item['status']} ({elapsed}ms)"
+                )
+                if item.get("error_message"):
+                    lines.append(f"  error: {str(item['error_message'])[:200]}")
+                if verbose and item.get("prompt_preview"):
+                    lines.append(f"  prompt: {item['prompt_preview']}")
+                if verbose and item.get("timeline"):
+                    for evt in item["timeline"][-5:]:
+                        lines.append(f"  [{evt['event']}] {evt.get('detail', '')[:80]}")
+            if not (verbose or task_id) and snapshot["total"] > len(visible):
+                lines.append(f"... {snapshot['total'] - len(visible)} more (use /task --verbose)")
+            content = "\n".join(lines)
+
+        return OutboundMessage(channel=ctx.msg.channel, chat_id=ctx.msg.chat_id, content=content)
+
+    async def cmd_task_cancel(ctx):
+        parts = ctx.raw.strip().split()
+        if len(parts) < 2:
+            content = "Usage: /task_cancel <task_id>"
+        else:
+            content = await bg_store.cancel(parts[1])
+        return OutboundMessage(channel=ctx.msg.channel, chat_id=ctx.msg.chat_id, content=content)
+
+    async def cmd_stop_with_bg(ctx):
+        import asyncio as _asyncio
+        loop = ctx.loop
+        msg = ctx.msg
+        tasks = loop._active_tasks.pop(msg.session_key, [])
+        cancelled = sum(1 for t in tasks if not t.done() and t.cancel())
+        for t in tasks:
+            try:
+                await t
+            except (_asyncio.CancelledError, Exception):
+                pass
+        sub_cancelled = await loop.subagents.cancel_by_session(msg.session_key)
+        bg_cancelled = await bg_store.cancel_by_session(msg.session_key)
+        total = cancelled + sub_cancelled + bg_cancelled
+        content = f"Stopped {total} task(s)." if total else "No active task to stop."
+        return OutboundMessage(channel=ctx.msg.channel, chat_id=ctx.msg.chat_id, content=content)
+
+    router.exact("/task", cmd_task)
+    router.exact("/task_cancel", cmd_task_cancel)
+    router.exact("/cc_status", cmd_task)
+    router.priority("/stop", cmd_stop_with_bg)
 
 
 def apply_loop_patch() -> str:
@@ -159,6 +237,20 @@ def apply_loop_patch() -> str:
             logger.warning("Failed to init HistoryCompressor: {}", exc)
             self.history_compressor = None
 
+        # BackgroundTaskStore
+        try:
+            from ava.agent.bg_tasks import BackgroundTaskStore
+            self.bg_tasks = BackgroundTaskStore(db=db)
+            self.bg_tasks.set_agent_loop(self)
+        except Exception as exc:
+            logger.warning("Failed to init BackgroundTaskStore: {}", exc)
+            self.bg_tasks = None
+
+        # Register /task, /task_cancel, /cc_status into upstream CommandRouter,
+        # and override /stop to also cancel bg_tasks.
+        if hasattr(self, "commands") and hasattr(self, "bg_tasks") and self.bg_tasks:
+            _register_bg_task_commands(self.commands, self.bg_tasks)
+
         # Back-reference for context_patch to access loop attributes
         if hasattr(self, "context"):
             self.context._agent_loop = self
@@ -180,6 +272,8 @@ def apply_loop_patch() -> str:
                 if cc_tool := self.tools.get("claude_code"):
                     if hasattr(cc_tool, "_token_stats"):
                         cc_tool._token_stats = token_stats
+                    if hasattr(cc_tool, "_task_store"):
+                        cc_tool._task_store = getattr(self, "bg_tasks", None)
         except Exception as exc:
             logger.warning("Failed to update tool refs after init: {}", exc)
 
@@ -187,15 +281,26 @@ def apply_loop_patch() -> str:
     AgentLoop.__init__ = patched_init
 
     # ------------------------------------------------------------------
-    # 2. Patch _set_tool_context to also update StickerTool chat context
+    # 2. Patch _set_tool_context to propagate channel/chat_id/session_key
+    #    to ALL sidecar tools that implement set_context().
+    #    session_key comes from self._current_session_key (set by
+    #    patched_process_message before upstream calls _set_tool_context).
+    #    This fixes the console routing bug where channel="console" +
+    #    chat_id=user_id would produce "console:{user_id}" instead of
+    #    the correct "console:{session_id}".
     # ------------------------------------------------------------------
     original_set_tool_context = AgentLoop._set_tool_context
 
     def patched_set_tool_context(self: AgentLoop, channel: str, chat_id: str, message_id: str | None = None) -> None:
         original_set_tool_context(self, channel, chat_id, message_id)
-        if tool := self.tools.get("send_sticker"):
-            if hasattr(tool, "set_context"):
-                tool.set_context(channel, chat_id)
+        session_key = getattr(self, "_current_session_key", None) or f"{channel}:{chat_id}"
+        for tool_name in self.tools.tool_names:
+            tool = self.tools.get(tool_name)
+            if tool and hasattr(tool, "set_context"):
+                try:
+                    tool.set_context(channel, chat_id, session_key=session_key)
+                except TypeError:
+                    tool.set_context(channel, chat_id)
 
     patched_set_tool_context._ava_loop_patched = True
     AgentLoop._set_tool_context = patched_set_tool_context

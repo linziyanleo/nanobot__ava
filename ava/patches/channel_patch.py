@@ -151,7 +151,39 @@ def apply_channel_patch() -> str:
     patched_send_delta._ava_channel_patched = True
     TelegramChannel.send_delta = patched_send_delta
 
-    return "TelegramChannel patched: message batching + send_delta typing fix"
+    # ------------------------------------------------------------------
+    # 4. Patch start: add CommandHandlers for sidecar slash commands
+    #    (/task, /task_cancel, /cc_status) so Telegram doesn't swallow them
+    #    (upstream MessageHandler uses ~filters.COMMAND which excludes /).
+    # ------------------------------------------------------------------
+    original_start = TelegramChannel.start
+
+    async def patched_start(self: TelegramChannel) -> None:
+        await original_start(self)
+        if not hasattr(self, "_app") or not self._app:
+            return
+        try:
+            from telegram import BotCommand
+            from telegram.ext import CommandHandler
+
+            for cmd_name in ("task", "task_cancel", "cc_status"):
+                self._app.add_handler(CommandHandler(cmd_name, self._forward_command))
+
+            existing = list(self.BOT_COMMANDS)
+            extra = [
+                BotCommand("task", "Show background task status"),
+                BotCommand("task_cancel", "Cancel a background task"),
+                BotCommand("cc_status", "Show task status (alias)"),
+            ]
+            await self._app.bot.set_my_commands(existing + extra)
+            logger.info("channel_patch: registered /task /task_cancel /cc_status handlers")
+        except Exception as exc:
+            logger.warning("channel_patch: failed to register sidecar commands: {}", exc)
+
+    patched_start._ava_channel_patched = True
+    TelegramChannel.start = patched_start
+
+    return "TelegramChannel patched: message batching + send_delta typing fix + sidecar command handlers"
 
 
 register_patch("channel_extensions", apply_channel_patch)

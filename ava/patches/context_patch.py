@@ -123,14 +123,25 @@ def apply_context_patch() -> str:
             except Exception as exc:
                 logger.warning("CategorizedMemory injection failed: {}", exc)
 
-        # 5. 保存 system prompt 到 loop，供 token_stats 记录（完整保存，不截断）
+        # 5. 注入后台任务 digest 到系统提示词
+        bg_store = getattr(loop, "bg_tasks", None) if loop else None
+        if bg_store and messages and messages[0]["role"] == "system":
+            try:
+                sk = getattr(loop, "_current_session_key", None)
+                digest = bg_store.get_active_digest(sk)
+                if digest:
+                    messages[0]["content"] += f"\n\n{digest}"
+            except Exception as exc:
+                logger.warning("BackgroundTaskStore digest injection failed: {}", exc)
+
+        # 6. 保存 system prompt 到 loop，供 token_stats 记录（完整保存，不截断）
         if loop and messages and messages[0].get("role") == "system":
             try:
                 loop._last_system_prompt = messages[0]["content"] or ""
             except Exception:
                 pass
 
-        # 6. 记录压缩后的历史消息数（不含 system 和当前 user），供 _save_turn 计算正确的 skip。
+        # 7. 记录压缩后的历史消息数（不含 system 和当前 user），供 _save_turn 计算正确的 skip。
         #    HistorySummarizer/Compressor 会减少历史长度，导致上游 skip = 1 + len(原始history)
         #    大于 all_msgs 实际长度，使新消息无法被保存。
         #    build_messages 返回 [system, history..., user_msg]，历史数 = len - 2。
