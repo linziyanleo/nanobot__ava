@@ -1,5 +1,7 @@
 """Monkey patch to inject CafeExt custom tools into AgentLoop."""
 
+import shutil
+
 from loguru import logger
 
 from nanobot.agent.loop import AgentLoop
@@ -7,6 +9,7 @@ from ava.launcher import register_patch
 
 from ava.tools import (
     ClaudeCodeTool,
+    CodexTool,
     ImageGenTool,
     MemoryTool,
     PageAgentTool,
@@ -66,6 +69,21 @@ def apply_tools_patch() -> str:
             cc_config=cc_cfg,
         ))
         
+        # Codex tool: conditional on providers.openai_codex having an api_key,
+        # or codex CLI being available (uses its own auth).
+        codex_cfg = getattr(config.providers, "openai_codex", None)
+        codex_api_key = (codex_cfg.api_key if codex_cfg else "") or ""
+        if codex_api_key or shutil.which("codex"):
+            self.tools.register(CodexTool(
+                workspace=self.workspace,
+                token_stats=getattr(self, 'token_stats', None),
+                default_project=str(self.workspace),
+                model=getattr(codex_cfg, "model", "") if codex_cfg else "",
+                timeout=600,
+                task_store=getattr(self, 'bg_tasks', None),
+                codex_config=codex_cfg,
+            ))
+
         self.tools.register(ImageGenTool(
             token_stats=getattr(self, 'token_stats', None),
             media_service=getattr(self, 'media_service', None),
@@ -102,7 +120,7 @@ def apply_tools_patch() -> str:
     patched_register_default_tools._ava_tools_patched = True
     AgentLoop._register_default_tools = patched_register_default_tools
     
-    return "Registered 6 custom tools: claude_code, image_gen, vision, send_sticker, page_agent, memory"
+    return "Registered custom tools: claude_code, codex (conditional), image_gen, vision, send_sticker, page_agent, memory"
 
 
 register_patch('custom_tools', apply_tools_patch)

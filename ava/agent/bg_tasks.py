@@ -425,6 +425,15 @@ class BackgroundTaskStore:
         except Exception as exc:
             logger.warning("BackgroundTaskStore: persist_event failed: {}", exc)
 
+    @staticmethod
+    def _row_val(row: Any, key: str, default: Any = "") -> Any:
+        """sqlite3.Row 没有 .get()，用 try/except 安全取值。"""
+        try:
+            val = row[key]
+            return val if val is not None else default
+        except (KeyError, IndexError):
+            return default
+
     def query_history(
         self,
         *,
@@ -458,29 +467,30 @@ class BackgroundTaskStore:
                     LIMIT ? OFFSET ?""",
                 tuple(params),
             )
+            rv = self._row_val
             tasks = []
             for r in rows:
                 import json as _json
                 extra = {}
                 try:
-                    extra = _json.loads(r.get("extra", "{}") or "{}")
+                    extra = _json.loads(rv(r, "extra", "{}") or "{}")
                 except Exception:
                     pass
-                elapsed = 0
-                if r.get("started_at") and r.get("finished_at"):
-                    elapsed = int((r["finished_at"] - r["started_at"]) * 1000)
+                started = rv(r, "started_at", None)
+                finished = rv(r, "finished_at", None)
+                elapsed = int((finished - started) * 1000) if started and finished else 0
                 tasks.append({
                     "task_id": r["task_id"],
                     "task_type": r["task_type"],
                     "origin_session_key": r["origin_session_key"],
                     "status": r["status"],
-                    "prompt_preview": r.get("prompt_preview", ""),
-                    "started_at": r.get("started_at"),
-                    "finished_at": r.get("finished_at"),
+                    "prompt_preview": rv(r, "prompt_preview"),
+                    "started_at": started,
+                    "finished_at": finished,
                     "elapsed_ms": elapsed,
-                    "result_preview": r.get("result_preview", ""),
-                    "error_message": r.get("error_message", ""),
-                    "project_path": r.get("project_path", ""),
+                    "result_preview": rv(r, "result_preview"),
+                    "error_message": rv(r, "error_message"),
+                    "project_path": rv(r, "project_path"),
                     "cli_session_id": extra.get("cli_session_id", ""),
                     "phase": "",
                     "last_tool_name": "",
@@ -500,8 +510,9 @@ class BackgroundTaskStore:
                 "SELECT event, detail, timestamp FROM bg_task_events WHERE task_id=? ORDER BY timestamp",
                 (task_id,),
             )
+            rv = self._row_val
             return [
-                TimelineEvent(timestamp=r["timestamp"], event=r["event"], detail=r.get("detail", ""))
+                TimelineEvent(timestamp=r["timestamp"], event=r["event"], detail=rv(r, "detail"))
                 for r in rows
             ]
         except Exception:

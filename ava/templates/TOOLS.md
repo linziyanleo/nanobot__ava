@@ -24,6 +24,7 @@ This file focuses on non-obvious constraints, tool-selection guidance, and sidec
 ### ava 通过 patch 注入的工具
 
 - `claude_code`
+- `codex`（仅当 `codex` CLI 可用或 `providers.openai_codex.api_key` 已配置）
 - `image_gen`
 - `vision`
 - `send_sticker`
@@ -49,7 +50,7 @@ This file focuses on non-obvious constraints, tool-selection guidance, and sidec
 | 操控网页、点按钮、填表、截图 | `page_agent` |
 | 分析图片、OCR、看截图 | `vision` |
 | 生成或编辑图片 | `image_gen` |
-| 做代码库级修改、重构、只读分析 | `claude_code` |
+| 做代码库级修改、重构、只读分析 | `claude_code` 或 `codex` |
 | 给用户发文字或附件 | `message` |
 | 起通用后台子代理 | `spawn` |
 | 管理分类记忆 | `memory` |
@@ -286,6 +287,45 @@ Console UI 的 `/bg-tasks` 页面提供可视化监控，通过 WebSocket 实时
 - 异步任务完成后会自动将结果持久化到会话历史，并通过 IM 通知用户
 - 活跃任务的摘要会自动注入到 system prompt，让模型感知当前后台执行状态
 - 只在明确需要阻塞结果时使用 `mode="sync"`
+
+## Codex
+
+### codex
+
+调用 OpenAI Codex CLI 执行代码任务。全部异步执行。
+
+```
+codex(prompt: str, project_path: str = None, mode: str = "standard") -> str
+```
+
+**Parameters:**
+
+- `prompt`：任务描述，尽量包含文件路径、预期行为、约束条件
+- `project_path`：可选，目标项目目录
+- `mode`：
+  - `fast`：异步，120s 超时，full-auto sandbox
+  - `standard`：异步，默认超时，full-auto sandbox（默认）
+  - `readonly`：异步，read-only sandbox
+
+**什么时候选 codex 而不是 claude_code：**
+
+- 需要 OpenAI 系列模型（如 gpt-5.4）做代码任务时
+- 需要 Codex 的 sandbox 隔离能力时
+- claude_code 不可用或需要备用方案时
+
+**什么时候选 claude_code 而不是 codex：**
+
+- 需要 Claude 系列模型时
+- 需要 session 恢复能力时（codex 不支持）
+- 需要同步阻塞执行时（codex 没有 sync 模式）
+
+**Notes:**
+
+- 没有 `sync` 模式，所有调用都是异步的
+- 通过 BackgroundTaskStore 统一管理，`/task` 查看状态
+- 依赖本机 `codex` CLI（`npm install -g @openai/codex`）
+- 认证：codex CLI 自带的 `~/.codex/` 认证或 `providers.openai_codex.api_key`
+- 异步任务完成后自动持久化结果到会话历史并通知用户
 
 ## Communication
 

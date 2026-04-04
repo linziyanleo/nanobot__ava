@@ -274,6 +274,11 @@ def apply_loop_patch() -> str:
                         cc_tool._token_stats = token_stats
                     if hasattr(cc_tool, "_task_store"):
                         cc_tool._task_store = getattr(self, "bg_tasks", None)
+                if codex_tool := self.tools.get("codex"):
+                    if hasattr(codex_tool, "_token_stats"):
+                        codex_tool._token_stats = token_stats
+                    if hasattr(codex_tool, "_task_store"):
+                        codex_tool._task_store = getattr(self, "bg_tasks", None)
         except Exception as exc:
             logger.warning("Failed to update tool refs after init: {}", exc)
 

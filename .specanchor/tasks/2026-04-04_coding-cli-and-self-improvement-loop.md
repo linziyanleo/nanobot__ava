@@ -5,7 +5,7 @@ specanchor:
   author: "@fanghu"
   created: "2026-04-04"
   status: "draft"
-  last_change: "v3.3: Console UI 可视化 + BackgroundTaskStore bug 修复 + TOOLS.md 模板同步方案设计"
+  last_change: "v3.5: Codex 工具实现 + 测试"
   related_modules:
     - ".specanchor/modules/claude_code_tool_spec.md"
     - ".specanchor/modules/tools_patch_spec.md"
@@ -497,11 +497,10 @@ CREATE INDEX IF NOT EXISTS idx_bg_task_events_task ON bg_task_events(task_id);
 - [x] 9. 测试：14 个 + 全量回归 974 passed
 - [ ] 8b. Telegram CommandHandler 动态注入（降级到 Phase 2）
 
-#### Phase 2：通用编程 CLI + cron/subagent 接入 + Telegram 命令
-- [ ] 10. 抽取 `CodingCLIBase`
-- [ ] 11. 新增 `CodexCLI` 后端
+#### Phase 2：cron/subagent 接入 + Telegram 命令
+- [x] 10-11. CodexTool 独立实现（v3.5，不走 CodingCLIBase 抽象）
 - [ ] 12. BackgroundTaskStore 新增 cron observer / subagent observer
-- [ ] 13. 更新 `tools_patch` / schema / Module Spec
+- [ ] 13. 更新相关 Module Spec
 - [ ] 14. Telegram 命令注册（修改上游 handler 或用 catch-all 替代 ~filters.COMMAND）
 
 #### Phase 2.5（可选）：streaming 增强
@@ -545,10 +544,30 @@ CREATE INDEX IF NOT EXISTS idx_bg_task_events_task ON bg_task_events(task_id);
   - **Console UI 增强**：历史任务折叠+分页、首页活跃任务卡片
   - **Skill 更新**：console_ui_regression 拆为 page-agent-test（通用协议）+ console_ui_regression（编排层）；动态验证取代硬编码 verify_prompt
   - **TOOLS.md 更新**：新增后台任务管理命令文档
-  - **TOOLS.md 模板同步方案**（待实施）：
-    - 问题：`ava/templates/TOOLS.md` 未接入运行时同步链路；workspace TOOLS.md 只补缺不覆盖
-    - 方案：`ava/templates/TOOLS.md` 作为事实源 → 新增 `templates_patch.py` 接管同步 → workspace 启动时覆盖
-    - `nanobot/templates/TOOLS.md` 恢复上游基础内容
+  - **TOOLS.md 模板同步方案**（已实施）：
+    - `ava/templates/TOOLS.md` 作为事实源
+    - `ava/patches/templates_patch.py` 接管 `sync_workspace_templates()`，overlay 覆盖
+    - `nanobot/templates/TOOLS.md` 已恢复上游基础版本
+- [x] 2026-04-04 v3.4: 历史任务查询 bug 修复 + Codex 工具设计
+  - **sqlite3.Row .get() bug**：`query_history` 和 `_load_timeline_from_db` 使用 `row.get()` 但 `sqlite3.Row` 没有 `.get()` 方法。修复：新增 `_row_val()` 静态方法安全取值
+  - **Codex 工具设计**（待实施）：独立 `ava/tools/codex.py`，共享 `BackgroundTaskStore`，不与 claude_code 统一接口
+- [x] 2026-04-04 v3.5: Codex 工具实现 + 测试
+  - **新建** `ava/tools/codex.py`：CodexTool 完整实现
+    - 通过 `codex exec --json -C <project>` 非交互模式调用 Codex CLI
+    - JSONL 事件流解析（`thread.started` / `turn.completed` / `item.completed` / `turn.failed` / `error`）
+    - 三种 mode：`fast`（120s, `--full-auto`）/ `standard`（默认, `--full-auto`）/ `readonly`（`-s read-only`）
+    - 全异步：所有调用通过 BackgroundTaskStore 管理，无 sync 模式
+    - Token stats 记录：`provider="codex-cli"`，`model_role="codex"`
+    - 认证：`CODEX_API_KEY` 从 `providers.openai_codex.api_key` 注入，或 codex CLI 自带认证
+  - **修改** `ava/tools/__init__.py`：导出 CodexTool
+  - **修改** `ava/patches/tools_patch.py`：条件注册（codex CLI 可用或 api_key 已配置）
+  - **修改** `ava/patches/loop_patch.py`：post-init 引用回填 `_token_stats` + `_task_store`
+  - **修改** `ava/templates/TOOLS.md`：添加 Codex 工具文档 + Quick Map 更新
+  - **修改** `.gitignore`：添加 `*.db` 防止数据库文件被追踪
+  - **新建** `tests/tools/test_codex.py`：38 个测试全部通过
+    - 覆盖：属性 / 上下文 / 命令构建 / JSONL 解析 / 输出格式 / execute 集成 / cancel / stats 记录 / 项目解析 / 配置注入 / patch 集成
+  - **更新** `codex_tool_spec.md`：状态 📋 → ✅
+  - **更新** `module-index.md`：codex 从"计划新增"移到"功能模块（已实现）"
 - [ ] Phase 2 尚未执行
 - [ ] Phase 3 尚未执行
 
@@ -589,3 +608,4 @@ CREATE INDEX IF NOT EXISTS idx_bg_task_events_task ON bg_task_events(task_id);
   - FastAPI 路由 `/{task_id}` 抢先匹配 `/history`
   - `ava/templates/TOOLS.md` 未接入运行时同步链路（三份文件互相漂移）
   - console_ui_regression skill 的 verify_prompt 硬编码不可维护 → 拆分为 page-agent-test（通用协议）+ console_ui_regression（编排层，动态验证）
+- v3.5（2026-04-04）：Codex 工具实现。原 Plan 中 Phase 2 的第 10-11 步（CodingCLIBase + CodexCLI 后端）合并为独立 CodexTool，设计决策：不创建抽象基类，保持两个工具完全独立。38 个测试通过。
