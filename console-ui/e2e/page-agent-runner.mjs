@@ -108,7 +108,28 @@ async function getOrCreateSession(sessionId) {
     cdp: null,
     screencastActive: false,
     activityBridgeExposed: false,
+    llmUsage: { requests: 0, promptTokens: 0, completionTokens: 0, totalTokens: 0 },
   };
+
+  // 拦截 page-agent 内部的 LLM API 调用，累积 token usage
+  if (config.apiBase) {
+    const apiOrigin = new URL(config.apiBase).origin;
+    await page.route(`${apiOrigin}/**`, async (route) => {
+      const response = await route.fetch();
+      try {
+        const body = await response.json();
+        const usage = body?.usage;
+        if (usage) {
+          session.llmUsage.requests += 1;
+          session.llmUsage.promptTokens += usage.prompt_tokens || 0;
+          session.llmUsage.completionTokens += usage.completion_tokens || 0;
+          session.llmUsage.totalTokens += usage.total_tokens || 0;
+        }
+      } catch { /* non-JSON or no usage — ignore */ }
+      await route.fulfill({ response });
+    });
+  }
+
   sessions.set(sessionId, session);
   log(`session created: ${sessionId}`);
   return session;
@@ -380,6 +401,10 @@ const handlers = {
       const pageUrl = session.page.url();
       const pageTitle = await session.page.title();
 
+      const llmUsage = session ? { ...session.llmUsage } : {};
+      if (session) {
+        session.llmUsage = { requests: 0, promptTokens: 0, completionTokens: 0, totalTokens: 0 };
+      }
       reply(id, true, {
         session_id: sessionId,
         data: result.data,
@@ -389,6 +414,7 @@ const handlers = {
         page_url: pageUrl,
         page_title: pageTitle,
         page_state: result.pageState || {},
+        llm_usage: llmUsage,
       });
     } catch (err) {
       let pageUrl = url || "unknown";

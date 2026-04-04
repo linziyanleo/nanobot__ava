@@ -106,6 +106,7 @@ def apply_tools_patch() -> str:
             pa_tool = PageAgentTool(
                 config=pa_cfg,
                 media_service=getattr(self, 'media_service', None),
+                token_stats=getattr(self, 'token_stats', None),
             )
             self.tools.register(pa_tool)
 

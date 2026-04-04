@@ -36,9 +36,11 @@ class PageAgentTool(Tool):
         self,
         config: Any | None = None,
         media_service: Any | None = None,
+        token_stats: Any | None = None,
     ) -> None:
         self._config = config
         self._media_service = media_service
+        self._token_stats = token_stats
         # Runner 进程
         self._process: asyncio.subprocess.Process | None = None
         self._reader_task: asyncio.Task | None = None
@@ -165,7 +167,45 @@ class PageAgentTool(Tool):
             parts.append("--- Page State ---")
             parts.extend(state_lines)
 
+        self._record_llm_usage(r.get('llm_usage'), instruction, r)
+
         return "\n".join(parts)
+
+    def _record_llm_usage(self, llm_usage: dict | None, instruction: str, result: dict) -> None:
+        """记录 page-agent 内部 LLM 调用的 token usage。"""
+        if not self._token_stats or not llm_usage:
+            return
+        requests = llm_usage.get("requests", 0)
+        if requests == 0:
+            return
+        prompt_tokens = llm_usage.get("promptTokens", 0)
+        completion_tokens = llm_usage.get("completionTokens", 0)
+        total_tokens = llm_usage.get("totalTokens", 0) or (prompt_tokens + completion_tokens)
+        model = ""
+        if self._config:
+            model = getattr(self._config, "model", "") or "page-agent"
+        else:
+            model = "page-agent"
+        steps = result.get("steps", 0)
+        duration = result.get("duration", 0)
+        page_url = result.get("page_url", "")
+        self._token_stats.record(
+            model=model,
+            provider="page-agent",
+            usage={
+                "prompt_tokens": prompt_tokens,
+                "completion_tokens": completion_tokens,
+                "total_tokens": total_tokens,
+            },
+            user_message=f"[page_agent] steps={steps} duration={duration}ms\n{instruction[:200]}",
+            output_content=f"URL: {page_url}",
+            finish_reason="end_turn",
+            model_role="page-agent",
+        )
+        logger.info(
+            "page_agent stats: model={} prompt={} completion={} total={} requests={} steps={}",
+            model, prompt_tokens, completion_tokens, total_tokens, requests, steps,
+        )
 
     @staticmethod
     def _format_page_state(page_state: dict) -> list[str]:
