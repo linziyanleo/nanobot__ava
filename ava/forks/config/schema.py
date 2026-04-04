@@ -465,6 +465,11 @@ class PageAgentConfig(Base):
         validation_alias=AliasChoices("api_base", "apiBase"),
         serialization_alias="apiBase",
     )
+    api_key: str = Field(
+        default="",
+        validation_alias=AliasChoices("api_key", "apiKey"),
+        serialization_alias="apiKey",
+    )
     api_key_env: str = Field(
         default="PAGE_AGENT_API_KEY",
         validation_alias=AliasChoices("api_key_env", "apiKeyEnv"),

@@ -157,7 +157,44 @@ class PageAgentTool(Tool):
             "",
             r.get("data", "(no output)"),
         ]
+
+        page_state = r.get("page_state") or {}
+        state_lines = self._format_page_state(page_state)
+        if state_lines:
+            parts.append("")
+            parts.append("--- Page State ---")
+            parts.extend(state_lines)
+
         return "\n".join(parts)
+
+    @staticmethod
+    def _format_page_state(page_state: dict) -> list[str]:
+        """将 runner 返回的页面结构化状态格式化为文本行。"""
+        if not page_state:
+            return []
+        lines: list[str] = []
+        headings = page_state.get("headings") or []
+        if headings:
+            lines.append("Headings: " + " > ".join(headings))
+        alerts = page_state.get("alerts") or []
+        if alerts:
+            for a in alerts:
+                lines.append(f"Alert: {a}")
+        forms = page_state.get("forms") or []
+        if forms:
+            for i, form in enumerate(forms):
+                inputs = form.get("inputs") or []
+                if inputs:
+                    fields = []
+                    for inp in inputs:
+                        name = inp.get("name") or inp.get("placeholder") or inp.get("type", "?")
+                        filled = "filled" if inp.get("hasValue") else "empty"
+                        fields.append(f"{name}({filled})")
+                    lines.append(f"Form[{i}]: " + ", ".join(fields))
+        buttons = page_state.get("buttons") or []
+        if buttons:
+            lines.append("Buttons: " + ", ".join(buttons))
+        return lines
 
     @staticmethod
     def _format_error_result(result: dict, fallback_session_id: str) -> str:
@@ -368,8 +405,10 @@ class PageAgentTool(Tool):
         cfg = self._config
         api_key = ""
         if cfg:
-            env_name = getattr(cfg, "api_key_env", "PAGE_AGENT_API_KEY")
-            api_key = os.environ.get(env_name, "")
+            api_key = getattr(cfg, "api_key", "") or ""
+            if not api_key:
+                env_name = getattr(cfg, "api_key_env", "PAGE_AGENT_API_KEY")
+                api_key = os.environ.get(env_name, "")
 
         params = {
             "headless": getattr(cfg, "headless", True) if cfg else True,

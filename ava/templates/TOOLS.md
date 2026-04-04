@@ -169,6 +169,17 @@ page_agent(action: str, url: str = None, instruction: str = None, session_id: st
 - 会话复用（cookie、登录态等）
 - 截图存档
 
+**Page State 输出：**
+
+`execute` 操作完成后，返回结果自动包含 `--- Page State ---` 段落，提取当前页面的：
+- `Headings`：可见的 h1/h2/h3 标题
+- `Form[n]`：表单字段及其填充状态（`filled` / `empty`）
+- `Alert`：页面上的 alert / error / warning / success 提示
+- `Buttons`：可见的按钮文本
+
+这些结构化信息足以判断页面状态（是否登录成功、是否显示错误、表单是否填充）。
+**只有在需要 DOM 无法表达的视觉信息（颜色、布局、图片内容、Canvas/SVG）时，才需要调用 `screenshot` + `vision`。**
+
 **局限性：**
 
 - 基于 DOM 文本理解，不能直接理解图片、Canvas、SVG 语义
@@ -212,8 +223,18 @@ vision(url: str, prompt: str = "描述这张图片的内容。") -> str
 
 - 支持远程 URL 和本地文件路径
 - 适合 OCR、分析截图、读取图片内容
-- 页面视觉验证、Canvas/SVG/图片内容识别，通常和 `page_agent(action="screenshot")` 配合使用
 - `vision` 只负责图片理解，不负责网页交互
+
+**什么时候需要 vision 配合 page_agent：**
+
+- 需要判断颜色、CSS 样式、布局是否正确时
+- 需要理解 Canvas / SVG / 图片等非 DOM 内容时
+- 需要 OCR 识别页面中图片里的文字时
+
+**什么时候不需要 vision：**
+
+- 判断页面是否登录成功、表单是否填充、是否有错误提示 → page_agent 的 Page State 输出已包含这些信息
+- 读取页面文本内容 → page_agent 的 data 字段已提取 DOM 文本
 
 ## Image Generation
 

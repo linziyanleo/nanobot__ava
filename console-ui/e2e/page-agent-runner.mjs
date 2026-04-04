@@ -175,12 +175,54 @@ async function executePageAgent(page, instruction) {
 
       const agent = window.__paAgent;
       const executionResult = await agent.execute(instruction);
+
+      // 提取当前页面结构化状态，供外层 LLM 判断而无需调用 vision
+      let pageState = {};
+      try {
+        const vis = (el) => el && el.offsetParent !== null;
+        const txt = (el) => (el.textContent || "").trim();
+        const headings = [...document.querySelectorAll("h1, h2, h3")]
+          .filter(vis)
+          .map(txt)
+          .filter(Boolean)
+          .slice(0, 8);
+        const alerts = [
+          ...document.querySelectorAll(
+            '[role="alert"], .error, .alert, .warning, .success, .toast, .notification'
+          ),
+        ]
+          .filter(vis)
+          .map(txt)
+          .filter(Boolean)
+          .slice(0, 5);
+        const forms = [...document.querySelectorAll("form")].slice(0, 3).map((f) => {
+          const inputs = [...f.querySelectorAll("input, select, textarea")]
+            .slice(0, 10)
+            .map((i) => ({
+              type: i.type || "text",
+              name: i.name || i.id || "",
+              placeholder: i.placeholder || "",
+              hasValue: i.type === "password" ? i.value.length > 0 : Boolean(i.value),
+            }));
+          return { inputs };
+        });
+        const buttons = [...document.querySelectorAll("button, [role='button'], input[type='submit']")]
+          .filter(vis)
+          .map(txt)
+          .filter(Boolean)
+          .slice(0, 10);
+        pageState = { headings, alerts, forms, buttons };
+      } catch {
+        /* DOM 提取失败不影响主流程 */
+      }
+
       return {
         success: executionResult.success,
         data: executionResult.data || "",
         steps: executionResult.history
           ? executionResult.history.filter((e) => e.type === "step").length
           : 0,
+        pageState,
       };
     },
     {
@@ -346,6 +388,7 @@ const handlers = {
         duration: Date.now() - startMs,
         page_url: pageUrl,
         page_title: pageTitle,
+        page_state: result.pageState || {},
       });
     } catch (err) {
       let pageUrl = url || "unknown";
