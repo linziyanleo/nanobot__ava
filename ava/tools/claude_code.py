@@ -1,5 +1,7 @@
 """Claude Code CLI integration tool."""
 
+from __future__ import annotations
+
 import asyncio
 import json
 import os
@@ -13,7 +15,7 @@ from loguru import logger
 from nanobot.agent.tools.base import Tool
 
 if TYPE_CHECKING:
-    from nanobot.agent.subagent import SubagentManager
+    from ava.agent.bg_tasks import BackgroundTaskStore
 
 _MAX_OUTPUT_CHARS = 32000   # hard cap for extreme cases
 _HEAD_CHARS = 8000          # keep first N chars (task breakdown, early progress)
@@ -34,7 +36,8 @@ class ClaudeCodeTool(Tool):
         max_turns: int = 15,
         allowed_tools: str = "Read,Edit,Bash,Glob,Grep",
         timeout: int = 600,
-        subagent_manager: "SubagentManager | None" = None,
+        subagent_manager: Any | None = None,
+        task_store: BackgroundTaskStore | None = None,
         cc_config: Any | None = None,
     ) -> None:
         self._workspace = workspace
@@ -45,18 +48,19 @@ class ClaudeCodeTool(Tool):
         self._allowed_tools = allowed_tools
         self._timeout = timeout
         self._subagent_manager = subagent_manager
-        # Keep sync mode compatible even when config is not injected by caller.
+        self._task_store = task_store
         self.cc_config = cc_config or SimpleNamespace(api_key="", base_url="")
-        # Context for async result routing
         self._channel = "cli"
         self._chat_id = "direct"
         self._session_key = "cli:direct"
 
-    def set_context(self, channel: str, chat_id: str) -> None:
+    def set_context(
+        self, channel: str, chat_id: str, *, session_key: str | None = None,
+    ) -> None:
         """Set the origin context for async task result routing."""
         self._channel = channel
         self._chat_id = chat_id
-        self._session_key = f"{channel}:{chat_id}"
+        self._session_key = session_key or f"{channel}:{chat_id}"
 
     @property
     def name(self) -> str:
@@ -117,25 +121,25 @@ class ClaudeCodeTool(Tool):
         if not Path(project).is_dir():
             return f"Error: Project directory does not exist: {project}"
 
-        # Sync mode: original blocking behavior
         if mode == "sync":
             return await self._execute_sync(prompt, project, session_id)
 
-        # Async mode: delegate to SubagentManager
-        if not self._subagent_manager:
-            logger.warning("claude_code: SubagentManager not available, falling back to sync")
+        if not self._task_store:
+            logger.warning("claude_code: BackgroundTaskStore not available, falling back to sync")
             return await self._execute_sync(prompt, project, session_id)
 
-        return await self._subagent_manager.spawn_claude_code(
+        timeout = 120 if mode == "fast" else self._timeout
+        task_id = self._task_store.submit_coding_task(
+            executor=self._execute_background,
+            origin_session_key=self._session_key,
             prompt=prompt,
             project_path=project,
+            timeout=timeout,
             mode=mode,
             session_id=session_id,
-            origin_channel=self._channel,
-            origin_chat_id=self._chat_id,
-            session_key=self._session_key,
-            timeout=120 if mode == "fast" else self._timeout,
+            project=project,
         )
+        return f"Claude Code task started (id: {task_id}). Use /task to check progress."
 
     async def _execute_sync(
         self,
@@ -165,11 +169,38 @@ class ClaudeCodeTool(Tool):
         self._record_stats(parsed, prompt)
         return self._format_output(parsed, "sync")
 
+    async def _execute_background(
+        self,
+        *,
+        prompt: str = "",
+        mode: str = "standard",
+        session_id: str | None = None,
+        project: str = "",
+        **_kw: Any,
+    ) -> dict[str, Any]:
+        """Execute Claude Code in background. Called by BackgroundTaskStore."""
+        claude_bin = shutil.which("claude")
+        if not claude_bin:
+            raise RuntimeError(
+                "claude not found in PATH. Install: npm install -g @anthropic-ai/claude-code"
+            )
+        if not prompt:
+            raise ValueError("prompt is required")
+        cmd = self._build_command(prompt, project, mode, session_id)
+        stdout, stderr = await self._run_subprocess(cmd, project, self._timeout)
+        if stderr and not stdout:
+            raise RuntimeError(f"Claude Code failed: {stderr[:500]}")
+        parsed = self._parse_result(stdout)
+        if parsed.get("_parse_error"):
+            raise RuntimeError(f"Claude Code parse error: {stderr[:300] or '(no output)'}")
+        self._record_stats(parsed, prompt)
+        return parsed
+
     async def cancel(self, task_id: str) -> str:
         """Cancel a running Claude Code task."""
-        if not self._subagent_manager:
-            return "Error: SubagentManager not available."
-        return await self._subagent_manager.cancel_claude_code(task_id)
+        if not self._task_store:
+            return "Error: BackgroundTaskStore not available."
+        return await self._task_store.cancel(task_id)
 
     def _resolve_project(self, project_path: str | None) -> str:
         if project_path:
