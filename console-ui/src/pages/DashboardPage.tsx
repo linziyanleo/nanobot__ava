@@ -13,11 +13,16 @@ import {
   Loader2,
   Clock,
   ChevronRight,
+  Hammer,
+  Shield,
+  ArrowUpCircle,
+  X,
 } from 'lucide-react';
 import { api } from '../api/client'
 import { useAuth } from '../stores/auth'
 import { useNavigate } from 'react-router-dom'
 import { useResponsiveMode } from '../hooks/useResponsiveMode'
+import { useVersionCheck } from '../hooks/useVersionCheck'
 
 interface GatewayStatusData {
   running: boolean
@@ -25,6 +30,11 @@ interface GatewayStatusData {
   uptime_seconds: number | null
   gateway_port: number | null
   console_port: number | null
+  supervised: boolean
+  supervisor: string | null
+  restart_pending: boolean
+  boot_generation: number
+  last_exit_reason: string | null
 }
 
 interface ActiveTask {
@@ -45,11 +55,13 @@ interface ActiveTasksResponse {
 export default function DashboardPage() {
   const [status, setStatus] = useState<GatewayStatusData | null>(null)
   const [restarting, setRestarting] = useState(false);
+  const [rebuilding, setRebuilding] = useState(false);
   const [countdown, setCountdown] = useState(0);
   const [gwMessage, setGwMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const { user, isAdmin } = useAuth();
   const navigate = useNavigate()
   const { isMobile } = useResponsiveMode()
+  const { currentVersion, updateAvailable, dismiss, refresh } = useVersionCheck()
 
   const [activeTasks, setActiveTasks] = useState<ActiveTasksResponse | null>(null);
 
@@ -103,6 +115,26 @@ export default function DashboardPage() {
       setGwMessage({ type: 'error', text: err instanceof Error ? err.message : '重启失败' });
     } finally {
       setRestarting(false);
+    }
+  };
+
+  const handleRebuild = async () => {
+    if (!confirm('重建前端？不会影响后端进程和连接。')) return;
+    setRebuilding(true);
+    setGwMessage(null);
+    try {
+      const res = await api<{ success: boolean; duration_ms: number; version_hash: string; error: string }>('/gateway/console/rebuild', {
+        method: 'POST',
+      });
+      if (res.success) {
+        setGwMessage({ type: 'success', text: `前端重建完成 (${res.duration_ms}ms)，刷新页面即可加载新版本` });
+      } else {
+        setGwMessage({ type: 'error', text: `重建失败: ${res.error}` });
+      }
+    } catch (err: unknown) {
+      setGwMessage({ type: 'error', text: err instanceof Error ? err.message : '重建失败' });
+    } finally {
+      setRebuilding(false);
     }
   };
 
@@ -203,6 +235,27 @@ export default function DashboardPage() {
         </div>
       )}
 
+      {/* Version update banner */}
+      {updateAvailable && (
+        <div className="mb-4 p-3 rounded-xl bg-[var(--accent)]/10 border border-[var(--accent)]/20 flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <ArrowUpCircle className="w-4 h-4 text-[var(--accent)]" />
+            <span className="text-sm text-[var(--accent)] font-medium">前端新版本可用</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={refresh}
+              className="px-3 py-1 rounded-lg bg-[var(--accent)] text-white text-xs font-medium hover:bg-[var(--accent)]/80"
+            >
+              刷新加载
+            </button>
+            <button onClick={dismiss} className="p-1 rounded text-[var(--text-secondary)] hover:text-[var(--text-primary)]">
+              <X className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Gateway Section */}
       {gwMessage && (
         <div
@@ -251,6 +304,14 @@ export default function DashboardPage() {
           {isAdmin() && (
             <div className="flex gap-1.5">
               <button
+                onClick={handleRebuild}
+                disabled={rebuilding}
+                className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-[var(--accent)] hover:bg-[var(--accent)]/80 text-white text-[11px] font-medium disabled:opacity-50"
+              >
+                {rebuilding ? <Loader2 className="w-3 h-3 animate-spin" /> : <Hammer className="w-3 h-3" />}
+                {isMobile ? '' : rebuilding ? 'Building...' : 'Rebuild UI'}
+              </button>
+              <button
                 onClick={() => handleRestart(false)}
                 disabled={restarting}
                 className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-[var(--warning)] hover:bg-[var(--warning)]/80 text-black text-[11px] font-medium disabled:opacity-50"
@@ -264,14 +325,14 @@ export default function DashboardPage() {
                 className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-[var(--danger)] hover:bg-[var(--danger)]/80 text-white text-[11px] font-medium disabled:opacity-50"
               >
                 <Power className="w-3 h-3" />
-                {isMobile ? '' : ' Force'}
+                {isMobile ? '' : 'Force'}
               </button>
             </div>
           )}
         </div>
 
         {!isMobile && (
-          <div className="grid grid-cols-4 gap-3">
+          <div className="grid grid-cols-4 gap-3 mb-3">
             <div className="bg-[var(--bg-primary)] rounded-lg p-3">
               <p className="text-[10px] text-[var(--text-secondary)] mb-0.5">状态</p>
               <p
@@ -291,6 +352,32 @@ export default function DashboardPage() {
             <div className="bg-[var(--bg-primary)] rounded-lg p-3">
               <p className="text-[10px] text-[var(--text-secondary)] mb-0.5">运行时间</p>
               <p className="text-sm font-semibold">{formatUptime(status?.uptime_seconds ?? null)}</p>
+            </div>
+          </div>
+        )}
+
+        {!isMobile && status && (
+          <div className="grid grid-cols-4 gap-3">
+            <div className="bg-[var(--bg-primary)] rounded-lg p-3">
+              <p className="text-[10px] text-[var(--text-secondary)] mb-0.5">Supervisor</p>
+              <p className="text-sm font-semibold flex items-center gap-1">
+                <Shield className={`w-3 h-3 ${status.supervised ? 'text-[var(--success)]' : 'text-[var(--text-secondary)]'}`} />
+                {status.supervised ? (status.supervisor ?? 'yes') : 'none'}
+              </p>
+            </div>
+            <div className="bg-[var(--bg-primary)] rounded-lg p-3">
+              <p className="text-[10px] text-[var(--text-secondary)] mb-0.5">Boot Generation</p>
+              <p className="text-sm font-semibold">#{status.boot_generation}</p>
+            </div>
+            <div className="bg-[var(--bg-primary)] rounded-lg p-3">
+              <p className="text-[10px] text-[var(--text-secondary)] mb-0.5">前端版本</p>
+              <p className="text-sm font-semibold font-mono">{currentVersion?.hash?.slice(0, 8) ?? '-'}</p>
+            </div>
+            <div className="bg-[var(--bg-primary)] rounded-lg p-3">
+              <p className="text-[10px] text-[var(--text-secondary)] mb-0.5">重启状态</p>
+              <p className={`text-sm font-semibold ${status.restart_pending ? 'text-[var(--warning)]' : 'text-[var(--text-secondary)]'}`}>
+                {status.restart_pending ? '等待重启' : '正常'}
+              </p>
             </div>
           </div>
         )}
