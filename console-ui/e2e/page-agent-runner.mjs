@@ -14,7 +14,7 @@
  */
 
 import { createInterface } from "node:readline";
-import { readFileSync, existsSync, writeFileSync, mkdirSync } from "node:fs";
+import { readFileSync, mkdirSync } from "node:fs";
 import { resolve, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { homedir } from "node:os";
@@ -30,8 +30,10 @@ const PAGE_AGENT_BUNDLE = readFileSync(
 // 全局状态
 // ---------------------------------------------------------------------------
 
-/** @type {import('playwright').Browser | null} */
+/** @type {import('playwright').Browser | import('playwright').BrowserContext | null} */
 let browser = null;
+/** 持久化 context 模式时为 true（此时 browser 实际是 BrowserContext） */
+let persistentMode = false;
 
 /** @type {Map<string, { page: import('playwright').Page, cdp: any | null, screencastActive: boolean, activityBridgeExposed: boolean }>} */
 const sessions = new Map();
@@ -42,6 +44,7 @@ let config = {
   browserType: "chromium",
   viewportWidth: 1280,
   viewportHeight: 720,
+  userDataDir: "",
   // page-agent LLM 配置
   apiBase: "",
   apiKey: "",
@@ -53,8 +56,7 @@ let config = {
 
 const MAX_SESSIONS = 5;
 
-const STORAGE_STATE_DIR = join(homedir(), ".nanobot", "page-agent");
-const STORAGE_STATE_FILE = join(STORAGE_STATE_DIR, "storage-state.json");
+const DEFAULT_USER_DATA_DIR = join(homedir(), ".nanobot", "page-agent", "chrome-data");
 
 // ---------------------------------------------------------------------------
 // 工具函数
@@ -85,7 +87,12 @@ function pushEvent(type, sessionId, payload) {
 // ---------------------------------------------------------------------------
 
 async function ensureBrowser() {
-  if (browser && browser.isConnected()) return browser;
+  if (browser) {
+    const connected = persistentMode
+      ? !browser.pages ? false : true
+      : browser.isConnected();
+    if (connected) return browser;
+  }
 
   const launchers = { chromium, firefox, webkit };
   const launcher = launchers[config.browserType] || chromium;
@@ -95,8 +102,24 @@ async function ensureBrowser() {
     launchOpts.args = ["--start-maximized"];
   }
 
-  browser = await launcher.launch(launchOpts);
-  log(`browser launched (${config.browserType}, headless=${config.headless})`);
+  // 持久化模式：仅当 userDataDir 配置时启用
+  if (config.userDataDir && (config.browserType === "chromium" || !config.browserType)) {
+    const dataDir = config.userDataDir === "default" ? DEFAULT_USER_DATA_DIR : config.userDataDir;
+    mkdirSync(dataDir, { recursive: true });
+    if (!config.headless) {
+      launchOpts.viewport = null;
+    } else {
+      launchOpts.viewport = { width: config.viewportWidth, height: config.viewportHeight };
+    }
+    browser = await launcher.launchPersistentContext(dataDir, launchOpts);
+    persistentMode = true;
+    log(`persistent browser launched (userDataDir=${dataDir}, headless=${config.headless})`);
+  } else {
+    browser = await launcher.launch(launchOpts);
+    persistentMode = false;
+    log(`browser launched (${config.browserType}, headless=${config.headless})`);
+  }
+
   return browser;
 }
 
@@ -108,20 +131,16 @@ async function getOrCreateSession(sessionId) {
   }
 
   const b = await ensureBrowser();
-  const ctxOpts = {};
-  if (config.headless) {
-    ctxOpts.viewport = { width: config.viewportWidth, height: config.viewportHeight };
+  let page;
+  if (persistentMode) {
+    page = await b.newPage();
   } else {
-    ctxOpts.viewport = null;
+    const viewport = config.headless
+      ? { width: config.viewportWidth, height: config.viewportHeight }
+      : null;
+    const context = await b.newContext({ viewport });
+    page = await context.newPage();
   }
-  if (existsSync(STORAGE_STATE_FILE)) {
-    try {
-      ctxOpts.storageState = STORAGE_STATE_FILE;
-      log(`restored storage state from ${STORAGE_STATE_FILE}`);
-    } catch { /* ignore corrupt file */ }
-  }
-  const context = await b.newContext(ctxOpts);
-  const page = await context.newPage();
   const session = {
     page,
     cdp: null,
@@ -449,13 +468,6 @@ const handlers = {
       const pageUrl = session.page.url();
       const pageTitle = await session.page.title();
 
-      // 每次执行后保存 storageState（登录态等）
-      try {
-        mkdirSync(STORAGE_STATE_DIR, { recursive: true });
-        const state = await session.page.context().storageState();
-        writeFileSync(STORAGE_STATE_FILE, JSON.stringify(state));
-      } catch { /* ignore */ }
-
       const llmUsage = session ? { ...session.llmUsage } : {};
       if (session) {
         session.llmUsage = { requests: 0, promptTokens: 0, completionTokens: 0, totalTokens: 0 };
@@ -583,16 +595,11 @@ const handlers = {
     await stopScreencast(session, sid);
 
     try {
-      mkdirSync(STORAGE_STATE_DIR, { recursive: true });
-      const state = await session.page.context().storageState();
-      writeFileSync(STORAGE_STATE_FILE, JSON.stringify(state));
-      log(`saved storage state to ${STORAGE_STATE_FILE}`);
-    } catch (e) {
-      log(`failed to save storage state: ${e.message}`);
-    }
-
-    try {
-      await session.page.context().close();
+      if (persistentMode) {
+        await session.page.close();
+      } else {
+        await session.page.context().close();
+      }
     } catch { /* ignore */ }
 
     sessions.delete(sid);
@@ -627,14 +634,18 @@ const handlers = {
   async shutdown(id) {
     log("shutdown requested");
 
-    // 关闭所有会话
     for (const [sid, session] of sessions) {
       await stopScreencast(session, sid);
-      try { await session.page.context().close(); } catch { /* ignore */ }
+      try {
+        if (persistentMode) {
+          await session.page.close();
+        } else {
+          await session.page.context().close();
+        }
+      } catch { /* ignore */ }
     }
     sessions.clear();
 
-    // 关闭浏览器
     if (browser) {
       try { await browser.close(); } catch { /* ignore */ }
       browser = null;

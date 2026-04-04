@@ -455,6 +455,7 @@ class PageAgentTool(Tool):
             "browserType": getattr(cfg, "browser_type", "chromium") if cfg else "chromium",
             "viewportWidth": getattr(cfg, "viewport_width", 1280) if cfg else 1280,
             "viewportHeight": getattr(cfg, "viewport_height", 720) if cfg else 720,
+            "userDataDir": getattr(cfg, "user_data_dir", "") if cfg else "",
             "apiBase": getattr(cfg, "api_base", "") if cfg else "",
             "apiKey": api_key,
             "model": getattr(cfg, "model", "") if cfg else "",

@@ -504,6 +504,11 @@ class PageAgentConfig(Base):
     )
     timeout: int = 120
     language: str = "zh-CN"
+    user_data_dir: str = Field(
+        default="",
+        validation_alias=AliasChoices("user_data_dir", "userDataDir"),
+        serialization_alias="userDataDir",
+    )
     screenshot_dir: str = Field(
         default="",
         validation_alias=AliasChoices("screenshot_dir", "screenshotDir"),
