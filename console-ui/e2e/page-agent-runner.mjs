@@ -21,8 +21,8 @@ import { chromium, firefox, webkit } from "playwright";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const PAGE_AGENT_BUNDLE = readFileSync(
-  resolve(__dirname, "../node_modules/page-agent/dist/iife/page-agent.js"),
-  "utf-8"
+  resolve(__dirname, '../node_modules/page-agent/dist/iife/page-agent.demo.js'),
+  'utf-8',
 );
 
 // ---------------------------------------------------------------------------
@@ -32,7 +32,7 @@ const PAGE_AGENT_BUNDLE = readFileSync(
 /** @type {import('playwright').Browser | null} */
 let browser = null;
 
-/** @type {Map<string, { page: import('playwright').Page, cdp: any | null, screencastActive: boolean }>} */
+/** @type {Map<string, { page: import('playwright').Page, cdp: any | null, screencastActive: boolean, activityBridgeExposed: boolean }>} */
 const sessions = new Map();
 
 /** 启动时从 init 命令接收的配置 */
@@ -103,7 +103,12 @@ async function getOrCreateSession(sessionId) {
     viewport: { width: config.viewportWidth, height: config.viewportHeight },
   });
   const page = await context.newPage();
-  const session = { page, cdp: null, screencastActive: false };
+  const session = {
+    page,
+    cdp: null,
+    screencastActive: false,
+    activityBridgeExposed: false,
+  };
   sessions.set(sessionId, session);
   log(`session created: ${sessionId}`);
   return session;
@@ -130,32 +135,41 @@ async function executePageAgent(page, instruction) {
     log("page-agent injected via local bundle");
   }
 
-  // 在页面上下文中创建 PageAgentCore 并执行
+  // 在页面上下文中创建 PageAgent 实例并执行
   const result = await page.evaluate(
     async ({ instruction, cfg }) => {
-      // page-agent IIFE 挂载到 window.PageAgent
-      const { PageAgentCore } = window.PageAgent || {};
-      if (!PageAgentCore) {
-        // 降级尝试：可能挂载路径不同
-        throw new Error("PageAgent not found on window after injection");
+      const PageAgent = window.PageAgent;
+      if (typeof PageAgent !== "function") {
+        throw new Error("PageAgent constructor not found on window after injection");
       }
 
-      const { PageController } = window.PageAgent;
+      const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
       // 每次执行复用或新建 agent
       if (!window.__paAgent) {
-        const pageController = new PageController({
-          enableMask: true,
-          viewportExpansion: 0,
-        });
-        window.__paAgent = new PageAgentCore({
-          pageController,
+        // demo bundle 会异步自动创建 window.pageAgent；先等它跑完再清理，
+        // 避免和 runner 自己管理的实例重复叠加。
+        for (let i = 0; i < 5 && !window.pageAgent; i += 1) {
+          await wait(0);
+        }
+        if (window.pageAgent) {
+          try {
+            window.pageAgent.dispose?.();
+          } catch {
+            /* ignore demo bundle cleanup failure */
+          }
+          window.pageAgent = null;
+        }
+
+        window.__paAgent = new PageAgent({
           baseURL: cfg.apiBase || undefined,
           apiKey: cfg.apiKey || undefined,
           model: cfg.model || undefined,
           maxSteps: cfg.maxSteps || 40,
           stepDelay: cfg.stepDelay || 0.4,
           language: cfg.language || "zh-CN",
+          enableMask: true,
+          viewportExpansion: 0,
         });
       }
 
@@ -189,22 +203,29 @@ async function executePageAgent(page, instruction) {
 // Activity 事件监听（通过 page.exposeFunction 桥接）
 // ---------------------------------------------------------------------------
 
-async function setupActivityBridge(sessionId, page) {
-  // 检查是否已设置
+async function setupActivityBridge(sessionId, session) {
+  const { page } = session;
+
+  // page.exposeFunction 绑定在 Playwright Page 对象上，而不是页面 DOM 上。
+  // 导航后 window 标记会丢，但 exposeFunction 仍然存在，因此注册状态必须保存在 session 侧。
+  if (!session.activityBridgeExposed) {
+    await page.exposeFunction("__paOnActivity", (activityJson) => {
+      try {
+        const activity = JSON.parse(activityJson);
+        pushEvent("activity", sessionId, { activity });
+      } catch { /* ignore parse errors */ }
+    });
+
+    await page.exposeFunction("__paOnStatus", (status) => {
+      pushEvent("status", sessionId, { status });
+    });
+
+    session.activityBridgeExposed = true;
+  }
+
+  // 页面内监听器需要按 document 生命周期重建；导航后该标记会自然丢失。
   const bridged = await page.evaluate(() => !!window.__paActivityBridged);
   if (bridged) return;
-
-  // 暴露回调到页面上下文
-  await page.exposeFunction("__paOnActivity", (activityJson) => {
-    try {
-      const activity = JSON.parse(activityJson);
-      pushEvent("activity", sessionId, { activity });
-    } catch { /* ignore parse errors */ }
-  });
-
-  await page.exposeFunction("__paOnStatus", (status) => {
-    pushEvent("status", sessionId, { status });
-  });
 
   // 在页面中挂载监听器
   await page.evaluate(() => {
@@ -310,7 +331,7 @@ const handlers = {
         await session.page.goto(url, { waitUntil: "domcontentloaded", timeout: 30000 });
       }
 
-      await setupActivityBridge(sessionId, session.page);
+      await setupActivityBridge(sessionId, session);
 
       const result = await executePageAgent(session.page, instruction);
 

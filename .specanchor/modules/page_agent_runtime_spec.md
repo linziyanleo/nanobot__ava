@@ -29,8 +29,9 @@ AgentLoop._register_default_tools()
   -> PageAgentTool._rpc()
   -> console-ui/e2e/page-agent-runner.mjs
   -> Playwright Browser / Context / Page
-  -> page.addScriptTag(local page-agent bundle)
-  -> PageAgentCore.execute(instruction)
+  -> page.addScriptTag(local page-agent demo bundle)
+  -> new window.PageAgent(...)
+  -> agent.execute(instruction)
   -> stdout RPC 响应 / 推送事件
   -> PageAgentTool 格式化结果或分发给 console 订阅者
 ```
@@ -50,7 +51,7 @@ AgentLoop._register_default_tools()
 | Agent 工具层 | `PageAgentTool.execute()` | 对外暴露 `execute` / `screenshot` / `get_page_info` / `close_session` |
 | Python orchestration | `PageAgentTool._rpc()` | 生成请求 id、写 stdin、等 stdout、做超时控制 |
 | Node runner | `page-agent-runner.mjs` handlers | 负责浏览器懒启动、会话池、页面导航、截图、CDP screencast |
-| 页内执行层 | `PageAgentCore.execute()` | 在浏览器页面上下文中按自然语言指令操控 DOM |
+| 页内执行层 | `new window.PageAgent(...).execute()` | 通过 demo bundle 暴露的 `PageAgent` 构造器在页面上下文中按自然语言指令操控 DOM |
 
 ---
 
@@ -165,6 +166,11 @@ STATUS 三层判定：
 | 空闲回收 | `_idle_watchdog()` | 5 分钟无活动自动发送 `shutdown` |
 | 进程退出清理 | `_read_stdout()` / `_sync_cleanup()` | runner 退出时清空 pending futures；进程退出时 `atexit` kill |
 | 最大会话数 | runner `MAX_SESSIONS = 5` | 超限直接报错，不做 LRU 淘汰 |
+
+#### runner 内部状态补充
+
+- 注入使用的 bundle 是 `page-agent.demo.js`，其真实导出形状是 `window.PageAgent = PageAgent`，不是 `window.PageAgent.PageAgentCore`
+- `page.exposeFunction("__paOnActivity")` / `__paOnStatus` 的注册状态保存在 runner session 侧；页面内 `window.__paActivityBridged` 只用于 document 级 listener 重建，避免导航后重复注册同名函数
 
 ### 4.3 事件缓存
 

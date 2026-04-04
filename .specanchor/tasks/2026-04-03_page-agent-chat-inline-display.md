@@ -5,7 +5,7 @@ specanchor:
   author: "@fanghu"
   created: "2026-04-03"
   status: "in_progress"
-  last_change: "Execute 阶段：runner/Python/前端实现完成，待测试和端到端验证"
+  last_change: "Execute 阶段：修复 page-agent runner 的 bridge 重复注册与 demo bundle 导出读取错误，补充 runner contract 测试"
   related_modules:
     - ".specanchor/modules/page_agent_runtime_spec.md"
     - ".specanchor/modules/console_browser_page_spec.md"
@@ -465,6 +465,10 @@ function parsePageAgentResult(text: string): PageAgentResult | null {
   4. `navItems.ts`：隐藏 BrowserPage 导航入口
   5. `SKILL.md`：同步格式文档
   6. `page_agent_runtime_spec.md`：更新 execute 返回格式、runner 响应字段说明、测试要点
+ - `2026-04-04` Bugfix：
+   1. `page-agent-runner.mjs`：bridge 注册状态改存到 session 侧，避免导航后重复 `page.exposeFunction("__paOnActivity")`
+   2. `page-agent-runner.mjs`：按 `page-agent.demo.js` 的真实导出形状读取 `window.PageAgent` 构造器，不再误读 `PageAgentCore/PageController`
+   3. `tests/tools/test_page_agent_runner_contract.py`：新增 runner 与 demo bundle 的契约测试，防止导出形状再漂移
 
 ## 9. Review Verdict
 
