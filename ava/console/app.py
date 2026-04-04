@@ -128,6 +128,7 @@ def create_console_app(
         skills_routes,
         page_agent_routes,
     )
+    from ava.console.routes import bg_task_routes
 
     app.include_router(auth_routes.router)
     app.include_router(config_routes.router)
@@ -140,6 +141,7 @@ def create_console_app(
     app.include_router(token_routes.router)
     app.include_router(skills_routes.router)
     app.include_router(page_agent_routes.router)
+    app.include_router(bg_task_routes.router)
 
     _mount_console_spa(app)
 
@@ -217,6 +219,7 @@ def create_console_app_standalone(
         token_routes,
         skills_routes,
     )
+    from ava.console.routes import bg_task_routes
 
     app.include_router(auth_routes.router)
     app.include_router(config_routes.router)
@@ -227,6 +230,7 @@ def create_console_app_standalone(
     app.include_router(audit_routes.router)
     app.include_router(token_routes.router)
     app.include_router(skills_routes.router)
+    app.include_router(bg_task_routes.router)
 
     # --- Chat reverse proxy to gateway ----------------------------------
     gateway_base = f"http://127.0.0.1:{gateway_port}"

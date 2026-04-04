@@ -190,7 +190,11 @@ def register_builtin_commands(registry: CommandRegistry, agent: AgentLoop) -> No
             except (asyncio.CancelledError, Exception):
                 pass
         sub_cancelled = await _agent.subagents.cancel_by_session(msg.session_key)
-        total = cancelled + sub_cancelled
+        bg_cancelled = 0
+        bg_store = getattr(_agent, "bg_tasks", None)
+        if bg_store:
+            bg_cancelled = await bg_store.cancel_by_session(msg.session_key)
+        total = cancelled + sub_cancelled + bg_cancelled
         return f"⏹ Stopped {total} task(s)." if total else "No active task to stop."
 
     async def _cmd_status(msg: InboundMessage, _agent: AgentLoop) -> str:
@@ -268,24 +272,18 @@ def register_builtin_commands(registry: CommandRegistry, agent: AgentLoop) -> No
             enabled = sum(1 for j in jobs if j.enabled)
             cron_info = f"\n📋 Cron: {enabled} active / {len(jobs)} total"
 
-        cc_snapshot = _agent.subagents.get_claude_code_status(session_key=msg.session_key, verbose=False)
-        cc_info = "\n🤖 Claude Code: 0 running / 0 tracked"
-        if cc_snapshot["total"] > 0:
-            latest = cc_snapshot["tasks"][0]
-            todo = latest.get("todo_summary", {})
-            todo_text = ""
-            if todo.get("total", 0):
-                todo_text = (
-                    f" | TODO {todo.get('in_progress', 0)} in-progress/"
-                    f"{todo.get('pending', 0)} pending/{todo.get('completed', 0)} done"
+        bg_store = getattr(_agent, "bg_tasks", None)
+        bg_info = "\n📦 Background tasks: 0 running / 0 tracked"
+        if bg_store:
+            bg_snapshot = bg_store.get_status(session_key=msg.session_key)
+            if bg_snapshot["total"] > 0:
+                latest = bg_snapshot["tasks"][0]
+                bg_info = (
+                    f"\n📦 Background tasks: {bg_snapshot['running']} running / "
+                    f"{bg_snapshot['total']} tracked\n"
+                    f"   └ Latest: [{latest['task_type']}:{latest['task_id']}] "
+                    f"{latest['status']} ({latest['elapsed_ms']}ms)"
                 )
-            ctx_left = latest.get("context_remaining_est")
-            ctx_text = f" | Ctx~{ctx_left:,}" if isinstance(ctx_left, int) else ""
-            cc_info = (
-                f"\n🤖 Claude Code: {cc_snapshot['running']} running / {cc_snapshot['total']} tracked\n"
-                f"   └ Latest: {latest['task_id']} {latest['status']} "
-                f"({latest['phase']}, {latest['elapsed_ms']}ms){todo_text}{ctx_text}"
-            )
 
         compression_label = "on" if _agent._compression_enabled else "off"
 
@@ -303,10 +301,14 @@ def register_builtin_commands(registry: CommandRegistry, agent: AgentLoop) -> No
             f"   ├ Tool defs: ~{tool_est:,} tk ({len(tool_defs)} tools)\n"
             f"   └ Total: ~{total_context_est:,} tk"
             f"{cron_info}"
-            f"{cc_info}"
+            f"{bg_info}"
         )
 
-    async def _cmd_cc_status(msg: InboundMessage, _agent: AgentLoop) -> str:
+    async def _cmd_task(msg: InboundMessage, _agent: AgentLoop) -> str:
+        bg_store = getattr(_agent, "bg_tasks", None)
+        if not bg_store:
+            return "📦 Background task store not initialized."
+
         parts = msg.content.strip().split()
         task_id: str | None = None
         verbose = False
@@ -317,55 +319,54 @@ def register_builtin_commands(registry: CommandRegistry, agent: AgentLoop) -> No
             elif task_id is None:
                 task_id = token
 
-        snapshot = _agent.subagents.get_claude_code_status(
+        snapshot = bg_store.get_status(
             task_id=task_id,
             session_key=None if task_id else msg.session_key,
-            verbose=verbose,
         )
         if task_id and snapshot["total"] == 0:
-            return f"Claude Code task '{task_id}' not found."
+            return f"📦 Task '{task_id}' not found."
         if snapshot["total"] == 0:
-            return "🤖 Claude Code tasks: none"
+            return "📦 No background tasks."
 
         lines = [
-            f"🤖 Claude Code Status: {snapshot['running']} running / {snapshot['total']} tracked",
+            f"📦 Background Tasks: {snapshot['running']} running / {snapshot['total']} tracked",
         ]
         visible = snapshot["tasks"] if (verbose or task_id) else snapshot["tasks"][:5]
         for item in visible:
-            todo = item.get("todo_summary", {})
-            todo_text = ""
-            if todo.get("total", 0):
-                todo_text = (
-                    f" | todo {todo.get('in_progress', 0)} in-progress/"
-                    f"{todo.get('pending', 0)} pending/{todo.get('completed', 0)} done"
-                )
-            ctx_left = item.get("context_remaining_est")
-            ctx_text = f" | ctx~{ctx_left:,}" if isinstance(ctx_left, int) else ""
+            elapsed = item.get("elapsed_ms", 0)
             lines.append(
-                f"- {item['task_id']} {item['status']} phase={item['phase']} "
-                f"elapsed={item['elapsed_ms']}ms{todo_text}{ctx_text}"
+                f"- [{item['task_type']}:{item['task_id']}] {item['status']} "
+                f"({elapsed}ms)"
             )
-            if item.get("last_tool_name"):
-                lines.append(f"  last tool: {item['last_tool_name']}")
             if item.get("error_message"):
                 lines.append(f"  error: {str(item['error_message'])[:200]}")
             if verbose and item.get("prompt_preview"):
                 lines.append(f"  prompt: {item['prompt_preview']}")
-            if verbose and item.get("todo_items"):
-                for todo_item in item["todo_items"][:8]:
-                    lines.append(
-                        f"  - [{todo_item.get('status', 'pending')}] "
-                        f"{todo_item.get('content', '')}"
-                    )
+            if verbose and item.get("timeline"):
+                for evt in item["timeline"][-5:]:
+                    lines.append(f"  [{evt['event']}] {evt.get('detail', '')[:80]}")
 
         if not (verbose or task_id) and snapshot["total"] > len(visible):
-            lines.append(f"... {snapshot['total'] - len(visible)} more tasks (use /cc_status --verbose)")
+            lines.append(f"... {snapshot['total'] - len(visible)} more (use /task --verbose)")
 
         return "\n".join(lines)
+
+    async def _cmd_task_cancel(msg: InboundMessage, _agent: AgentLoop) -> str:
+        bg_store = getattr(_agent, "bg_tasks", None)
+        if not bg_store:
+            return "📦 Background task store not initialized."
+
+        parts = msg.content.strip().split()
+        if len(parts) < 2:
+            return "Usage: /task_cancel <task_id>"
+        task_id = parts[1]
+        return await bg_store.cancel(task_id)
 
     registry.register("help", "Show available commands", _cmd_help)
     registry.register("start", "Start the bot", _cmd_start)
     registry.register("new", "Start a new conversation", _cmd_new)
     registry.register("stop", "Stop the current task", _cmd_stop, pre_dispatch=True)
     registry.register("status", "Show bot status", _cmd_status)
-    registry.register("cc_status", "Show Claude Code task status", _cmd_cc_status)
+    registry.register("task", "Show background task status", _cmd_task)
+    registry.register("task_cancel", "Cancel a background task", _cmd_task_cancel)
+    registry.register("cc_status", "Show background task status (alias for /task)", _cmd_task)
