@@ -279,6 +279,9 @@ def apply_loop_patch() -> str:
                         codex_tool._token_stats = token_stats
                     if hasattr(codex_tool, "_task_store"):
                         codex_tool._task_store = getattr(self, "bg_tasks", None)
+                if pa_tool := self.tools.get("page_agent"):
+                    if hasattr(pa_tool, "_token_stats"):
+                        pa_tool._token_stats = token_stats
         except Exception as exc:
             logger.warning("Failed to update tool refs after init: {}", exc)
 

@@ -121,6 +121,7 @@ const MODEL_ROLE_CONFIG: Record<string, { icon: string; label: string }> = {
   voice: { icon: '🎙️', label: '语音模型' },
   imageGen: { icon: '🎨', label: '图像生成' },
   claude_code: { icon: '💻', label: 'Claude Code' },
+  'page-agent': { icon: '🌐', label: 'Page Agent' },
   pending: { icon: '⏳', label: 'Processing...' },
   error: { icon: '❌', label: '异常终止' },
 };
@@ -190,12 +191,13 @@ function getPresetRange(preset: TimePreset): { start?: string; end?: string } {
   return {};
 }
 
-type ModelRoleFilter = 'all' | 'claude_code' | 'chat' | 'mini' | 'voice' | 'vision';
+type ModelRoleFilter = 'all' | 'claude_code' | 'chat' | 'mini' | 'voice' | 'vision' | 'page-agent';
 
 const MODEL_ROLE_FILTER_OPTIONS: { value: ModelRoleFilter; label: string; icon: string }[] = [
   { value: 'all', label: '全部', icon: '📊' },
   { value: 'claude_code', label: 'Claude Code', icon: '💻' },
   { value: 'chat', label: '主模型', icon: '🤖' },
+  { value: 'page-agent', label: 'Page Agent', icon: '🌐' },
   { value: 'mini', label: 'Mini', icon: '⚡' },
   { value: 'voice', label: 'Voice', icon: '🎙️' },
   { value: 'vision', label: 'Vision', icon: '👁️' },
@@ -1097,7 +1099,9 @@ function RecordRow({
               )}
               {r.output_content && (
                 <div>
-                  <p className="text-[var(--text-secondary)] mb-1">模型输出:</p>
+                  <p className="text-[var(--text-secondary)] mb-1">
+                    {r.model_role === 'tool_call' ? '工具调用:' : '模型输出:'}
+                  </p>
                   <CopyablePre className="bg-[var(--bg-primary)] rounded-lg p-3 text-xs whitespace-pre-wrap break-all max-h-40 overflow-y-auto">
                     {r.output_content}
                   </CopyablePre>

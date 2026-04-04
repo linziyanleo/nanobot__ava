@@ -14,9 +14,10 @@
  */
 
 import { createInterface } from "node:readline";
-import { readFileSync } from "node:fs";
-import { resolve, dirname } from "node:path";
+import { readFileSync, existsSync, writeFileSync, mkdirSync } from "node:fs";
+import { resolve, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { homedir } from "node:os";
 import { chromium, firefox, webkit } from "playwright";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -52,6 +53,9 @@ let config = {
 
 const MAX_SESSIONS = 5;
 
+const STORAGE_STATE_DIR = join(homedir(), ".nanobot", "page-agent");
+const STORAGE_STATE_FILE = join(STORAGE_STATE_DIR, "storage-state.json");
+
 // ---------------------------------------------------------------------------
 // 工具函数
 // ---------------------------------------------------------------------------
@@ -86,7 +90,12 @@ async function ensureBrowser() {
   const launchers = { chromium, firefox, webkit };
   const launcher = launchers[config.browserType] || chromium;
 
-  browser = await launcher.launch({ headless: config.headless });
+  const launchOpts = { headless: config.headless };
+  if (!config.headless) {
+    launchOpts.args = ["--start-maximized"];
+  }
+
+  browser = await launcher.launch(launchOpts);
   log(`browser launched (${config.browserType}, headless=${config.headless})`);
   return browser;
 }
@@ -99,9 +108,19 @@ async function getOrCreateSession(sessionId) {
   }
 
   const b = await ensureBrowser();
-  const context = await b.newContext({
-    viewport: { width: config.viewportWidth, height: config.viewportHeight },
-  });
+  const ctxOpts = {};
+  if (config.headless) {
+    ctxOpts.viewport = { width: config.viewportWidth, height: config.viewportHeight };
+  } else {
+    ctxOpts.viewport = null;
+  }
+  if (existsSync(STORAGE_STATE_FILE)) {
+    try {
+      ctxOpts.storageState = STORAGE_STATE_FILE;
+      log(`restored storage state from ${STORAGE_STATE_FILE}`);
+    } catch { /* ignore corrupt file */ }
+  }
+  const context = await b.newContext(ctxOpts);
   const page = await context.newPage();
   const session = {
     page,
@@ -114,19 +133,48 @@ async function getOrCreateSession(sessionId) {
   // 拦截 page-agent 内部的 LLM API 调用，累积 token usage
   if (config.apiBase) {
     const apiOrigin = new URL(config.apiBase).origin;
+    log(`setting up LLM usage route interception for ${apiOrigin}`);
     await page.route(`${apiOrigin}/**`, async (route) => {
       const response = await route.fetch();
-      try {
-        const body = await response.json();
-        const usage = body?.usage;
-        if (usage) {
-          session.llmUsage.requests += 1;
-          session.llmUsage.promptTokens += usage.prompt_tokens || 0;
-          session.llmUsage.completionTokens += usage.completion_tokens || 0;
-          session.llmUsage.totalTokens += usage.total_tokens || 0;
-        }
-      } catch { /* non-JSON or no usage — ignore */ }
-      await route.fulfill({ response });
+      const bodyBuf = await response.body();
+      const contentType = response.headers()["content-type"] || "";
+
+      const extractUsage = (usage) => {
+        if (!usage) return;
+        session.llmUsage.requests += 1;
+        session.llmUsage.promptTokens += usage.prompt_tokens || 0;
+        session.llmUsage.completionTokens += usage.completion_tokens || 0;
+        session.llmUsage.totalTokens += usage.total_tokens || 0;
+        log(`LLM usage captured: prompt=${usage.prompt_tokens || 0} completion=${usage.completion_tokens || 0}`);
+      };
+
+      if (contentType.includes("json")) {
+        try {
+          const data = JSON.parse(bodyBuf.toString("utf-8"));
+          extractUsage(data?.usage);
+        } catch { /* parse error — ignore */ }
+      } else if (contentType.includes("event-stream")) {
+        // SSE 流式响应：从最后一个 data 行中提取 usage
+        try {
+          const lines = bodyBuf.toString("utf-8").split("\n");
+          for (let i = lines.length - 1; i >= 0; i--) {
+            const line = lines[i];
+            if (line.startsWith("data: ") && !line.includes("[DONE]")) {
+              const data = JSON.parse(line.slice(6));
+              if (data?.usage?.total_tokens) {
+                extractUsage(data.usage);
+                break;
+              }
+            }
+          }
+        } catch { /* SSE parse error — ignore */ }
+      }
+
+      await route.fulfill({
+        status: response.status(),
+        headers: response.headers(),
+        body: bodyBuf,
+      });
     });
   }
 
@@ -401,6 +449,13 @@ const handlers = {
       const pageUrl = session.page.url();
       const pageTitle = await session.page.title();
 
+      // 每次执行后保存 storageState（登录态等）
+      try {
+        mkdirSync(STORAGE_STATE_DIR, { recursive: true });
+        const state = await session.page.context().storageState();
+        writeFileSync(STORAGE_STATE_FILE, JSON.stringify(state));
+      } catch { /* ignore */ }
+
       const llmUsage = session ? { ...session.llmUsage } : {};
       if (session) {
         session.llmUsage = { requests: 0, promptTokens: 0, completionTokens: 0, totalTokens: 0 };
@@ -444,10 +499,42 @@ const handlers = {
 
     try {
       const session = sessions.get(sid);
+
+      // 截图前隐藏 page-agent 注入的 UI 面板，避免遮挡页面内容
+      await session.page.evaluate(() => {
+        const selectors = [
+          '[class*="page-agent"]',
+          '[class*="pageagent"]',
+          '[id*="page-agent"]',
+          '[id*="pageagent"]',
+          '[class*="agent-panel"]',
+          '[class*="runtime_agent"]',
+        ];
+        window.__paHiddenEls = [];
+        for (const sel of selectors) {
+          for (const el of document.querySelectorAll(sel)) {
+            if (el.style.display !== "none") {
+              window.__paHiddenEls.push({ el, prev: el.style.display });
+              el.style.display = "none";
+            }
+          }
+        }
+      }).catch(() => {});
+
       const buffer = await session.page.screenshot({
         type: "png",
         fullPage: false,
       });
+
+      // 截图后恢复
+      await session.page.evaluate(() => {
+        if (window.__paHiddenEls) {
+          for (const { el, prev } of window.__paHiddenEls) {
+            el.style.display = prev;
+          }
+          window.__paHiddenEls = null;
+        }
+      }).catch(() => {});
 
       if (savePath) {
         const { writeFileSync } = await import("node:fs");
@@ -494,6 +581,15 @@ const handlers = {
 
     const session = sessions.get(sid);
     await stopScreencast(session, sid);
+
+    try {
+      mkdirSync(STORAGE_STATE_DIR, { recursive: true });
+      const state = await session.page.context().storageState();
+      writeFileSync(STORAGE_STATE_FILE, JSON.stringify(state));
+      log(`saved storage state to ${STORAGE_STATE_FILE}`);
+    } catch (e) {
+      log(`failed to save storage state: ${e.message}`);
+    }
 
     try {
       await session.page.context().close();
