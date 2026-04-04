@@ -161,6 +161,7 @@ page_agent(action: str, url: str = None, instruction: str = None, session_id: st
 | `screenshot` | 对指定会话截图，保存到磁盘 / MediaService |
 | `get_page_info` | 获取当前页面 URL、标题、视口信息 |
 | `close_session` | 关闭浏览器会话，释放资源 |
+| `restart_runner` | 停止 runner 进程，下次调用时自动重启（不影响 gateway） |
 
 **能力范围：**
 

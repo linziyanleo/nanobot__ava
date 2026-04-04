@@ -98,3 +98,46 @@ uv run python -m ava <command>
 - 验证 `ava/patches/*` 是否按预期生效
 
 如果你只是想运行原生上游 `nanobot`，才使用 `nanobot ...`。
+
+## 6. Supervisor 与生命周期管理
+
+Ava 采用 **supervisor-first** 的生命周期设计：重启由外部 supervisor（Docker / systemd）负责拉起新进程，
+Ava 自身只负责优雅退出。
+
+**Docker Compose（推荐）：**
+
+```yaml
+services:
+  ava:
+    build: .
+    command: python -m ava gateway
+    restart: unless-stopped
+    environment:
+      - AVA_SUPERVISOR=docker
+```
+
+**systemd：**
+
+```ini
+[Service]
+ExecStart=/path/to/uv run python -m ava gateway
+Restart=always
+RestartSec=5
+Environment=AVA_SUPERVISOR=systemd
+```
+
+**本地开发（无 supervisor）：**
+
+```bash
+uv run python -m ava gateway
+# 重启需要手动 Ctrl+C → 重新运行
+```
+
+### AVA_SUPERVISOR 环境变量
+
+| 值 | 含义 |
+|---|------|
+| `docker` | 显式声明受 Docker 管理，允许通过 `gateway_control` 工具触发重启 |
+| `systemd` | 显式声明受 systemd 管理 |
+| `none` | 明确声明不受 supervisor 管理，禁止自动重启 |
+| `auto`（默认） | 自动检测（Docker cgroup / systemd INVOCATION_ID），强阳性结果允许重启 |

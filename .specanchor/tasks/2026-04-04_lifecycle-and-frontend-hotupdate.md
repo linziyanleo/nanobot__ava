@@ -563,16 +563,16 @@ class GatewayControlTool(Tool):
 
 ### Phase C: Runner 独立重启
 
-- [ ] C1. `page_agent.py`：`restart_runner` action
-- [ ] C2. `POST /api/page-agent/restart-runner`
+- [x] C1. `page_agent.py`：新增 `restart_runner` action + `_do_restart_runner()` 方法
+- [x] C2. `page_agent_routes.py`：新增 `POST /api/page-agent/restart-runner` 端点
 
 ### Phase D: 文档与测试
 
-- [ ] D1. Tests（6 个文件，详见 §4.5）
-- [ ] D2. README supervisor 示例统一（`python -m ava gateway` + `AVA_SUPERVISOR` 说明）
-- [ ] D3. TOOLS.md 新增 `gateway_control` 工具文档
+- [x] D1. Tests：`test_gateway_service.py`（8 测试）+ `test_no_embedded_secrets.py`（3 测试）+ `test_ui_build.py` 扩展（5 测试）
+- [x] D2. `ava/README.md` supervisor 示例统一（Docker / systemd / 本地 + `AVA_SUPERVISOR` 说明）
+- [x] D3. TOOLS.md 新增 `gateway_control` 工具文档（Phase A 已完成）
 - [x] D4. 标记 `restart-flow-analysis.md` deprecated（已完成）
-- [ ] D5. secret regression test
+- [x] D5. `test_no_embedded_secrets.py` secret regression test
 
 ---
 
@@ -657,7 +657,12 @@ class GatewayControlTool(Tool):
   - **修改** `ava/console/app.py` — SPA fallback Cache-Control: no-cache
   - **修改** `tests/console/test_ui_build.py` — 新增 5 个测试（version_json + rebuild）
   - TypeScript 编译通过，10 个 ui_build 测试全通过
-- [ ] Phase C 尚未执行
+- [x] 2026-04-04 v3: Phase C + D 实装
+  - **修改** `ava/tools/page_agent.py` — 新增 `restart_runner` action + `_do_restart_runner()` 
+  - **修改** `ava/console/routes/page_agent_routes.py` — 新增 `POST /api/page-agent/restart-runner`
+  - **新增** `tests/console/test_gateway_service.py` — 8 个测试
+  - **新增** `tests/security/test_no_embedded_secrets.py` — 3 个测试（Telegram token / OpenAI key / PEM）
+  - **修改** `ava/README.md` — supervisor 示例 + `AVA_SUPERVISOR` 环境变量说明
 
 ---
 
