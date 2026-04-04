@@ -5,7 +5,7 @@ specanchor:
   author: "@fanghu"
   created: "2026-04-04"
   status: "draft"
-  last_change: "v3.1: Phase 1 已实装（BackgroundTaskStore + session_key 路由修复 + context digest + 命令注册到 CommandRouter）；Telegram 命令注册降级为 Phase 2"
+  last_change: "v3.3: Console UI 可视化 + BackgroundTaskStore bug 修复 + TOOLS.md 模板同步方案设计"
   related_modules:
     - ".specanchor/modules/claude_code_tool_spec.md"
     - ".specanchor/modules/tools_patch_spec.md"
@@ -537,6 +537,18 @@ CREATE INDEX IF NOT EXISTS idx_bg_task_events_task ON bg_task_events(task_id);
   - `ava/console/app.py` — 两处 include_router 注册
   - `ava/console/routes/__init__.py` — 导出 bg_task_routes
   - TypeScript 编译零错误
+- [x] 2026-04-04 v3.3: BackgroundTaskStore bug 修复 + TOOLS.md 模板同步方案
+  - **BackgroundTaskStore 初始化时序 bug**：ClaudeCodeTool 在 tools_patch 中创建时 bg_tasks 尚未初始化，导致 `_task_store=None`。修复：在 loop_patch post-init 引用回填中补充 `cc_tool._task_store = self.bg_tasks`
+  - **prompt 转发 bug**：`submit_coding_task` 消费了 `prompt` 参数后未转发给 executor。修复：在 `_run()` 中显式传递 `prompt=prompt`
+  - **完成通知 bug**：`bus.publish_outbound()` 返回 coroutine 但未 await。修复：`asyncio.iscoroutine()` 判断后 await
+  - **FastAPI 路由顺序 bug**：`GET /{task_id}` 抢先匹配了 `/history`。修复：将 `/history` 路由声明移到 `/{task_id}` 之前
+  - **Console UI 增强**：历史任务折叠+分页、首页活跃任务卡片
+  - **Skill 更新**：console_ui_regression 拆为 page-agent-test（通用协议）+ console_ui_regression（编排层）；动态验证取代硬编码 verify_prompt
+  - **TOOLS.md 更新**：新增后台任务管理命令文档
+  - **TOOLS.md 模板同步方案**（待实施）：
+    - 问题：`ava/templates/TOOLS.md` 未接入运行时同步链路；workspace TOOLS.md 只补缺不覆盖
+    - 方案：`ava/templates/TOOLS.md` 作为事实源 → 新增 `templates_patch.py` 接管同步 → workspace 启动时覆盖
+    - `nanobot/templates/TOOLS.md` 恢复上游基础内容
 - [ ] Phase 2 尚未执行
 - [ ] Phase 3 尚未执行
 
@@ -570,3 +582,10 @@ CREATE INDEX IF NOT EXISTS idx_bg_task_events_task ON bg_task_events(task_id);
 - v3.1（2026-04-04）：Phase 1 实装完成。额外发现：
   - ava 的 `CommandRegistry`（commands.py）与上游 `CommandRouter` 是两套独立系统，命令需注册到上游 CommandRouter
   - Telegram 上游 `~filters.COMMAND` 过滤器会吞掉未注册 CommandHandler 的 / 命令，动态注入尝试未生效，降级到 Phase 2
+- v3.3（2026-04-04）：Bug 修复 + UI 增强 + 模板同步方案。额外发现：
+  - tools_patch 在 original_init 内执行导致 ClaudeCodeTool._task_store 初始化为 None（时序问题）
+  - submit_coding_task 消费 prompt 参数后未转发给 executor
+  - bus.publish_outbound 返回 coroutine 需要 await
+  - FastAPI 路由 `/{task_id}` 抢先匹配 `/history`
+  - `ava/templates/TOOLS.md` 未接入运行时同步链路（三份文件互相漂移）
+  - console_ui_regression skill 的 verify_prompt 硬编码不可维护 → 拆分为 page-agent-test（通用协议）+ console_ui_regression（编排层，动态验证）

@@ -23,7 +23,9 @@
 
 | 模块文件 | Spec 文件 | 状态 | 说明 |
 |---------|----------|------|------|
-| `ava/tools/claude_code.py` | [claude_code_tool_spec.md](claude_code_tool_spec.md) | 🟡 | `claude_code` tool 当前 sync 可用，async 改用 BackgroundTaskStore 模式（Phase 1 待实现） |
+| `ava/tools/claude_code.py` | [claude_code_tool_spec.md](claude_code_tool_spec.md) | ✅ | `claude_code` tool，sync/async 模式，async 通过 BackgroundTaskStore 管理 |
+| `ava/agent/bg_tasks.py` | [claude_code_tool_spec.md](claude_code_tool_spec.md) §5 | ✅ | `BackgroundTaskStore` — 统一后台任务上下文层，SQLite 持久化 + context digest 注入 |
+| `ava/console/routes/bg_task_routes.py` | — | ✅ | 后台任务 REST + WebSocket API（`/api/bg-tasks/*`） |
 | `ava/tools/page_agent.py` + `console-ui/e2e/page-agent-runner.mjs` | [page_agent_runtime_spec.md](page_agent_runtime_spec.md) | ✅ | `page_agent` tool、Node runner、JSON-RPC、screencast / activity 事件链 |
 | `ava/console/routes/page_agent_routes.py` + `console-ui/src/pages/BrowserPage/*` | [console_browser_page_spec.md](console_browser_page_spec.md) | ✅ | `/api/page-agent/*` 与 console-ui `/browser` 预览页链路 |
 
@@ -39,7 +41,7 @@
 
 | 模块文件 | Spec 文件 | 状态 | 说明 |
 |---------|----------|------|------|
-| `ava/agent/bg_tasks.py`（待新建） | [claude_code_tool_spec.md](claude_code_tool_spec.md) §5 | 📋 | `BackgroundTaskStore` — 统一后台任务上下文层（coding/cron/subagent），持久化 timeline，context digest 注入 |
+| `ava/patches/templates_patch.py`（待新建） | — | 📋 | 模板同步覆盖：`ava/templates/` → workspace，替代上游"补缺不覆盖"策略 |
 
 ## 已复制但未接入模块
 
