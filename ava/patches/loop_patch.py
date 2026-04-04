@@ -568,6 +568,7 @@ def apply_loop_patch() -> str:
         self._turn_record_ids = []
         self._turn_iteration = 0
 
+        import asyncio as _asyncio_pm
         try:
             result = await original_process_message(
                 self, msg,
@@ -576,15 +577,34 @@ def apply_loop_patch() -> str:
                 on_stream=on_stream,
                 on_stream_end=on_stream_end,
             )
-        except Exception:
-            # Phase 0 异常处理：LLM 异常退出时将 pending 记录标记为 error
+        except BaseException as exc:
             phase0_id = getattr(self, "_phase0_record_id", None)
             token_stats = getattr(self, "token_stats", None)
-            if phase0_id is not None and token_stats:
-                try:
-                    token_stats.update_record(phase0_id, finish_reason="error", model_role="error")
-                except Exception:
-                    pass
+            is_cancel = isinstance(exc, _asyncio_pm.CancelledError)
+            if token_stats:
+                reason = "cancelled" if is_cancel else "error"
+                if phase0_id is not None:
+                    try:
+                        token_stats.update_record(phase0_id, finish_reason=reason, model_role="error")
+                    except Exception:
+                        pass
+                record_ids = getattr(self, "_turn_record_ids", [])
+                if record_ids:
+                    try:
+                        user_msg = (getattr(msg, "content", "") or "")[:1000]
+                        first_id = record_ids[0]
+                        token_stats._db.execute(
+                            "UPDATE token_usage SET user_message = ? WHERE id = ? AND user_message = ''",
+                            (user_msg, first_id),
+                        )
+                        last_id = record_ids[-1]
+                        token_stats._db.execute(
+                            "UPDATE token_usage SET output_content = ?, model_role = ? WHERE id = ?",
+                            (f"[{reason}] {type(exc).__name__}: {str(exc)[:200]}", "error", last_id),
+                        )
+                        token_stats._db.commit()
+                    except Exception:
+                        pass
             raise
 
         # Backfill user_message, output_content on DB records

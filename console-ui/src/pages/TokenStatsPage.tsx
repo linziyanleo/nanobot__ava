@@ -191,7 +191,7 @@ function getPresetRange(preset: TimePreset): { start?: string; end?: string } {
   return {};
 }
 
-type ModelRoleFilter = 'all' | 'claude_code' | 'chat' | 'mini' | 'voice' | 'vision' | 'page-agent';
+type ModelRoleFilter = 'all' | 'claude_code' | 'chat' | 'page-agent' | 'mini' | 'voice' | 'vision' | 'error';
 
 const MODEL_ROLE_FILTER_OPTIONS: { value: ModelRoleFilter; label: string; icon: string }[] = [
   { value: 'all', label: '全部', icon: '📊' },
@@ -201,6 +201,7 @@ const MODEL_ROLE_FILTER_OPTIONS: { value: ModelRoleFilter; label: string; icon: 
   { value: 'mini', label: 'Mini', icon: '⚡' },
   { value: 'voice', label: 'Voice', icon: '🎙️' },
   { value: 'vision', label: 'Vision', icon: '👁️' },
+  { value: 'error', label: '异常终止', icon: '❌' },
 ];
 
 function buildFilterStr(

@@ -171,8 +171,10 @@ class BackgroundTaskStore:
                 snapshot.status = "cancelled"
                 snapshot.finished_at = time.time()
                 snapshot.elapsed_ms = int((snapshot.finished_at - (snapshot.started_at or snapshot.finished_at)) * 1000)
+                snapshot.error_message = "Cancelled by user"
                 self._record_event(task_id, "cancelled")
                 self._update_task_status(task_id, "cancelled", snapshot)
+                await self._on_complete(snapshot, None)
             except Exception as exc:
                 snapshot.status = "failed"
                 snapshot.finished_at = time.time()
