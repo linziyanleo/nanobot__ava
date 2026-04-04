@@ -554,12 +554,12 @@ class GatewayControlTool(Tool):
 
 ### Phase B: Frontend Hot Update
 
-- [ ] B1. `ava/console/ui_build.py`：新增 `rebuild_console_ui()` 异步封装（复用现有 `_build_console_ui`）
-- [ ] B2. `ava/console/routes/gateway_routes.py`：新增 `POST /api/console/rebuild` 路由
-- [ ] B3. `console-ui/vite.config.ts`：build 后生成 `version.json`
-- [ ] B4. `console-ui/src/hooks/useVersionCheck.ts`：版本轮询 + toast
-- [ ] B5. `console-ui/src/pages/DashboardPage.tsx`：三路操作 + 版本信息
-- [ ] B6. `ava/console/app.py`：SPA fallback 中 `index.html` 设置 `Cache-Control: no-cache`
+- [x] B1. `ava/console/ui_build.py`：新增 `rebuild_console_ui()` 异步封装 + `write_version_json()` + `RebuildResult` dataclass
+- [x] B2. `ava/console/routes/gateway_routes.py`：新增 `POST /api/gateway/console/rebuild` 路由（admin only + audit）
+- [x] B3. `console-ui/vite.config.ts`：`versionJsonPlugin()` build 后生成 `version.json`（hash + timestamp）
+- [x] B4. `console-ui/src/hooks/useVersionCheck.ts`：60s 轮询 `/version.json` + `updateAvailable` 状态
+- [x] B5. `console-ui/src/pages/DashboardPage.tsx`：三路操作（Rebuild UI / Restart / Force）+ lifecycle 状态面板 + 版本更新 banner
+- [x] B6. `ava/console/app.py`：SPA fallback 中 `index.html` 和 `version.json` 设置 `Cache-Control: no-cache, no-store, must-revalidate`
 
 ### Phase C: Runner 独立重启
 
@@ -648,7 +648,15 @@ class GatewayControlTool(Tool):
   - **新增** `tests/runtime/test_lifecycle_manager.py` — 20 个测试
   - **新增** `tests/tools/test_gateway_control.py` — 13 个测试
   - 全量回归 1019 passed, 0 failed
-- [ ] Phase B 尚未执行
+- [x] 2026-04-04 v2: Phase B 实装
+  - **修改** `ava/console/ui_build.py` — 新增 `rebuild_console_ui()` 异步封装 + `write_version_json()` + `RebuildResult`
+  - **修改** `ava/console/routes/gateway_routes.py` — 新增 `POST /api/gateway/console/rebuild` 路由
+  - **修改** `console-ui/vite.config.ts` — `versionJsonPlugin()` build 后生成 `version.json`
+  - **新增** `console-ui/src/hooks/useVersionCheck.ts` — 60s 轮询版本 + updateAvailable 状态
+  - **修改** `console-ui/src/pages/DashboardPage.tsx` — 三路操作 + lifecycle 面板 + 版本 banner
+  - **修改** `ava/console/app.py` — SPA fallback Cache-Control: no-cache
+  - **修改** `tests/console/test_ui_build.py` — 新增 5 个测试（version_json + rebuild）
+  - TypeScript 编译通过，10 个 ui_build 测试全通过
 - [ ] Phase C 尚未执行
 
 ---
