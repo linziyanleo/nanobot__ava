@@ -19,7 +19,7 @@ from loguru import logger
 if TYPE_CHECKING:
     from nanobot.agent.loop import AgentLoop
 
-TaskStatus = Literal["queued", "running", "succeeded", "failed", "cancelled"]
+TaskStatus = Literal["queued", "running", "succeeded", "failed", "cancelled", "interrupted"]
 
 
 @dataclass
@@ -366,6 +366,37 @@ class BackgroundTaskStore:
             logger.warning("BackgroundTaskStore: failed to publish outbound: {}", exc)
 
     # ------------------------------------------------------------------
+    # Lifecycle 集成
+    # ------------------------------------------------------------------
+
+    def recover_orphan_tasks(self, boot_generation: int = 0) -> int:
+        """将上一代 running/queued 的任务标记为 interrupted（进程重启导致）。"""
+        if not self._db:
+            return 0
+        try:
+            rows = self._db.fetchall(
+                "SELECT task_id FROM bg_tasks WHERE status IN ('running', 'queued')"
+            )
+            if not rows:
+                return 0
+            now = time.time()
+            msg = f"Interrupted by gateway restart (gen {boot_generation})"
+            for r in rows:
+                tid = r["task_id"]
+                self._db.execute(
+                    "UPDATE bg_tasks SET status='interrupted', finished_at=?, error_message=? WHERE task_id=?",
+                    (now, msg, tid),
+                )
+                self._persist_event(tid, "interrupted", msg)
+            self._db.commit()
+            count = len(rows)
+            logger.info("BackgroundTaskStore: recovered {} orphan tasks as interrupted", count)
+            return count
+        except Exception as exc:
+            logger.warning("BackgroundTaskStore: recover_orphan_tasks failed: {}", exc)
+            return 0
+
+    # ------------------------------------------------------------------
     # SQLite 持久层
     # ------------------------------------------------------------------
 
@@ -447,7 +478,7 @@ class BackgroundTaskStore:
         if not self._db:
             return {"tasks": [], "total": 0, "page": page, "page_size": page_size}
         try:
-            where = "WHERE status IN ('succeeded','failed','cancelled')"
+            where = "WHERE status IN ('succeeded','failed','cancelled','interrupted')"
             params: list[Any] = []
             if session_key:
                 where += " AND origin_session_key = ?"
