@@ -129,9 +129,28 @@
   - 判断是否还需要保留 “字段注入” 这条备用路线；
   - 如果决定不保留，就删 patch、删 spec、删测试，而不是让它永远挂在那儿。
 
+### 10. 统一生命周期管理与前端热更新
+
+- **详细 Spec**：[2026-04-04_lifecycle-and-frontend-hotupdate.md](./tasks/2026-04-04_lifecycle-and-frontend-hotupdate.md)
+- **替代**：[2026-04-02_gateway-lifecycle-supervisor-redesign.md](./tasks/2026-04-02_gateway-lifecycle-supervisor-redesign.md)（方向继承）、[2026-04-04_restart-flow-analysis.md](./tasks/2026-04-04_restart-flow-analysis.md)（已 deprecated）
+- 目标：建立可信的生命周期控制面，支持 self-improvement loop 的 restart 需求，同时解耦前端更新与 gateway 重启。
+- 核心架构：
+  - **Layer A**：LifecycleManager（`ava/runtime/lifecycle.py`）— supervisor-first 生命周期后端
+  - **Layer B**：GatewayControlTool（`ava/tools/gateway_control.py`）— 统一 status/restart 控制面
+  - **Layer C**：前端热更新（rebuild API + version.json + toast）— 与 gateway 正交
+  - **Layer D**：page-agent-runner 独立重启 — 子进程管控
+- 现状：
+  - 旧 `ava/skills/restart_gateway/` 仍在使用，方向需废弃
+  - `GatewayService` 仍 shell 到旧脚本
+  - `GatewayStatus` 缺少 lifecycle 字段
+- 后续动作：
+  - Phase A（P0）：LifecycleManager + gateway_control tool + 删除旧脚本
+  - Phase B（P1）：前端 rebuild API + 版本检测
+  - Phase C（P2）：page-agent-runner 独立重启
+
 ## 远期方向
 
-### 10. Nanobot 自改进闭环（Self-Improvement Loop）
+### 11. Nanobot 自改进闭环（Self-Improvement Loop）
 
 - **详细 Spec**：[2026-04-04_coding-cli-and-self-improvement-loop.md](./tasks/2026-04-04_coding-cli-and-self-improvement-loop.md)
 - 目标：Nanobot 具备调用 Claude Code 和 Codex 改进自身的能力，并通过工具链对自身进行测试验证。
@@ -142,25 +161,24 @@
   4. **通知与上下文注入分离**：async_result 只是 UI 通知；模型感知后台任务通过 context_patch digest 注入 system prompt
   5. **结果验证而非过程监督**：不关心 CLI Agent 的中间推理，只关心 `git diff` + 测试 + Spec 一致性检查
   6. **三层实现**：Skill 做编排 → Tool 做封装 → Script 做检查
-- 工作流阶段：触发 → 设计（写 Spec）→ 开发（CLI 执行）→ 测试（pytest + lint + Page Agent）→ Git（commit）→ 检查（spec-check）→ 闭环（更新 Spec）
-- 前置条件：
-  - `claude_code` 工具已集成（✅ sync；❌ async 断头，Phase 1 补齐）
-  - BackgroundTaskStore 待实现（Phase 1）
-  - session_key 路由 bug 待修复（前置修复：`_current_session_key` + `set_context` 直传）
-  - async_result 链需落盘修复（结果写入 session history 后再通知）
-  - context_patch 需新增 task digest 注入（Phase 1）
-  - Codex CLI 工具待实现（Phase 2）
-  - Page Agent 工具已集成（✅）
-  - SpecAnchor 体系已建立（✅）
-  - `specanchor-check.sh` 已可用（✅）
+- 前置条件（当前进度）：
+  - ✅ `claude_code` sync + async wiring（Phase 1 完成）
+  - ✅ BackgroundTaskStore + SQLite 持久化 + context digest 注入
+  - ✅ session_key 路由修复（`_current_session_key` + `set_context` 直传）
+  - ✅ async_result 落盘 → 通知链路闭环
+  - ✅ Codex CLI 工具（独立实现，共享 BackgroundTaskStore）
+  - ✅ Page Agent + 浏览器持久化 + LLM usage 记录
+  - ✅ Token Stats 异常终止/取消记录
+  - ✅ SpecAnchor 体系 + specanchor-check.sh
+  - ❌ Lifecycle backend（→ 依赖 §10 完成）
+  - ❌ cron/subagent observer 接入 BackgroundTaskStore
+  - ❌ Telegram 命令注册（降级）
 - 关键风险：
-  - session_key 路由 bug 影响所有 console 场景的后台任务，是 Phase 1 的阻塞项
   - 自改进循环可能陷入"无效修改 → 测试失败 → 回退"的死循环，需要引入改动预算（$5/次）和回退阈值（最多重试 2 次）
   - Spec 质量是整个系统的瓶颈——低质量 Spec 导致低质量输出
   - 对 `nanobot/` 目录的隔离约束必须在自改进链路中严格执行
+  - **Lifecycle backend 是当前唯一硬依赖**：coding task 改完代码后需要可靠的 restart → verify 闭环
 - 后续动作：
-  - 前置修复：session_key 路由修复（`_current_session_key` + `set_context` 签名扩展）
-  - Phase 1：BackgroundTaskStore + coding 闭环 + context digest + 结果落盘 + 通用命令
-  - Phase 2：CodingCLIBase 通用化 + CodexCLITool + cron/subagent 事件源接入
-  - Phase 2.5（可选）：streaming 增强，支持实时 phase/todo/last_tool
-  - Phase 3：自改进闭环 Skill 设计与实现
+  - Phase 2 剩余：cron/subagent observer + Telegram 命令
+  - Phase 2.5（可选）：streaming 增强
+  - Phase 3：自改进闭环 Skill 设计与实现（依赖 §10 lifecycle backend）

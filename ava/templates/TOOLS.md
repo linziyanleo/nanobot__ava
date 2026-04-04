@@ -55,6 +55,7 @@ This file focuses on non-obvious constraints, tool-selection guidance, and sidec
 | 起通用后台子代理 | `spawn` |
 | 管理分类记忆 | `memory` |
 | 发 Telegram 贴纸 | `send_sticker` |
+| 查询网关状态或请求重启 | `gateway_control` |
 | 创建/列出/删除定时任务 | `cron` |
 
 ## File Operations
@@ -420,6 +421,26 @@ send_sticker(sticker_id: int, chat_id: str = None) -> str
 - 依赖 `~/.nanobot/sticker.json` 和 Telegram token 配置
 - `chat_id` 可省略；省略时默认发送到当前 Telegram 会话
 - 这是表达型工具，不是通用消息或附件发送工具
+
+## Gateway Lifecycle
+
+### gateway_control
+
+查询网关运行状态或请求优雅重启。
+
+```
+gateway_control(action: str, reason: str = "", force: bool = False) -> str
+```
+
+**Notes:**
+
+- `action` 为 `status` 或 `restart`
+- `status` 返回 PID、uptime、supervisor 信息、boot_generation
+- `restart` 只允许在 cli/console 上下文执行（remote chat 禁止）
+- `restart` 需要 supervisor（Docker / systemd），unsupervised 模式会被拒绝
+- restart 不会自行拉起新进程，只是请求当前进程优雅退出，由 supervisor 重启
+- `force=True` 缩短 drain 等待时间（3-5s 而非默认 15s）
+- 后台 coding task 会被标记为 `interrupted`，不会等待完成
 
 ## Scheduled Tasks
 

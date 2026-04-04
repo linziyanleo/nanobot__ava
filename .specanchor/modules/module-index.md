@@ -45,6 +45,14 @@
 |---------|----------|------|------|
 | `ava/agent/commands.py` | [commands_spec.md](commands_spec.md) | 🟡 | 统一命令系统 |
 
+## 计划新增模块
+
+| 模块文件 | Spec 文件 | 状态 | 说明 |
+|---------|----------|------|------|
+| `ava/runtime/lifecycle.py` | [lifecycle-and-frontend-hotupdate](../tasks/2026-04-04_lifecycle-and-frontend-hotupdate.md) §3.2 | ✅ | LifecycleManager：supervisor-first 生命周期后端 |
+| `ava/tools/gateway_control.py` | [lifecycle-and-frontend-hotupdate](../tasks/2026-04-04_lifecycle-and-frontend-hotupdate.md) §3.3 | ✅ | 生命周期控制工具（status / restart） |
+| `ava/console/ui_build.py` (rebuild 扩展) | [lifecycle-and-frontend-hotupdate](../tasks/2026-04-04_lifecycle-and-frontend-hotupdate.md) §3.4 | 📋 | 前端 rebuild 异步封装（Phase B） |
+
 ## 其他模块
 
 | 模块路径 | 说明 |
