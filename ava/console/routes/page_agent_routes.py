@@ -35,6 +35,16 @@ async def list_sessions():
     return {"sessions": await tool.list_sessions()}
 
 
+@router.post("/restart-runner")
+async def restart_runner():
+    """停止 page-agent runner 进程，下次调用时自动重启。"""
+    tool = _get_page_agent_tool()
+    if not tool:
+        return {"success": False, "message": "PageAgent tool not available"}
+    msg = await tool._do_restart_runner()
+    return {"success": True, "message": msg}
+
+
 @router.websocket("/ws/{session_id}")
 async def page_agent_ws(websocket: WebSocket, session_id: str):
     """WebSocket 端点：实时转发 screencast 帧和 activity 事件。"""

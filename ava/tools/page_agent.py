@@ -89,7 +89,7 @@ class PageAgentTool(Tool):
             "properties": {
                 "action": {
                     "type": "string",
-                    "enum": ["execute", "screenshot", "get_page_info", "close_session"],
+                    "enum": ["execute", "screenshot", "get_page_info", "close_session", "restart_runner"],
                     "description": "Action to perform",
                 },
                 "url": {
@@ -123,6 +123,8 @@ class PageAgentTool(Tool):
             return await self._do_get_page_info(kwargs)
         elif action == "close_session":
             return await self._do_close_session(kwargs)
+        elif action == "restart_runner":
+            return await self._do_restart_runner()
         else:
             return f"Error: unknown action '{action}'"
 
@@ -341,6 +343,14 @@ class PageAgentTool(Tool):
         self._last_frame.pop(session_id, None)
 
         return f"Session {session_id} closed."
+
+    async def _do_restart_runner(self) -> str:
+        """停止当前 runner 进程，下次调用时自动重启。"""
+        was_running = self._process is not None and self._process.returncode is None
+        await self._shutdown_runner()
+        if was_running:
+            return "Runner stopped. Will restart automatically on next page_agent call."
+        return "Runner was not running. Will start on next page_agent call."
 
     # ------------------------------------------------------------------
     # Screencast 订阅（供 console WS 路由使用）

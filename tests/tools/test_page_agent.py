@@ -46,7 +46,7 @@ class TestToolInterface:
         assert "instruction" in props
         assert "session_id" in props
         assert props["action"]["enum"] == [
-            "execute", "screenshot", "get_page_info", "close_session"
+            "execute", "screenshot", "get_page_info", "close_session", "restart_runner"
         ]
 
     def test_required_fields(self, tool):
