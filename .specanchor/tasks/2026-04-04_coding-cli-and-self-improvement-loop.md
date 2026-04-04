@@ -5,7 +5,7 @@ specanchor:
   author: "@fanghu"
   created: "2026-04-04"
   status: "draft"
-  last_change: "v3.5: Codex 工具实现 + 测试"
+  last_change: "v3.6: Page Agent 增强 + Token Stats 异常终止 + 浏览器持久化"
   related_modules:
     - ".specanchor/modules/claude_code_tool_spec.md"
     - ".specanchor/modules/tools_patch_spec.md"
@@ -499,6 +499,9 @@ CREATE INDEX IF NOT EXISTS idx_bg_task_events_task ON bg_task_events(task_id);
 
 #### Phase 2：cron/subagent 接入 + Telegram 命令
 - [x] 10-11. CodexTool 独立实现（v3.5，不走 CodingCLIBase 抽象）
+- [x] 10b. Page Agent token stats 集成（v3.6）
+- [x] 10c. Token Stats 异常终止/取消记录（v3.6）
+- [x] 10d. 浏览器持久化模式（v3.6，`launchPersistentContext` + `userDataDir` 配置）
 - [ ] 12. BackgroundTaskStore 新增 cron observer / subagent observer
 - [ ] 13. 更新相关 Module Spec
 - [ ] 14. Telegram 命令注册（修改上游 handler 或用 catch-all 替代 ~filters.COMMAND）
@@ -568,6 +571,28 @@ CREATE INDEX IF NOT EXISTS idx_bg_task_events_task ON bg_task_events(task_id);
     - 覆盖：属性 / 上下文 / 命令构建 / JSONL 解析 / 输出格式 / execute 集成 / cancel / stats 记录 / 项目解析 / 配置注入 / patch 集成
   - **更新** `codex_tool_spec.md`：状态 📋 → ✅
   - **更新** `module-index.md`：codex 从"计划新增"移到"功能模块（已实现）"
+- [x] 2026-04-04 v3.6: Page Agent 增强 + Token Stats 异常终止 + 浏览器持久化
+  - **page_agent token stats 修复**：`loop_patch.py` post-init 遗漏了 `page_agent` 的 `_token_stats` 赋值（构造时为 None，后续未更新）
+  - **page-agent-runner.mjs LLM usage 拦截增强**：
+    - route 拦截同时处理 JSON 和 SSE（`text/event-stream`）响应
+    - SSE 模式从最后一个 `data:` 行反向搜索 `usage` 字段
+  - **page_agent 结构化 page state**：execute 完成后提取页面 headings/alerts/forms/buttons，格式化后追加到返回文本，减少不必要的 vision 调用
+  - **截图遮罩层隐藏**：screenshot 前后自动 hide/restore page-agent 注入的 UI 面板
+  - **浏览器持久化模式**：
+    - 默认关闭，通过 `extra_config.json` 的 `pageAgent.userDataDir` 配置启用
+    - `"default"` → `~/.nanobot/page-agent/chrome-data/`
+    - 使用 Playwright `launchPersistentContext`，cookie/localStorage 自动跨 session 保留
+    - 非 headless 模式下 `--start-maximized` + `viewport=null` 实现全屏
+  - **Token Stats 异常终止记录**：
+    - `patched_process_message` 的 `except Exception` 改为 `except BaseException`，捕获 `/stop` 引发的 `CancelledError`
+    - Phase 0 pending 记录更新为 `model_role="error"`，`finish_reason="cancelled"/"error"`
+    - 已记录的中间记录回填 user_message 和异常信息
+  - **bg_tasks cancelled 回调**：`CancelledError` 分支增加 `_on_complete` 回调，确保取消的后台任务触发完成通知
+  - **Token 页面增强**：
+    - 功能角色筛选新增 Page Agent（🌐）和异常终止（❌）
+    - `MODEL_ROLE_CONFIG` 新增 `page-agent` 图标
+  - **Config Schema**：`PageAgentConfig` 新增 `user_data_dir` 字段
+  - **TOOLS.md**：新增 page_agent 的 Page State 输出说明 + vision 使用指引
 - [ ] Phase 2 尚未执行
 - [ ] Phase 3 尚未执行
 
@@ -609,3 +634,9 @@ CREATE INDEX IF NOT EXISTS idx_bg_task_events_task ON bg_task_events(task_id);
   - `ava/templates/TOOLS.md` 未接入运行时同步链路（三份文件互相漂移）
   - console_ui_regression skill 的 verify_prompt 硬编码不可维护 → 拆分为 page-agent-test（通用协议）+ console_ui_regression（编排层，动态验证）
 - v3.5（2026-04-04）：Codex 工具实现。原 Plan 中 Phase 2 的第 10-11 步（CodingCLIBase + CodexCLI 后端）合并为独立 CodexTool，设计决策：不创建抽象基类，保持两个工具完全独立。38 个测试通过。
+- v3.6（2026-04-04）：Page Agent 增强 + Token Stats 异常终止。原 Plan 未涉及的内容：
+  - page_agent 的 token stats 记录是 loop_patch post-init 的遗漏，非架构设计问题
+  - page_agent 的 page state 结构化输出是减少 vision 工具调用的优化
+  - `/stop` 异常终止的 token stats 是 `except Exception` 无法捕获 `CancelledError`（BaseException）的 Python 语言特性问题
+  - 浏览器持久化模式（`launchPersistentContext` + `userDataDir`）是 UX 优化，降低模型重复登录的开销
+  - bg_tasks cancelled 回调通知是 `_on_complete` 的遗漏（succeeded/failed 有回调，cancelled 没有）
