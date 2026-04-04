@@ -57,12 +57,19 @@ def _mount_console_spa(app: FastAPI) -> None:
 
     index_html = static_dir / "index.html"
 
+    _NO_CACHE_FILES = {"index.html", "version.json"}
+
     @app.get("/{full_path:path}")
     async def spa_fallback(full_path: str):
         file_path = static_dir / full_path
         if file_path.is_file():
-            return FileResponse(file_path)
-        return FileResponse(index_html)
+            resp = FileResponse(file_path)
+            if file_path.name in _NO_CACHE_FILES:
+                resp.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+            return resp
+        resp = FileResponse(index_html)
+        resp.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+        return resp
 
 
 def create_console_app(

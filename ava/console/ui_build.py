@@ -1,10 +1,15 @@
-"""console-ui 构建产物新鲜度检查。"""
+"""console-ui 构建产物新鲜度检查与按需重建。"""
 
 from __future__ import annotations
 
+import asyncio
+import hashlib
+import json
 import shutil
 import subprocess
+import time
 from collections.abc import Callable, Iterable
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from loguru import logger
@@ -127,3 +132,84 @@ def _latest_mtime(paths: Iterable[Path]) -> int | None:
         if latest is None or mtime > latest:
             latest = mtime
     return latest
+
+
+# ---------------------------------------------------------------------------
+# 按需重建 + version.json
+# ---------------------------------------------------------------------------
+
+@dataclass
+class RebuildResult:
+    success: bool
+    duration_ms: int = 0
+    version_hash: str = ""
+    error: str = ""
+    log_tail: list[str] = field(default_factory=list)
+
+
+_rebuild_lock = asyncio.Lock()
+
+
+async def rebuild_console_ui(
+    console_ui_dir: Path | None = None,
+) -> RebuildResult:
+    """异步触发 console-ui rebuild，复用 _build_console_ui 逻辑。
+
+    同一时刻只允许一个 rebuild 进程（通过 asyncio.Lock 保护）。
+    """
+    root = (console_ui_dir or _CONSOLE_UI_DIR).resolve()
+    if not root.exists():
+        return RebuildResult(success=False, error=f"console-ui directory not found: {root}")
+
+    if _rebuild_lock.locked():
+        return RebuildResult(success=False, error="Rebuild already in progress")
+
+    async with _rebuild_lock:
+        t0 = time.monotonic()
+        loop = asyncio.get_running_loop()
+        try:
+            await loop.run_in_executor(None, _build_console_ui, root, None)
+            duration_ms = int((time.monotonic() - t0) * 1000)
+            ver_hash = write_version_json(root / "dist")
+            return RebuildResult(
+                success=True,
+                duration_ms=duration_ms,
+                version_hash=ver_hash,
+            )
+        except Exception as exc:
+            duration_ms = int((time.monotonic() - t0) * 1000)
+            err_lines = str(exc).splitlines()
+            return RebuildResult(
+                success=False,
+                duration_ms=duration_ms,
+                error=str(exc),
+                log_tail=err_lines[-20:],
+            )
+
+
+def write_version_json(dist_dir: Path) -> str:
+    """在 dist/ 下写入 version.json，返回 hash 值。"""
+    content_hash = _compute_dist_hash(dist_dir)
+    version_data = {
+        "hash": content_hash,
+        "timestamp": int(time.time()),
+        "built_at": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
+    }
+    version_file = dist_dir / "version.json"
+    version_file.write_text(json.dumps(version_data, indent=2))
+    logger.info("version.json written: hash={}", content_hash[:12])
+    return content_hash
+
+
+def _compute_dist_hash(dist_dir: Path) -> str:
+    """基于 dist/assets/ 下所有文件内容的 sha256 摘要。"""
+    h = hashlib.sha256()
+    assets_dir = dist_dir / "assets"
+    if not assets_dir.is_dir():
+        h.update(b"no-assets")
+        return h.hexdigest()[:16]
+    for f in sorted(assets_dir.rglob("*")):
+        if f.is_file():
+            h.update(f.name.encode())
+            h.update(f.read_bytes())
+    return h.hexdigest()[:16]

@@ -11,6 +11,31 @@ from ava.console.middleware import get_client_ip
 router = APIRouter(prefix="/api/gateway", tags=["gateway"])
 
 
+@router.post("/console/rebuild")
+async def console_rebuild(
+    request: Request,
+    user: UserInfo = Depends(auth.require_role("admin")),
+):
+    """触发 console-ui 前端重建（零中断，不影响 gateway 进程）。"""
+    from ava.console.app import get_services
+    from ava.console.ui_build import rebuild_console_ui
+
+    svc = get_services()
+    svc.audit.log(
+        user=user.username, role=user.role, action="console.rebuild",
+        target="console-ui", detail={},
+        ip=get_client_ip(request),
+    )
+    result = await rebuild_console_ui()
+    return {
+        "success": result.success,
+        "duration_ms": result.duration_ms,
+        "version_hash": result.version_hash,
+        "error": result.error,
+        "log_tail": result.log_tail,
+    }
+
+
 @router.get("/status")
 async def gateway_status(user: UserInfo = Depends(auth.require_role("admin", "editor", "viewer"))):
     from ava.console.app import get_services
