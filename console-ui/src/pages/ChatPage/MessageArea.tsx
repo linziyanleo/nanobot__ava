@@ -38,6 +38,7 @@ export function MessageArea({ session, turns, loading, isConsole, streaming, thi
   useEffect(() => {
     if (!session?.key) {
       setTurnTokenStats(new Map());
+      setIterationStats(new Map());
       return;
     }
     api<TurnTokenStats[]>(`/stats/tokens/by-session?session_key=${encodeURIComponent(session.key)}`)
@@ -187,7 +188,14 @@ export function MessageArea({ session, turns, loading, isConsole, streaming, thi
         ) : (
           <>
             {turns.map((turn, i) => (
-              <TurnGroupComponent key={i} turn={turn} index={i} tokenStats={turnTokenStats.get(i)} iterationStats={iterationStats} sessionKey={session?.key} />
+              <TurnGroupComponent
+                key={turn.turnSeq != null ? `turn-${turn.turnSeq}` : `turn-synthetic-${i}`}
+                turn={turn}
+                index={i}
+                tokenStats={turn.turnSeq != null ? turnTokenStats.get(turn.turnSeq) : undefined}
+                iterationStats={iterationStats}
+                sessionKey={session?.key}
+              />
             ))}
             {thinkingStreaming && (
               <div className="flex justify-start">

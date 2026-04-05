@@ -4,8 +4,8 @@ specanchor:
   task_name: "Console 实时数据流增强：实时广播 + Observe WS + Token Stats Phase 0 预记录"
   author: "@fanghu"
   created: "2026-04-03"
-  status: "draft"
-  last_change: "根据 Codex review 修正 4 个硬伤：WS 鉴权、hook 点选择、conversation_history 定义、Token Stats 刷新闭环"
+  status: "in_progress"
+  last_change: "Execute：Token Stats 拆分全局审计/单 Session 调试模式，单 Session 默认按 turn 簇展示并支持调用条目展开"
   related_modules:
     - ".specanchor/modules/loop_patch_spec.md"
     - ".specanchor/modules/bus_console_listener_spec.md"
@@ -14,7 +14,7 @@ specanchor:
     - ".specanchor/global/global-patch-spec.md"
   flow_type: "standard"
   writing_protocol: "sdd-riper-one"
-  sdd_phase: "PLAN"
+  sdd_phase: "EXECUTE"
   branch: "refactor/sidecar"
 ---
 
@@ -438,11 +438,12 @@ useEffect(() => {
 - [ ] 7. 修改 `chat_routes.py`：新增 `/api/chat/ws/observe/{session_key}` 端点（含 `auth.get_ws_user` 鉴权）
 - [ ] 8. 修改 `ChatPage/index.tsx`：非 Console 会话连接 observe WS（使用 `wsUrl()`），移除 MESSAGE_POLL_MS 轮询
 - [ ] 9. 新增 `components/ConversationHistoryView.tsx`：对话历史气泡式渲染组件
-- [ ] 10. 修改 `TokenStatsPage.tsx`：集成 ConversationHistoryView + pending 状态展示 + auto-refresh 轮询
+- [x] 10. 修改 `TokenStatsPage.tsx`：集成 ConversationHistoryView + pending 状态展示 + auto-refresh 轮询
 - [ ] 11. 编写测试：bus_patch observe listener register/unregister/dispatch
 - [ ] 12. 编写测试：loop_patch 实时广播 + Phase 0 记录（conversation_history 使用 initial_messages）
 - [ ] 13. 编写测试：observe WS 端点鉴权 + 事件推送 + 断开清理
 - [ ] 14. 端到端验证：Telegram 消息到达 → Chat 页面实时 pending bubble → turn_completed → 完整消息替换 → Token Stats auto-refresh
+- [x] 15. 修改 `TokenStatsPage.tsx`：区分全局审计 / 单 Session 调试模式，带 `session_key` 时默认进入 turn 簇视图，并在簇内展开调用条目
 
 ## 6. Test Coverage
 
@@ -466,7 +467,10 @@ useEffect(() => {
 
 ## 7. Execute Log
 
-（待实现时填写）
+- 2026-04-05：修复 ChatPage 的 turn 绑定错误。`TurnGroup` 现在显式携带真实 `turnSeq`，`MessageArea` / `TurnGroup` 不再用渲染数组 index 去查 token 聚合与 iteration 记录，因此工具调用 chip、最终 assistant 气泡和 Token 统计跳转都改为对齐真实 turn。
+- 2026-04-05：给 token 记录链路补齐 `turn_seq`。`loop_patch` 在每轮 `_process_message` 开始时基于已有 user message 数量计算当前 turn，并在 Phase 0 预记录与后续 iteration 记录时直接写入该值，避免新记录继续落成 `NULL`。
+- 2026-04-05：给历史/运行中数据补查询兜底。`TokenStatsCollector` 在按 session 查询 `by-session` / `detailed` / `records` 前，会触发 session 级 `turn_seq` backfill，让现有 DB 里已写成 `NULL` 的 token_usage 也能被正确聚合和过滤。
+- 2026-04-05：`TokenStatsPage` 现已区分全局审计与单 Session 调试两种模式。无 `session_key` 时保留扁平调用表；带 `session_key` 时默认切到 turn 簇视图，复用 `/stats/tokens/by-session`、`/detailed` 和 `/chat/messages` 组合出 turn 卡片，并在簇内按 iteration 展开调用条目。pending turn 在该视图下也会继续走 5s auto-refresh。
 
 ## 8. Review Verdict
 

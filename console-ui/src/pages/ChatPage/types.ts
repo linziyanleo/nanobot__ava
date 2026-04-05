@@ -62,6 +62,7 @@ export interface IterationTokenStats {
 }
 
 export interface TurnGroup {
+  turnSeq: number | null
   userMessage: RawMessage
   assistantSteps: RawMessage[]
   isComplete: boolean

@@ -14,6 +14,8 @@ import {
 } from 'lucide-react';
 import { useResponsiveMode } from '../hooks/useResponsiveMode';
 import ConversationHistoryView from '../components/ConversationHistoryView';
+import type { TurnGroup as ChatTurnGroup } from './ChatPage/types';
+import { getContentText, groupTurns } from './ChatPage/utils';
 import {
   BarChart,
   Bar,
@@ -39,6 +41,8 @@ interface TokenRecord {
   completion_tokens: number;
   total_tokens: number;
   session_key: string;
+  turn_seq: number | null;
+  iteration: number;
   user_message: string;
   output_content: string;
   system_prompt_preview: string;
@@ -79,6 +83,31 @@ interface RecordsResponse {
   total: number;
 }
 
+interface TurnSummaryRecord {
+  turn_seq: number | null;
+  prompt_tokens: number;
+  completion_tokens: number;
+  total_tokens: number;
+  llm_calls: number;
+  models: string;
+}
+
+interface TurnIterationRecord {
+  turn_seq: number | null;
+  iteration: number;
+  prompt_tokens: number;
+  completion_tokens: number;
+  total_tokens: number;
+  cached_tokens: number;
+  cache_creation_tokens: number;
+  model: string;
+  model_role: string;
+  tool_names: string;
+  finish_reason: string;
+}
+
+type TokenStatsView = 'records' | 'turns' | 'charts';
+
 const PIE_COLORS = ['#3b82f6', '#8b5cf6'];
 
 function fmtTooltip(v: number | string | ReadonlyArray<number | string> | undefined): string {
@@ -111,6 +140,58 @@ function formatTime(iso: string): string {
 function shortModel(model: string): string {
   const parts = model.split('/');
   return parts[parts.length - 1];
+}
+
+function parseTurnSeq(value: string | null): number | null {
+  if (!value) return null;
+  const parsed = Number(value);
+  return Number.isInteger(parsed) ? parsed : null;
+}
+
+function truncateLine(text: string, maxLength: number = 96): string {
+  const normalized = text.replace(/\s+/g, ' ').trim();
+  if (!normalized) return '（空输入）';
+  return normalized.length > maxLength ? `${normalized.slice(0, maxLength)}…` : normalized;
+}
+
+function getTurnUserPreview(turn?: ChatTurnGroup): string {
+  if (!turn) return '无法解析用户输入';
+  return truncateLine(getContentText(turn.userMessage.content), 120);
+}
+
+function getTurnUserMessage(turn?: ChatTurnGroup): string {
+  if (!turn) return '';
+  return getContentText(turn.userMessage.content);
+}
+
+function getTurnFinalAssistantText(turn?: ChatTurnGroup): string {
+  if (!turn) return '';
+  const finalAssistant = [...turn.assistantSteps]
+    .reverse()
+    .find((msg) => msg.role === 'assistant' && !msg.tool_calls && getContentText(msg.content));
+  return finalAssistant ? getContentText(finalAssistant.content) : '';
+}
+
+function getTurnStatus(records: TokenRecord[], iterations: TurnIterationRecord[]): {
+  label: string;
+  className: string;
+} {
+  const source = records.length > 0 ? records : iterations;
+  if (source.some((item) => item.model_role === 'pending')) {
+    return { label: 'Processing', className: 'bg-amber-500/15 text-amber-400' };
+  }
+  if (source.some((item) => item.model_role === 'error' || /error/i.test(item.finish_reason || ''))) {
+    return { label: 'Error', className: 'bg-rose-500/15 text-rose-400' };
+  }
+  return { label: 'Completed', className: 'bg-emerald-500/15 text-emerald-400' };
+}
+
+function sortTurnRecords(records: TokenRecord[]): TokenRecord[] {
+  return [...records].sort((a, b) => {
+    const iterDiff = (a.iteration ?? 0) - (b.iteration ?? 0);
+    if (iterDiff !== 0) return iterDiff;
+    return a.timestamp.localeCompare(b.timestamp);
+  });
 }
 
 // Model role icons with tooltip
@@ -234,9 +315,19 @@ function buildFilterStr(
 export default function TokenStatsPage() {
   const { isMobile } = useResponsiveMode();
   const [searchParams, setSearchParams] = useSearchParams();
-  const [view, setView] = useState<'records' | 'charts'>('records');
+  const appliedSessionKey = searchParams.get('session_key') || '';
+  const appliedTurnSeq = parseTurnSeq(searchParams.get('turn_seq'));
+  const isSessionMode = Boolean(appliedSessionKey);
+  const [view, setView] = useState<TokenStatsView>(() => (searchParams.get('session_key') ? 'turns' : 'records'));
   const [summary, setSummary] = useState<TokenSummary | null>(null);
   const [records, setRecords] = useState<TokenRecord[]>([]);
+  const [sessionTurnSummaries, setSessionTurnSummaries] = useState<TurnSummaryRecord[]>([]);
+  const [sessionTurnIterations, setSessionTurnIterations] = useState<TurnIterationRecord[]>([]);
+  const [sessionChatTurns, setSessionChatTurns] = useState<ChatTurnGroup[]>([]);
+  const [expandedTurnSeq, setExpandedTurnSeq] = useState<number | null>(appliedTurnSeq);
+  const [loadingSessionTurns, setLoadingSessionTurns] = useState(false);
+  const [turnRecordsBySeq, setTurnRecordsBySeq] = useState<Record<number, TokenRecord[]>>({});
+  const [loadingTurnRecords, setLoadingTurnRecords] = useState<Record<number, boolean>>({});
   const [filtersExpanded, setFiltersExpanded] = useState(!isMobile);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(0);
@@ -253,6 +344,7 @@ export default function TokenStatsPage() {
   const [timePreset, setTimePreset] = useState<TimePreset>('all');
   const [customStart, setCustomStart] = useState('');
   const [customEnd, setCustomEnd] = useState('');
+  const sessionDebugKeyRef = useRef(appliedSessionKey);
 
   const filtersRef = useRef({
     filterSessionKey,
@@ -264,6 +356,9 @@ export default function TokenStatsPage() {
     customStart,
     customEnd,
   });
+  useEffect(() => {
+    sessionDebugKeyRef.current = appliedSessionKey;
+  }, [appliedSessionKey]);
   useEffect(() => {
     filtersRef.current = {
       filterSessionKey,
@@ -322,6 +417,52 @@ export default function TokenStatsPage() {
     setLoading(false);
   }, []);
 
+  const loadSessionDebugData = useCallback(async (sessionKey: string) => {
+    setLoadingSessionTurns(true);
+    const [turnSummaryResult, turnIterationResult, sessionMessagesResult] = await Promise.allSettled([
+      api<TurnSummaryRecord[]>(`/stats/tokens/by-session?session_key=${encodeURIComponent(sessionKey)}`),
+      api<TurnIterationRecord[]>(`/stats/tokens/by-session/detailed?session_key=${encodeURIComponent(sessionKey)}`),
+      api(`/chat/messages?session_key=${encodeURIComponent(sessionKey)}`),
+    ]);
+
+    if (sessionDebugKeyRef.current !== sessionKey) {
+      return;
+    }
+
+    setSessionTurnSummaries(turnSummaryResult.status === 'fulfilled' ? turnSummaryResult.value : []);
+    setSessionTurnIterations(turnIterationResult.status === 'fulfilled' ? turnIterationResult.value : []);
+    setSessionChatTurns(
+      sessionMessagesResult.status === 'fulfilled' ? groupTurns(sessionMessagesResult.value as Parameters<typeof groupTurns>[0]) : [],
+    );
+    setLoadingSessionTurns(false);
+  }, []);
+
+  const ensureTurnRecords = useCallback(
+    async (sessionKey: string, turnSeq: number, force: boolean = false) => {
+      if (!force && (turnRecordsBySeq[turnSeq] || loadingTurnRecords[turnSeq])) return;
+
+      setLoadingTurnRecords((prev) => ({ ...prev, [turnSeq]: true }));
+      try {
+        const result = await api<RecordsResponse>(
+          `/stats/tokens/records?session_key=${encodeURIComponent(sessionKey)}&turn_seq=${turnSeq}&limit=200`,
+        );
+        if (sessionDebugKeyRef.current !== sessionKey) {
+          return;
+        }
+        setTurnRecordsBySeq((prev) => ({ ...prev, [turnSeq]: sortTurnRecords(result.records) }));
+      } catch {
+        if (sessionDebugKeyRef.current === sessionKey) {
+          setTurnRecordsBySeq((prev) => ({ ...prev, [turnSeq]: [] }));
+        }
+      } finally {
+        if (sessionDebugKeyRef.current === sessionKey) {
+          setLoadingTurnRecords((prev) => ({ ...prev, [turnSeq]: false }));
+        }
+      }
+    },
+    [loadingTurnRecords, turnRecordsBySeq],
+  );
+
   // Initial load
   useEffect(() => {
     queueMicrotask(() => {
@@ -333,14 +474,34 @@ export default function TokenStatsPage() {
   // Auto-refresh when pending records exist
   const AUTO_REFRESH_MS = 5_000;
   useEffect(() => {
-    const hasPending = records.some((r) => r.model_role === 'pending');
-    if (!hasPending) return;
+    const hasPendingRecords = records.some((r) => r.model_role === 'pending');
+    const hasPendingTurns = sessionTurnIterations.some((r) => r.model_role === 'pending');
+    const shouldRefreshTurns = view === 'turns' && isSessionMode && hasPendingTurns;
+    if (!hasPendingRecords && !shouldRefreshTurns) return;
 
     const timer = setInterval(() => {
-      void loadRecords(page);
+      if (shouldRefreshTurns) {
+        void loadSessionDebugData(appliedSessionKey);
+        if (expandedTurnSeq != null) {
+          void ensureTurnRecords(appliedSessionKey, expandedTurnSeq, true);
+        }
+      } else {
+        void loadRecords(page);
+      }
     }, AUTO_REFRESH_MS);
     return () => clearInterval(timer);
-  }, [records, page, loadRecords]);
+  }, [
+    appliedSessionKey,
+    ensureTurnRecords,
+    expandedTurnSeq,
+    isSessionMode,
+    loadRecords,
+    loadSessionDebugData,
+    page,
+    records,
+    sessionTurnIterations,
+    view,
+  ]);
 
   // When URL params change (navigation from other page), sync state and reload
   const mountedRef = useRef(false);
@@ -358,6 +519,7 @@ export default function TokenStatsPage() {
       setFilterModel(m);
       setFilterProvider(p);
       setFilterTurnSeq(ts);
+      setView(sk ? 'turns' : 'records');
       filtersRef.current = {
         ...filtersRef.current,
         filterSessionKey: sk,
@@ -369,12 +531,48 @@ export default function TokenStatsPage() {
     });
   }, [searchParams, loadRecords]);
 
+  useEffect(() => {
+    if (!appliedSessionKey) {
+      setSessionTurnSummaries([]);
+      setSessionTurnIterations([]);
+      setSessionChatTurns([]);
+      setExpandedTurnSeq(null);
+      setTurnRecordsBySeq({});
+      setLoadingTurnRecords({});
+      setLoadingSessionTurns(false);
+      return;
+    }
+
+    setTurnRecordsBySeq({});
+    setLoadingTurnRecords({});
+    void loadSessionDebugData(appliedSessionKey);
+  }, [appliedSessionKey, loadSessionDebugData]);
+
+  useEffect(() => {
+    setExpandedTurnSeq(appliedTurnSeq);
+  }, [appliedSessionKey, appliedTurnSeq]);
+
+  useEffect(() => {
+    if (!appliedSessionKey || expandedTurnSeq == null) return;
+    if (turnRecordsBySeq[expandedTurnSeq] || loadingTurnRecords[expandedTurnSeq]) return;
+    void ensureTurnRecords(appliedSessionKey, expandedTurnSeq);
+  }, [appliedSessionKey, ensureTurnRecords, expandedTurnSeq, loadingTurnRecords, turnRecordsBySeq]);
+
+  useEffect(() => {
+    if (view !== 'turns' || appliedTurnSeq == null || loadingSessionTurns) return;
+    const frame = requestAnimationFrame(() => {
+      document.getElementById(`token-turn-${appliedTurnSeq}`)?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [view, appliedTurnSeq, loadingSessionTurns, sessionTurnSummaries.length]);
+
   const handleSearch = () => {
     const newParams: Record<string, string> = {};
     if (filterSessionKey) newParams.session_key = filterSessionKey;
     if (filterModel) newParams.model = filterModel;
     if (filterProvider) newParams.provider = filterProvider;
     if (filterTurnSeq) newParams.turn_seq = filterTurnSeq;
+    setView(filterSessionKey ? 'turns' : 'records');
     setSearchParams(newParams, { replace: true });
     loadRecords(0);
   };
@@ -399,7 +597,16 @@ export default function TokenStatsPage() {
       customStart: '',
       customEnd: '',
     };
+    setView('records');
     loadRecords(0);
+  };
+
+  const handleLeaveSessionMode = () => {
+    const nextParams = new URLSearchParams(searchParams);
+    nextParams.delete('session_key');
+    nextParams.delete('turn_seq');
+    setView('records');
+    setSearchParams(nextParams, { replace: true });
   };
 
   const hasFilters =
@@ -419,11 +626,53 @@ export default function TokenStatsPage() {
       ]
     : [];
 
+  const turnIterationsBySeq = new Map<number, TurnIterationRecord[]>();
+  for (const item of sessionTurnIterations) {
+    if (item.turn_seq == null) continue;
+    const existing = turnIterationsBySeq.get(item.turn_seq) || [];
+    existing.push(item);
+    turnIterationsBySeq.set(item.turn_seq, existing);
+  }
+
+  const chatTurnsBySeq = new Map<number, ChatTurnGroup>();
+  for (const turn of sessionChatTurns) {
+    if (turn.turnSeq != null) {
+      chatTurnsBySeq.set(turn.turnSeq, turn);
+    }
+  }
+
+  let sessionPromptTokens = 0;
+  let sessionCompletionTokens = 0;
+  let sessionTotalTokens = 0;
+  let sessionLlmCalls = 0;
+  const sessionModels = new Set<string>();
+  for (const turn of sessionTurnSummaries) {
+    sessionPromptTokens += turn.prompt_tokens;
+    sessionCompletionTokens += turn.completion_tokens;
+    sessionTotalTokens += turn.total_tokens;
+    sessionLlmCalls += turn.llm_calls;
+    turn.models
+      .split(',')
+      .map((model) => model.trim())
+      .filter(Boolean)
+      .forEach((model) => sessionModels.add(model));
+  }
+  const sessionTurnCount = sessionTurnSummaries.length || sessionChatTurns.filter((turn) => turn.turnSeq != null).length;
+  const activeTurnLabel = appliedTurnSeq != null ? `Turn #${appliedTurnSeq}` : '全部 Turn';
+
   return (
     <div>
       <div className="flex items-center justify-between mb-4">
         <div className="flex items-center gap-2">
           {!isMobile && <h1 className="text-2xl font-bold">Token 统计</h1>}
+          <span
+            className={cn(
+              'inline-flex items-center rounded-full px-2.5 py-1 text-[10px] font-medium',
+              isSessionMode ? 'bg-cyan-500/15 text-cyan-400' : 'bg-[var(--bg-tertiary)] text-[var(--text-secondary)]',
+            )}
+          >
+            {isSessionMode ? '单 Session 调试' : '全局审计'}
+          </span>
           <div className="flex bg-[var(--bg-tertiary)] rounded-lg p-0.5">
             <button
               onClick={() => setView('records')}
@@ -436,27 +685,51 @@ export default function TokenStatsPage() {
               <List className="w-3.5 h-3.5" />
               {!isMobile && ' 明细'}
             </button>
-            <button
-              onClick={() => {
-                setView('charts');
-                loadSummary();
-              }}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${
-                view === 'charts'
-                  ? 'bg-[var(--accent)] text-white'
-                  : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
-              }`}
-            >
-              <BarChart3 className="w-3.5 h-3.5" />
-              {!isMobile && ' 聚合'}
-            </button>
+            {isSessionMode && (
+              <button
+                onClick={() => setView('turns')}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${
+                  view === 'turns'
+                    ? 'bg-[var(--accent)] text-white'
+                    : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
+                }`}
+              >
+                {!isMobile && ' Turn 视图'}
+                {isMobile && 'T'}
+              </button>
+            )}
+            {!isSessionMode && (
+              <button
+                onClick={() => {
+                  setView('charts');
+                  loadSummary();
+                }}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${
+                  view === 'charts'
+                    ? 'bg-[var(--accent)] text-white'
+                    : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
+                }`}
+              >
+                <BarChart3 className="w-3.5 h-3.5" />
+                {!isMobile && ' 聚合'}
+              </button>
+            )}
           </div>
         </div>
         <div className="flex gap-1.5">
           <button
             onClick={() => {
-              loadSummary();
-              loadRecords(page);
+              if (view === 'records') {
+                loadRecords(page);
+              }
+              if (isSessionMode) {
+                void loadSessionDebugData(appliedSessionKey);
+                if (view === 'turns' && expandedTurnSeq != null) {
+                  void ensureTurnRecords(appliedSessionKey, expandedTurnSeq, true);
+                }
+              } else {
+                loadSummary();
+              }
             }}
             className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-[var(--bg-tertiary)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] text-sm"
             title="刷新"
@@ -468,7 +741,53 @@ export default function TokenStatsPage() {
       </div>
 
       {/* Overview Cards */}
-      {summary &&
+      {isSessionMode ? (
+        isMobile ? (
+          <div className="flex items-center gap-3 mb-3 px-1 text-xs overflow-x-auto">
+            <span className="shrink-0">
+              <span className="text-[var(--text-secondary)]">Session:</span>{' '}
+              <span className="font-mono text-[var(--text-primary)]">{truncateLine(appliedSessionKey, 28)}</span>
+            </span>
+            <span className="text-[var(--border)]">|</span>
+            <span className="shrink-0">
+              <span className="text-[var(--text-secondary)]">Turns:</span>{' '}
+              <span className="font-semibold text-cyan-400">{sessionTurnCount}</span>
+            </span>
+            <span className="text-[var(--border)]">|</span>
+            <span className="shrink-0">
+              <span className="text-[var(--text-secondary)]">Calls:</span>{' '}
+              <span className="font-semibold text-purple-400">{sessionLlmCalls}</span>
+            </span>
+            <span className="text-[var(--border)]">|</span>
+            <span className="shrink-0">
+              <span className="text-[var(--text-secondary)]">Total:</span>{' '}
+              <span className="font-semibold text-[var(--accent)]">{formatTokens(sessionTotalTokens)}</span>
+            </span>
+          </div>
+        ) : (
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
+            <div className="bg-[var(--bg-secondary)] border border-[var(--border)] rounded-xl p-4">
+              <p className="text-xs text-[var(--text-secondary)] mb-1">当前 Session</p>
+              <p className="text-sm font-mono text-[var(--text-primary)] truncate" title={appliedSessionKey}>
+                {appliedSessionKey}
+              </p>
+            </div>
+            <div className="bg-[var(--bg-secondary)] border border-[var(--border)] rounded-xl p-4">
+              <p className="text-xs text-[var(--text-secondary)] mb-1">Turn 数</p>
+              <p className="text-xl font-bold text-cyan-400">{sessionTurnCount}</p>
+            </div>
+            <div className="bg-[var(--bg-secondary)] border border-[var(--border)] rounded-xl p-4">
+              <p className="text-xs text-[var(--text-secondary)] mb-1">LLM 调用</p>
+              <p className="text-xl font-bold text-purple-400">{sessionLlmCalls}</p>
+            </div>
+            <div className="bg-[var(--bg-secondary)] border border-[var(--border)] rounded-xl p-4">
+              <p className="text-xs text-[var(--text-secondary)] mb-1">Session Token</p>
+              <p className="text-xl font-bold text-[var(--accent)]">{formatTokens(sessionTotalTokens)}</p>
+            </div>
+          </div>
+        )
+      ) : (
+        summary &&
         (isMobile ? (
           <div className="flex items-center gap-3 mb-3 px-1 text-xs overflow-x-auto">
             <span className="shrink-0">
@@ -510,7 +829,40 @@ export default function TokenStatsPage() {
               <p className="text-xl font-bold text-emerald-400">{formatTokens(summary.totals.completion_tokens)}</p>
             </div>
           </div>
-        ))}
+        ))
+      )}
+
+      {view === 'turns' && isSessionMode && (
+        <div className="bg-[var(--bg-secondary)] border border-[var(--border)] rounded-xl p-4 mb-4 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+          <div className="min-w-0">
+            <div className="text-[10px] uppercase tracking-[0.18em] text-[var(--text-secondary)] mb-1">Session Debug Mode</div>
+            <div className="font-mono text-sm text-[var(--text-primary)] truncate" title={appliedSessionKey}>
+              {appliedSessionKey}
+            </div>
+            <div className="flex flex-wrap gap-2 mt-2 text-xs text-[var(--text-secondary)]">
+              <span className="px-2 py-1 rounded-full bg-[var(--bg-tertiary)]">{activeTurnLabel}</span>
+              <span className="px-2 py-1 rounded-full bg-[var(--bg-tertiary)]">{sessionModels.size || 0} models</span>
+              <span className="px-2 py-1 rounded-full bg-[var(--bg-tertiary)]">
+                prompt {formatTokens(sessionPromptTokens)} / completion {formatTokens(sessionCompletionTokens)}
+              </span>
+            </div>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <button
+              onClick={() => setView('records')}
+              className="px-3 py-2 rounded-lg bg-[var(--bg-tertiary)] text-xs text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
+            >
+              查看调用明细
+            </button>
+            <button
+              onClick={handleLeaveSessionMode}
+              className="px-3 py-2 rounded-lg bg-[var(--bg-tertiary)] text-xs text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
+            >
+              返回全局
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Search / Filter Bar */}
       {view === 'records' && (
@@ -753,6 +1105,21 @@ export default function TokenStatsPage() {
             </div>
           )}
         </div>
+      ) : view === 'turns' ? (
+        <TurnClusterList
+          loading={loadingSessionTurns}
+          sessionKey={appliedSessionKey}
+          activeTurnSeq={appliedTurnSeq}
+          expandedTurnSeq={expandedTurnSeq}
+          onToggleTurn={(turnSeq) => {
+            setExpandedTurnSeq((prev) => (prev === turnSeq ? null : turnSeq));
+          }}
+          turnSummaries={sessionTurnSummaries}
+          turnIterationsBySeq={turnIterationsBySeq}
+          chatTurnsBySeq={chatTurnsBySeq}
+          turnRecordsBySeq={turnRecordsBySeq}
+          loadingTurnRecords={loadingTurnRecords}
+        />
       ) : (
         /* ============ Charts View ============ */
         <div className="space-y-6">
@@ -1145,6 +1512,304 @@ function RecordRow({
         </tr>
       )}
     </>
+  );
+}
+
+function TurnClusterList({
+  loading,
+  sessionKey,
+  activeTurnSeq,
+  expandedTurnSeq,
+  onToggleTurn,
+  turnSummaries,
+  turnIterationsBySeq,
+  chatTurnsBySeq,
+  turnRecordsBySeq,
+  loadingTurnRecords,
+}: {
+  loading: boolean;
+  sessionKey: string;
+  activeTurnSeq: number | null;
+  expandedTurnSeq: number | null;
+  onToggleTurn: (turnSeq: number) => void;
+  turnSummaries: TurnSummaryRecord[];
+  turnIterationsBySeq: Map<number, TurnIterationRecord[]>;
+  chatTurnsBySeq: Map<number, ChatTurnGroup>;
+  turnRecordsBySeq: Record<number, TokenRecord[]>;
+  loadingTurnRecords: Record<number, boolean>;
+}) {
+  if (loading) {
+    return (
+      <div className="bg-[var(--bg-secondary)] border border-[var(--border)] rounded-xl p-8 text-center text-[var(--text-secondary)]">
+        加载 Turn 数据中...
+      </div>
+    );
+  }
+
+  if (turnSummaries.length === 0) {
+    return (
+      <div className="bg-[var(--bg-secondary)] border border-[var(--border)] rounded-xl p-8 text-center text-[var(--text-secondary)]">
+        当前 Session 暂无可展示的 Turn 统计
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-4">
+      {turnSummaries.map((summary) => {
+        if (summary.turn_seq == null) return null;
+
+        const turnSeq = summary.turn_seq;
+        const iterations = turnIterationsBySeq.get(turnSeq) || [];
+        const detailRecords = turnRecordsBySeq[turnSeq] || [];
+        const chatTurn = chatTurnsBySeq.get(turnSeq);
+        const expanded = expandedTurnSeq === turnSeq;
+        const highlighted = activeTurnSeq === turnSeq;
+        const status = getTurnStatus(detailRecords, iterations);
+        const finalAssistantText = getTurnFinalAssistantText(chatTurn);
+        const userMessage = getTurnUserMessage(chatTurn);
+
+        return (
+          <div
+            key={turnSeq}
+            id={`token-turn-${turnSeq}`}
+            className={cn(
+              'bg-[var(--bg-secondary)] border rounded-xl overflow-hidden transition-colors',
+              highlighted ? 'border-[var(--accent)] shadow-[0_0_0_1px_var(--accent)]' : 'border-[var(--border)]',
+            )}
+          >
+            <button
+              onClick={() => onToggleTurn(turnSeq)}
+              className="w-full px-4 py-4 text-left hover:bg-[var(--bg-tertiary)]/20 transition-colors"
+            >
+              <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                <div className="min-w-0 flex-1">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="text-sm font-semibold text-[var(--text-primary)]">Turn #{turnSeq}</span>
+                    {highlighted && (
+                      <span className="inline-flex items-center rounded-full bg-[var(--accent)]/15 px-2 py-0.5 text-[10px] font-medium text-[var(--accent)]">
+                        当前定位
+                      </span>
+                    )}
+                    <span className={cn('inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium', status.className)}>
+                      {status.label}
+                    </span>
+                  </div>
+                  <p className="mt-2 text-sm text-[var(--text-primary)] break-words">
+                    {getTurnUserPreview(chatTurn)}
+                  </p>
+                  <div className="mt-2 flex flex-wrap gap-2 text-[11px] text-[var(--text-secondary)]">
+                    {chatTurn?.startTime && (
+                      <span className="rounded-full bg-[var(--bg-tertiary)] px-2 py-0.5">{formatTime(chatTurn.startTime)}</span>
+                    )}
+                    <span className="rounded-full bg-[var(--bg-tertiary)] px-2 py-0.5">{summary.llm_calls} 次 LLM 调用</span>
+                    <span className="rounded-full bg-[var(--bg-tertiary)] px-2 py-0.5">{iterations.length || detailRecords.length} 条调用条目</span>
+                    {chatTurn && chatTurn.toolCalls.length > 0 && (
+                      <span className="rounded-full bg-[var(--bg-tertiary)] px-2 py-0.5">{chatTurn.toolCalls.length} 个工具调用</span>
+                    )}
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-2 lg:min-w-[250px]">
+                  <div className="rounded-lg border border-[var(--border)] bg-[var(--bg-primary)] px-3 py-2">
+                    <div className="text-[10px] text-[var(--text-secondary)]">Total</div>
+                    <div className="text-sm font-semibold text-[var(--accent)]">{formatTokens(summary.total_tokens)}</div>
+                  </div>
+                  <div className="rounded-lg border border-[var(--border)] bg-[var(--bg-primary)] px-3 py-2">
+                    <div className="text-[10px] text-[var(--text-secondary)]">Models</div>
+                    <div className="text-sm font-semibold text-[var(--text-primary)] truncate" title={summary.models}>
+                      {summary.models || '—'}
+                    </div>
+                  </div>
+                  <div className="rounded-lg border border-[var(--border)] bg-[var(--bg-primary)] px-3 py-2">
+                    <div className="text-[10px] text-[var(--text-secondary)]">Prompt</div>
+                    <div className="text-sm font-semibold text-cyan-400">{formatTokens(summary.prompt_tokens)}</div>
+                  </div>
+                  <div className="rounded-lg border border-[var(--border)] bg-[var(--bg-primary)] px-3 py-2">
+                    <div className="text-[10px] text-[var(--text-secondary)]">Completion</div>
+                    <div className="text-sm font-semibold text-emerald-400">{formatTokens(summary.completion_tokens)}</div>
+                  </div>
+                </div>
+              </div>
+            </button>
+
+            {expanded && (
+              <div className="border-t border-[var(--border)] bg-[var(--bg-tertiary)]/15 px-4 py-4 space-y-4">
+                <div className="text-[11px] text-[var(--text-secondary)]">
+                  Session: <span className="font-mono text-[var(--text-primary)] break-all">{sessionKey}</span>
+                </div>
+
+                {userMessage && (
+                  <div>
+                    <p className="text-[var(--text-secondary)] mb-1 text-xs">用户输入</p>
+                    <CopyablePre className="bg-[var(--bg-primary)] rounded-lg p-3 text-xs whitespace-pre-wrap break-all max-h-40 overflow-y-auto">
+                      {userMessage}
+                    </CopyablePre>
+                  </div>
+                )}
+
+                {finalAssistantText && (
+                  <div>
+                    <p className="text-[var(--text-secondary)] mb-1 text-xs">最终回复</p>
+                    <CopyablePre className="bg-[var(--bg-primary)] rounded-lg p-3 text-xs whitespace-pre-wrap break-all max-h-48 overflow-y-auto">
+                      {finalAssistantText}
+                    </CopyablePre>
+                  </div>
+                )}
+
+                <div>
+                  <div className="flex items-center justify-between mb-2">
+                    <p className="text-[var(--text-secondary)] text-xs">调用条目</p>
+                    <span className="text-[10px] text-[var(--text-secondary)]">{detailRecords.length || iterations.length} 条</span>
+                  </div>
+                  {loadingTurnRecords[turnSeq] ? (
+                    <div className="rounded-lg border border-[var(--border)] bg-[var(--bg-primary)] px-3 py-4 text-xs text-[var(--text-secondary)]">
+                      加载调用详情中...
+                    </div>
+                  ) : detailRecords.length > 0 ? (
+                    <div className="space-y-3">
+                      {detailRecords.map((record, index) => (
+                        <TurnCallEntry key={`${turnSeq}-${record.iteration}-${index}`} record={record} />
+                      ))}
+                    </div>
+                  ) : iterations.length > 0 ? (
+                    <div className="space-y-2">
+                      {iterations.map((iteration) => (
+                        <TurnIterationFallback key={`${turnSeq}-${iteration.iteration}`} iteration={iteration} />
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="rounded-lg border border-[var(--border)] bg-[var(--bg-primary)] px-3 py-4 text-xs text-[var(--text-secondary)]">
+                      暂无调用详情
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function TurnCallEntry({ record }: { record: TokenRecord }) {
+  const [expanded, setExpanded] = useState(record.iteration === 0);
+  const label =
+    record.tool_names ||
+    (record.finish_reason === 'end_turn' || record.finish_reason === 'stop' ? 'end' : record.finish_reason || '—');
+
+  return (
+    <div className="rounded-xl border border-[var(--border)] bg-[var(--bg-primary)] overflow-hidden">
+      <button
+        onClick={() => setExpanded((prev) => !prev)}
+        className="w-full px-3 py-3 text-left hover:bg-[var(--bg-tertiary)]/20 transition-colors"
+      >
+        <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+          <div className="flex flex-wrap items-center gap-2 min-w-0">
+            <span className="rounded-full bg-[var(--bg-tertiary)] px-2 py-0.5 text-[10px] font-medium text-[var(--text-secondary)]">
+              iteration {record.iteration}
+            </span>
+            <ModelRoleIcon role={record.model_role || 'default'} />
+            <span className="font-mono text-xs text-[var(--text-primary)] truncate" title={record.model}>
+              {shortModel(record.model)}
+            </span>
+            <span className="rounded-full bg-amber-500/15 px-2 py-0.5 text-[10px] font-medium text-amber-400" title={label}>
+              {label}
+            </span>
+          </div>
+          <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-[11px] text-[var(--text-secondary)] md:flex md:items-center md:gap-4">
+            <span>P {formatTokens(record.prompt_tokens)}</span>
+            <span>C {formatTokens(record.completion_tokens)}</span>
+            <span>Total {formatTokens(record.total_tokens)}</span>
+            <span>{formatTime(record.timestamp)}</span>
+          </div>
+        </div>
+      </button>
+
+      {expanded && (
+        <div className="border-t border-[var(--border)] px-3 py-3 space-y-3">
+          <div className="flex flex-wrap gap-3 text-[11px] text-[var(--text-secondary)]">
+            <span>{formatCacheStatus(record.cached_tokens || 0, record.cache_creation_tokens || 0)}</span>
+            {record.cost_usd > 0 && <span className="text-amber-400">${record.cost_usd.toFixed(4)}</span>}
+          </div>
+
+          {record.output_content && (
+            <div>
+              <p className="text-[var(--text-secondary)] mb-1 text-xs">模型输出</p>
+              <CopyablePre className="bg-[var(--bg-secondary)] rounded-lg p-3 text-xs whitespace-pre-wrap break-all max-h-40 overflow-y-auto">
+                {record.output_content}
+              </CopyablePre>
+            </div>
+          )}
+
+          <div>
+            <p className="text-[var(--text-secondary)] mb-1 text-xs">系统提示词</p>
+            {record.system_prompt_preview ? (
+              <CopyablePre className="bg-[var(--bg-secondary)] rounded-lg p-3 text-xs whitespace-pre-wrap break-all max-h-32 overflow-y-auto text-[var(--text-secondary)]">
+                {record.system_prompt_preview}
+              </CopyablePre>
+            ) : (
+              <p className="text-xs text-[var(--text-tertiary)] italic">（与上一条相同，已省略）</p>
+            )}
+          </div>
+
+          {record.conversation_history && (
+            <div>
+              <p className="text-[var(--text-secondary)] mb-1 text-xs">对话历史</p>
+              <div className="bg-[var(--bg-secondary)] rounded-lg p-3">
+                <ConversationHistoryView historyJson={record.conversation_history} />
+              </div>
+            </div>
+          )}
+
+          {record.full_request_payload && (
+            <div>
+              <p className="text-[var(--text-secondary)] mb-1 text-xs">完整 API 请求</p>
+              <CopyablePre className="bg-[var(--bg-secondary)] rounded-lg p-3 text-xs whitespace-pre-wrap break-all max-h-64 overflow-y-auto text-[var(--text-secondary)]">
+                {(() => {
+                  try {
+                    return JSON.stringify(JSON.parse(record.full_request_payload), null, 2);
+                  } catch {
+                    return record.full_request_payload;
+                  }
+                })()}
+              </CopyablePre>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function TurnIterationFallback({ iteration }: { iteration: TurnIterationRecord }) {
+  const label =
+    iteration.tool_names ||
+    (iteration.finish_reason === 'end_turn' || iteration.finish_reason === 'stop'
+      ? 'end'
+      : iteration.finish_reason || '—');
+
+  return (
+    <div className="rounded-xl border border-[var(--border)] bg-[var(--bg-primary)] px-3 py-3">
+      <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="rounded-full bg-[var(--bg-tertiary)] px-2 py-0.5 text-[10px] font-medium text-[var(--text-secondary)]">
+            iteration {iteration.iteration}
+          </span>
+          <ModelRoleIcon role={iteration.model_role || 'default'} />
+          <span className="font-mono text-xs text-[var(--text-primary)]">{shortModel(iteration.model)}</span>
+          <span className="rounded-full bg-amber-500/15 px-2 py-0.5 text-[10px] font-medium text-amber-400" title={label}>
+            {label}
+          </span>
+        </div>
+        <div className="flex flex-wrap gap-3 text-[11px] text-[var(--text-secondary)]">
+          <span>P {formatTokens(iteration.prompt_tokens)}</span>
+          <span>C {formatTokens(iteration.completion_tokens)}</span>
+          <span>Total {formatTokens(iteration.total_tokens)}</span>
+        </div>
+      </div>
+    </div>
   );
 }
 

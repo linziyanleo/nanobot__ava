@@ -4,7 +4,7 @@ import { useAuth } from '../../stores/auth'
 import { useResponsiveMode } from '../../hooks/useResponsiveMode'
 import type { SceneType, SessionMeta, RawMessage, TurnGroup } from './types'
 import { SCENE_ORDER } from './types'
-import { groupTurns } from './utils'
+import { getNextTurnSeq, groupTurns } from './utils'
 import { SceneTabs } from './SceneTabs'
 import { SessionSidebar } from './SessionSidebar'
 import { MessageArea } from './MessageArea'
@@ -123,6 +123,7 @@ export default function ChatPage() {
           timestamp: data.timestamp,
         }
         setTurns((prev) => [...prev, {
+          turnSeq: getNextTurnSeq(prev),
           userMessage: pendingMsg,
           assistantSteps: [],
           isComplete: false,
@@ -349,6 +350,7 @@ export default function ChatPage() {
       timestamp: new Date().toISOString(),
     }
     setTurns((prev) => [...prev, {
+      turnSeq: getNextTurnSeq(prev),
       userMessage: userMsg,
       assistantSteps: [],
       isComplete: false,

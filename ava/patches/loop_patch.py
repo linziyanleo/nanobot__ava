@@ -350,6 +350,7 @@ def apply_loop_patch() -> str:
 
         sk = getattr(self, "_current_session_key", "") or ""
         user_msg = getattr(self, "_current_user_message", "") or ""
+        turn_seq = getattr(self, "_current_turn_seq", None)
 
         # === 实时广播 + Phase 0 预记录（LLM 调用前，slash command 已过）===
         self._phase0_record_id = None
@@ -380,6 +381,7 @@ def apply_loop_patch() -> str:
                     provider=provider_name,
                     usage={"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
                     session_key=sk,
+                    turn_seq=turn_seq,
                     user_message=user_msg[:1000],
                     system_prompt=getattr(self, "_last_system_prompt", ""),
                     conversation_history=conv_history,
@@ -486,6 +488,7 @@ def apply_loop_patch() -> str:
                     provider=provider_name,
                     usage=usage_data,
                     session_key=sk_inner,
+                    turn_seq=turn_seq,
                     user_message="",
                     output_content="",
                     system_prompt=system_prompt_to_store,
@@ -586,8 +589,21 @@ def apply_loop_patch() -> str:
         sk = session_key or getattr(msg, "session_key", "")
         self._current_session_key = sk
         self._current_user_message = getattr(msg, "content", "") or ""
+        self._current_turn_seq = None
         self._turn_record_ids = []
         self._turn_iteration = 0
+
+        if sk:
+            try:
+                session = self.sessions.get_or_create(sk)
+                existing_messages = getattr(session, "messages", []) or []
+                self._current_turn_seq = sum(
+                    1
+                    for item in existing_messages
+                    if isinstance(item, dict) and item.get("role") == "user"
+                )
+            except Exception:
+                self._current_turn_seq = None
 
         bg_store = getattr(self, "bg_tasks", None)
         if bg_store and hasattr(bg_store, "reset_continuation_budget") and sk:
@@ -630,6 +646,10 @@ def apply_loop_patch() -> str:
                         token_stats._db.commit()
                     except Exception:
                         pass
+            self._current_turn_seq = None
+            self._turn_record_ids = []
+            self._turn_iteration = 0
+            self._phase0_record_id = None
             raise
 
         # Backfill user_message, output_content on DB records
@@ -673,6 +693,7 @@ def apply_loop_patch() -> str:
         self._turn_record_ids = []
         self._turn_iteration = 0
         self._phase0_record_id = None
+        self._current_turn_seq = None
 
         return result
 

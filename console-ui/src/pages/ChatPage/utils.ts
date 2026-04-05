@@ -68,6 +68,7 @@ export function parseJsonl(content: string, filename: string): { meta: SessionMe
 export function groupTurns(messages: RawMessage[]): TurnGroup[] {
   const turns: TurnGroup[] = []
   let current: TurnGroup | null = null
+  let nextTurnSeq = 0
 
   for (const msg of messages) {
     if (msg.role === 'user') {
@@ -76,16 +77,19 @@ export function groupTurns(messages: RawMessage[]): TurnGroup[] {
         turns.push(current)
       }
       current = {
+        turnSeq: nextTurnSeq,
         userMessage: msg,
         assistantSteps: [],
         isComplete: false,
         startTime: msg.timestamp,
         toolCalls: [],
       }
+      nextTurnSeq += 1
     } else if (!current) {
       // Orphan assistant/tool message without a preceding user message.
       // Create a turn with a synthetic user placeholder so it still renders.
       current = {
+        turnSeq: null,
         userMessage: { role: 'user', content: null, timestamp: msg.timestamp },
         assistantSteps: [],
         isComplete: false,
@@ -125,6 +129,16 @@ export function groupTurns(messages: RawMessage[]): TurnGroup[] {
   }
 
   return turns
+}
+
+export function getNextTurnSeq(turns: TurnGroup[]): number {
+  for (let i = turns.length - 1; i >= 0; i -= 1) {
+    const turnSeq = turns[i]?.turnSeq
+    if (typeof turnSeq === 'number') {
+      return turnSeq + 1
+    }
+  }
+  return 0
 }
 
 function checkTurnComplete(turn: TurnGroup): boolean {

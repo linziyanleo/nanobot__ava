@@ -178,6 +178,21 @@ class TokenStatsCollector:
         self._db.execute(f"UPDATE token_usage SET {set_clause} WHERE id = ?", params)
         self._db.commit()
 
+    def _ensure_turn_seq(self, session_key: str | None) -> None:
+        if not self._use_db or not session_key:
+            return
+
+        row = self._db.fetchone(
+            "SELECT 1 as needs_backfill FROM token_usage WHERE session_key = ? AND turn_seq IS NULL LIMIT 1",
+            (session_key,),
+        )
+        if not row:
+            return
+
+        backfill = getattr(self._db, "backfill_turn_seq", None)
+        if callable(backfill):
+            backfill(session_key=session_key)
+
     def _build_filter(
         self,
         session_key: str | None = None,
@@ -240,6 +255,7 @@ class TokenStatsCollector:
         model_role: str | None = None,
     ) -> list[dict[str, Any]]:
         if self._use_db:
+            self._ensure_turn_seq(session_key)
             where, params = self._build_filter(session_key, model, provider, start_time, end_time, turn_seq, model_role)
             rows = self._db.fetchall(
                 f"SELECT * FROM token_usage{where} ORDER BY timestamp DESC LIMIT ? OFFSET ?",
@@ -284,6 +300,7 @@ class TokenStatsCollector:
         model_role: str | None = None,
     ) -> int:
         if self._use_db:
+            self._ensure_turn_seq(session_key)
             where, params = self._build_filter(session_key, model, provider, start_time, end_time, turn_seq, model_role)
             row = self._db.fetchone(f"SELECT COUNT(*) as cnt FROM token_usage{where}", tuple(params))
             return row["cnt"] if row else 0
@@ -429,6 +446,7 @@ class TokenStatsCollector:
     def get_by_session(self, session_key: str) -> list[dict[str, Any]]:
         """Per-turn token aggregation for a given session."""
         if self._use_db:
+            self._ensure_turn_seq(session_key)
             rows = self._db.fetchall(
                 """SELECT turn_seq,
                           SUM(prompt_tokens) as prompt_tokens,
@@ -466,6 +484,7 @@ class TokenStatsCollector:
     def get_by_session_detailed(self, session_key: str) -> list[dict[str, Any]]:
         """Per-iteration token records for a given session (no aggregation)."""
         if self._use_db:
+            self._ensure_turn_seq(session_key)
             rows = self._db.fetchall(
                 """SELECT turn_seq, iteration,
                           prompt_tokens, completion_tokens, total_tokens,

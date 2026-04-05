@@ -121,23 +121,33 @@ class Database:
 
         return counts
 
-    def backfill_turn_seq(self) -> int:
+    def backfill_turn_seq(self, session_key: str | None = None) -> int:
         """Infer turn_seq for token_usage records that have NULL turn_seq.
 
         Uses session_messages timestamps to determine which user-turn each
-        LLM call belongs to.
+        LLM call belongs to. When session_key is provided, only backfill the
+        matching session.
         """
         conn = self._get_conn()
 
-        null_count = conn.execute(
-            "SELECT COUNT(*) FROM token_usage WHERE turn_seq IS NULL AND session_key != ''"
-        ).fetchone()[0]
+        if session_key:
+            null_count = conn.execute(
+                "SELECT COUNT(*) FROM token_usage WHERE turn_seq IS NULL AND session_key = ?",
+                (session_key,),
+            ).fetchone()[0]
+        else:
+            null_count = conn.execute(
+                "SELECT COUNT(*) FROM token_usage WHERE turn_seq IS NULL AND session_key != ''"
+            ).fetchone()[0]
         if not null_count:
             return 0
 
-        sessions = conn.execute(
-            "SELECT DISTINCT session_key FROM token_usage WHERE turn_seq IS NULL AND session_key != ''"
-        ).fetchall()
+        if session_key:
+            sessions = [(session_key,)]
+        else:
+            sessions = conn.execute(
+                "SELECT DISTINCT session_key FROM token_usage WHERE turn_seq IS NULL AND session_key != ''"
+            ).fetchall()
 
         total_updated = 0
         for (session_key,) in sessions:

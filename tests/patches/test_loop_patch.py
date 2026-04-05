@@ -139,3 +139,115 @@ class TestTokenStatsRecordId:
         collector.update_record(rid, unknown_field="bad", prompt_tokens=50)
         records = collector.get_records(limit=1)
         assert records[0]["prompt_tokens"] == 50
+
+    def test_session_query_backfills_turn_seq_before_filtering(self, tmp_path):
+        from ava.storage import Database
+        db = Database(tmp_path / "test.db")
+        from ava.console.services.token_stats_service import TokenStatsCollector
+        collector = TokenStatsCollector(data_dir=tmp_path, db=db)
+
+        conn = db._get_conn()
+        conn.execute(
+            """INSERT INTO sessions (key, created_at, updated_at, metadata, token_stats)
+               VALUES (?, ?, ?, ?, ?)""",
+            (
+                "telegram:1",
+                "2026-04-05T20:00:00",
+                "2026-04-05T20:02:00",
+                "{}",
+                "{}",
+            ),
+        )
+        session_row = conn.execute("SELECT id FROM sessions WHERE key = ?", ("telegram:1",)).fetchone()
+        assert session_row is not None
+
+        conn.execute(
+            """INSERT INTO session_messages
+               (session_id, seq, role, content, tool_calls, tool_call_id, name, reasoning_content, timestamp)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (session_row["id"], 0, "user", "first", None, None, None, None, "2026-04-05T20:00:00"),
+        )
+        conn.execute(
+            """INSERT INTO session_messages
+               (session_id, seq, role, content, tool_calls, tool_call_id, name, reasoning_content, timestamp)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (session_row["id"], 1, "assistant", "reply-1", None, None, None, None, "2026-04-05T20:00:10"),
+        )
+        conn.execute(
+            """INSERT INTO session_messages
+               (session_id, seq, role, content, tool_calls, tool_call_id, name, reasoning_content, timestamp)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (session_row["id"], 2, "user", "second", None, None, None, None, "2026-04-05T20:01:00"),
+        )
+        conn.execute(
+            """INSERT INTO token_usage
+               (timestamp, model, provider, prompt_tokens, completion_tokens, total_tokens,
+                session_key, turn_seq, iteration, user_message, output_content,
+                system_prompt_preview, conversation_history, full_request_payload, finish_reason,
+                model_role, cached_tokens, cache_creation_tokens, cost_usd, current_turn_tokens,
+                tool_names)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (
+                "2026-04-05T20:00:05",
+                "model-a",
+                "provider-a",
+                10,
+                5,
+                15,
+                "telegram:1",
+                None,
+                0,
+                "",
+                "",
+                "",
+                "",
+                "",
+                "stop",
+                "chat",
+                0,
+                0,
+                0.0,
+                0,
+                "",
+            ),
+        )
+        conn.execute(
+            """INSERT INTO token_usage
+               (timestamp, model, provider, prompt_tokens, completion_tokens, total_tokens,
+                session_key, turn_seq, iteration, user_message, output_content,
+                system_prompt_preview, conversation_history, full_request_payload, finish_reason,
+                model_role, cached_tokens, cache_creation_tokens, cost_usd, current_turn_tokens,
+                tool_names)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (
+                "2026-04-05T20:01:05",
+                "model-b",
+                "provider-b",
+                20,
+                7,
+                27,
+                "telegram:1",
+                None,
+                0,
+                "",
+                "",
+                "",
+                "",
+                "",
+                "stop",
+                "chat",
+                0,
+                0,
+                0.0,
+                0,
+                "",
+            ),
+        )
+        conn.commit()
+
+        per_turn = collector.get_by_session("telegram:1")
+        assert [row["turn_seq"] for row in per_turn] == [0, 1]
+
+        filtered = collector.get_records(limit=10, session_key="telegram:1", turn_seq=1)
+        assert len(filtered) == 1
+        assert filtered[0]["model"] == "model-b"
