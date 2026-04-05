@@ -1,8 +1,8 @@
 import { useState, useMemo, useEffect } from 'react'
 import { ChevronDown, ChevronRight, Wrench, Loader2, Image, Eye, Mic, Globe } from 'lucide-react'
 import { cn } from '../../lib/utils'
-import type { ToolCallWithResult } from './types'
-import { getContentText, imageUrl, extractImagePaths } from './utils'
+import type { ToolCallWithResult, TurnTokenStats } from './types'
+import { getContentText, imageUrl, extractImagePaths, formatTokenCount } from './utils'
 import { ImageCarousel } from './ImageCarousel'
 import { api } from '../../api/client'
 
@@ -20,6 +20,7 @@ interface MediaResponse {
 interface ToolCallBlockProps {
   tc: ToolCallWithResult
   isLoading: boolean
+  tokenStats?: TurnTokenStats
 }
 
 const MEDIA_TOOLS: Record<string, { icon: typeof Image; label: string; color: string }> = {
@@ -92,7 +93,7 @@ function parsePageAgentResult(text: string): PageAgentResult | null {
   }
 }
 
-export function ToolCallBlock({ tc, isLoading }: ToolCallBlockProps) {
+export function ToolCallBlock({ tc, isLoading, tokenStats }: ToolCallBlockProps) {
   const [expanded, setExpanded] = useState(false)
 
   const fnName = tc.call.function.name
@@ -190,6 +191,11 @@ export function ToolCallBlock({ tc, isLoading }: ToolCallBlockProps) {
           )}
           {!expanded && prompt && (
             <span className="text-[var(--text-secondary)] truncate ml-2">— {prompt.slice(0, 60)}{prompt.length > 60 ? '...' : ''}</span>
+          )}
+          {tokenStats && (
+            <span className="text-[10px] text-[var(--text-secondary)] font-mono px-1.5 py-0.5 rounded bg-[var(--bg-tertiary)] ml-auto shrink-0">
+              ⚡ {formatTokenCount(tokenStats.total_tokens)}
+            </span>
           )}
         </button>
 
@@ -324,6 +330,11 @@ export function ToolCallBlock({ tc, isLoading }: ToolCallBlockProps) {
           {!expanded && instruction && !isLoading && (
             <span className="text-[var(--text-secondary)] truncate ml-2">— {instruction.slice(0, 60)}{instruction.length > 60 ? '...' : ''}</span>
           )}
+          {tokenStats && (
+            <span className="text-[10px] text-[var(--text-secondary)] font-mono px-1.5 py-0.5 rounded bg-[var(--bg-tertiary)] ml-auto shrink-0">
+              ⚡ {formatTokenCount(tokenStats.total_tokens)}
+            </span>
+          )}
         </button>
 
         {expanded && (
@@ -441,6 +452,11 @@ export function ToolCallBlock({ tc, isLoading }: ToolCallBlockProps) {
           {displayPrompt && !expanded && (
             <span className="text-[var(--text-secondary)] truncate ml-1">— {displayPrompt.slice(0, 60)}{displayPrompt.length > 60 ? '...' : ''}</span>
           )}
+          {tokenStats && (
+            <span className="text-[10px] text-[var(--text-secondary)] font-mono px-1.5 py-0.5 rounded bg-[var(--bg-tertiary)] ml-auto shrink-0">
+              ⚡ {formatTokenCount(tokenStats.total_tokens)}
+            </span>
+          )}
         </button>
 
         {expanded && (
@@ -488,7 +504,7 @@ export function ToolCallBlock({ tc, isLoading }: ToolCallBlockProps) {
     <div className="my-1 rounded-lg border border-[var(--border)] bg-[var(--bg-primary)]/50 text-xs">
       <button
         onClick={() => setExpanded(!expanded)}
-        className="flex items-center gap-1.5 w-full px-3 py-1.5 text-left hover:bg-[var(--bg-tertiary)]/30 rounded-lg transition-colors"
+        className="flex items-center gap-1.5 w-full px-3 py-2 text-left hover:bg-[var(--bg-tertiary)]/30 rounded-lg transition-colors"
       >
         {isLoading ? (
           <Loader2 className="w-3 h-3 shrink-0 text-[var(--warning)] animate-spin" />
@@ -502,10 +518,15 @@ export function ToolCallBlock({ tc, isLoading }: ToolCallBlockProps) {
         {!expanded && resultPreview && (
           <span className="text-[var(--text-secondary)] truncate ml-2">{resultPreview}</span>
         )}
+        {tokenStats && (
+          <span className="text-[10px] text-[var(--text-secondary)] font-mono px-1.5 py-0.5 rounded bg-[var(--bg-tertiary)] ml-auto shrink-0">
+            ⚡ {formatTokenCount(tokenStats.total_tokens)}
+          </span>
+        )}
       </button>
 
       {expanded && (
-        <div className="px-3 pb-2 space-y-2">
+        <div className="p-3 space-y-2">
           <div>
             <div className="text-[var(--text-secondary)] mb-0.5 font-medium">Arguments</div>
             <pre className="bg-[var(--bg-tertiary)] rounded p-2 overflow-x-auto whitespace-pre-wrap text-[var(--text-primary)] max-h-48 overflow-y-auto">

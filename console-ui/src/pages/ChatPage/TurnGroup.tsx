@@ -84,6 +84,7 @@ export function TurnGroupComponent({ turn, index, tokenStats, sessionKey }: Turn
               key={tc.call.id || i}
               tc={tc}
               isLoading={!turn.isComplete && !tc.result}
+              tokenStats={tokenStats}
             />
           ))}
         </div>

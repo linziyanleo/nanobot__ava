@@ -3,6 +3,7 @@ import React, { useState, useRef, useEffect, useMemo, Suspense } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { oneDark } from 'react-syntax-highlighter/dist/esm/styles/prism';
+import { useNavigate } from 'react-router-dom';
 import { cn } from '../../lib/utils';
 import { useResponsiveMode } from '../../hooks/useResponsiveMode';
 import type { RawMessage, TurnTokenStats } from './types';
@@ -159,6 +160,7 @@ export const MessageBubble = React.memo(function MessageBubble({ message, isUser
   const popoverRef = useRef<HTMLDivElement>(null);
   const mobilePopoverRef = useRef<HTMLDivElement>(null);
   const { isMobile } = useResponsiveMode();
+  const navigate = useNavigate();
   const text = getContentText(message.content);
   const reasoning = message.reasoning_content;
   useEffect(() => {
@@ -188,7 +190,8 @@ export const MessageBubble = React.memo(function MessageBubble({ message, isUser
 
   return (
     <div className={cn('flex group', isUser ? 'justify-end' : 'justify-start')}>
-      <div className="relative max-w-[80%] min-w-0">
+      <div className={cn('flex items-stretch', isUser ? 'max-w-[80%]' : 'max-w-[85%]')}>
+      <div className="relative max-w-full min-w-0 flex-1">
         {/* Reasoning content (collapsible, shown above the main bubble for assistant) */}
         {!isUser && reasoning && (
           <div
@@ -300,6 +303,17 @@ export const MessageBubble = React.memo(function MessageBubble({ message, isUser
             )}
           </div>
         )}
+      </div>
+      {/* Right-side token label (desktop only) */}
+      {!isUser && !isMobile && tokenStats && (
+        <button
+          onClick={() => navigate(`/tokens?session_key=${sessionKey}&turn_seq=${tokenStats.turn_seq}`)}
+          className="text-[10px] font-mono text-[var(--text-secondary)] whitespace-nowrap ml-2 self-center hover:text-[var(--accent)] transition-colors"
+          title="查看 Token 统计"
+        >
+          ⚡ {formatTokenCount(tokenStats.total_tokens)}
+        </button>
+      )}
       </div>
     </div>
   );

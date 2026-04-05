@@ -132,13 +132,14 @@ export function MessageArea({ session, turns, loading, isConsole, streaming, thi
               {keyCopied ? <Check className="w-3 h-3 text-[var(--success)]" /> : <Copy className="w-3 h-3" />}
             </button>
           </h3>
-          <p className="text-[10px] text-[var(--text-secondary)]">
-            {SCENE_LABELS[session.scene]}
-            {' · '}
-            {formatTokenCount(session.token_stats.total_tokens)} tokens
-            {' · '}
-            {session.token_stats.llm_calls} LLM calls
-          </p>
+          <div className="flex items-center gap-2 mt-0.5">
+            <span className="text-[10px] text-[var(--text-secondary)]">
+              {SCENE_LABELS[session.scene]}
+            </span>
+            <span className="text-xs text-[var(--text-secondary)] px-1.5 py-0.5 rounded bg-[var(--bg-tertiary)]">
+              ⚡ {formatTokenCount(session.token_stats.total_tokens)} tokens · {session.token_stats.llm_calls} calls
+            </span>
+          </div>
         </div>
         <div className="flex items-center gap-1.5">
           {!isConsole && (

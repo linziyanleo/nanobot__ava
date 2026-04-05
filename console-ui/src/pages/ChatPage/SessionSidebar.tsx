@@ -4,6 +4,18 @@ import { cn } from '../../lib/utils'
 import type { SessionMeta } from './types'
 import { formatTokenCount } from './utils'
 
+function relativeTime(dateStr: string): string {
+  const now = Date.now()
+  const then = new Date(dateStr).getTime()
+  const diff = now - then
+  if (diff < 60_000) return '刚刚'
+  if (diff < 3_600_000) return `${Math.floor(diff / 60_000)}分钟前`
+  if (diff < 86_400_000) return `${Math.floor(diff / 3_600_000)}小时前`
+  if (diff < 172_800_000) return '昨天'
+  const d = new Date(dateStr)
+  return `${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+}
+
 interface SessionSidebarProps {
   sessions: SessionMeta[]
   activeSession: string
@@ -88,6 +100,9 @@ export function SessionSidebar({
               ) : (
                 <div className="truncate">
                   <div className="truncate text-sm">{s.key}</div>
+                  <div className="text-[10px] text-[var(--text-secondary)] opacity-70">
+                    {s.message_count} msgs · {s.updated_at ? relativeTime(s.updated_at) : ''}
+                  </div>
                   <div className="text-[10px] text-[var(--text-secondary)] opacity-70">
                     {formatTokenCount(s.token_stats.total_tokens)} tokens · {s.token_stats.llm_calls} calls
                   </div>
