@@ -41,6 +41,7 @@ interface TokenRecord {
   completion_tokens: number;
   total_tokens: number;
   session_key: string;
+  conversation_id: string;
   turn_seq: number | null;
   iteration: number;
   user_message: string;
@@ -84,6 +85,7 @@ interface RecordsResponse {
 }
 
 interface TurnSummaryRecord {
+  conversation_id: string;
   turn_seq: number | null;
   prompt_tokens: number;
   completion_tokens: number;
@@ -93,6 +95,7 @@ interface TurnSummaryRecord {
 }
 
 interface TurnIterationRecord {
+  conversation_id: string;
   turn_seq: number | null;
   iteration: number;
   prompt_tokens: number;
@@ -287,6 +290,7 @@ const MODEL_ROLE_FILTER_OPTIONS: { value: ModelRoleFilter; label: string; icon: 
 
 function buildFilterStr(
   sk: string,
+  conversationId: string,
   model: string,
   provider: string,
   turnSeq: string,
@@ -297,6 +301,7 @@ function buildFilterStr(
 ): string {
   const params = new URLSearchParams();
   if (sk) params.set('session_key', sk);
+  if (conversationId) params.set('conversation_id', conversationId);
   if (model) params.set('model', model);
   if (provider) params.set('provider', provider);
   if (turnSeq) params.set('turn_seq', turnSeq);
@@ -316,6 +321,7 @@ export default function TokenStatsPage() {
   const { isMobile } = useResponsiveMode();
   const [searchParams, setSearchParams] = useSearchParams();
   const appliedSessionKey = searchParams.get('session_key') || '';
+  const appliedConversationId = searchParams.get('conversation_id') || '';
   const appliedTurnSeq = parseTurnSeq(searchParams.get('turn_seq'));
   const isSessionMode = Boolean(appliedSessionKey);
   const [view, setView] = useState<TokenStatsView>(() => (searchParams.get('session_key') ? 'turns' : 'records'));
@@ -337,6 +343,7 @@ export default function TokenStatsPage() {
   const pageSize = 50;
 
   const [filterSessionKey, setFilterSessionKey] = useState(searchParams.get('session_key') || '');
+  const [filterConversationId, setFilterConversationId] = useState(searchParams.get('conversation_id') || '');
   const [filterModel, setFilterModel] = useState(searchParams.get('model') || '');
   const [filterProvider, setFilterProvider] = useState(searchParams.get('provider') || '');
   const [filterTurnSeq, setFilterTurnSeq] = useState(searchParams.get('turn_seq') || '');
@@ -344,10 +351,11 @@ export default function TokenStatsPage() {
   const [timePreset, setTimePreset] = useState<TimePreset>('all');
   const [customStart, setCustomStart] = useState('');
   const [customEnd, setCustomEnd] = useState('');
-  const sessionDebugKeyRef = useRef(appliedSessionKey);
+  const sessionDebugScopeRef = useRef(`${appliedSessionKey}::${appliedConversationId}`);
 
   const filtersRef = useRef({
     filterSessionKey,
+    filterConversationId,
     filterModel,
     filterProvider,
     filterTurnSeq,
@@ -357,11 +365,12 @@ export default function TokenStatsPage() {
     customEnd,
   });
   useEffect(() => {
-    sessionDebugKeyRef.current = appliedSessionKey;
-  }, [appliedSessionKey]);
+    sessionDebugScopeRef.current = `${appliedSessionKey}::${appliedConversationId}`;
+  }, [appliedConversationId, appliedSessionKey]);
   useEffect(() => {
     filtersRef.current = {
       filterSessionKey,
+      filterConversationId,
       filterModel,
       filterProvider,
       filterTurnSeq,
@@ -372,6 +381,7 @@ export default function TokenStatsPage() {
     };
   }, [
     filterSessionKey,
+    filterConversationId,
     filterModel,
     filterProvider,
     filterTurnSeq,
@@ -396,6 +406,7 @@ export default function TokenStatsPage() {
       const f = filtersRef.current;
       const filterStr = buildFilterStr(
         f.filterSessionKey,
+        f.filterConversationId,
         f.filterModel,
         f.filterProvider,
         f.filterTurnSeq,
@@ -417,15 +428,16 @@ export default function TokenStatsPage() {
     setLoading(false);
   }, []);
 
-  const loadSessionDebugData = useCallback(async (sessionKey: string) => {
+  const loadSessionDebugData = useCallback(async (sessionKey: string, conversationId: string = '') => {
     setLoadingSessionTurns(true);
+    const convFilter = conversationId ? `&conversation_id=${encodeURIComponent(conversationId)}` : '';
     const [turnSummaryResult, turnIterationResult, sessionMessagesResult] = await Promise.allSettled([
-      api<TurnSummaryRecord[]>(`/stats/tokens/by-session?session_key=${encodeURIComponent(sessionKey)}`),
-      api<TurnIterationRecord[]>(`/stats/tokens/by-session/detailed?session_key=${encodeURIComponent(sessionKey)}`),
+      api<TurnSummaryRecord[]>(`/stats/tokens/by-session?session_key=${encodeURIComponent(sessionKey)}${convFilter}`),
+      api<TurnIterationRecord[]>(`/stats/tokens/by-session/detailed?session_key=${encodeURIComponent(sessionKey)}${convFilter}`),
       api(`/chat/messages?session_key=${encodeURIComponent(sessionKey)}`),
     ]);
 
-    if (sessionDebugKeyRef.current !== sessionKey) {
+    if (sessionDebugScopeRef.current !== `${sessionKey}::${conversationId}`) {
       return;
     }
 
@@ -438,24 +450,25 @@ export default function TokenStatsPage() {
   }, []);
 
   const ensureTurnRecords = useCallback(
-    async (sessionKey: string, turnSeq: number, force: boolean = false) => {
+    async (sessionKey: string, turnSeq: number, force: boolean = false, conversationId: string = '') => {
       if (!force && (turnRecordsBySeq[turnSeq] || loadingTurnRecords[turnSeq])) return;
 
       setLoadingTurnRecords((prev) => ({ ...prev, [turnSeq]: true }));
       try {
+        const convFilter = conversationId ? `&conversation_id=${encodeURIComponent(conversationId)}` : '';
         const result = await api<RecordsResponse>(
-          `/stats/tokens/records?session_key=${encodeURIComponent(sessionKey)}&turn_seq=${turnSeq}&limit=200`,
+          `/stats/tokens/records?session_key=${encodeURIComponent(sessionKey)}${convFilter}&turn_seq=${turnSeq}&limit=200`,
         );
-        if (sessionDebugKeyRef.current !== sessionKey) {
+        if (sessionDebugScopeRef.current !== `${sessionKey}::${conversationId}`) {
           return;
         }
         setTurnRecordsBySeq((prev) => ({ ...prev, [turnSeq]: sortTurnRecords(result.records) }));
       } catch {
-        if (sessionDebugKeyRef.current === sessionKey) {
+        if (sessionDebugScopeRef.current === `${sessionKey}::${conversationId}`) {
           setTurnRecordsBySeq((prev) => ({ ...prev, [turnSeq]: [] }));
         }
       } finally {
-        if (sessionDebugKeyRef.current === sessionKey) {
+        if (sessionDebugScopeRef.current === `${sessionKey}::${conversationId}`) {
           setLoadingTurnRecords((prev) => ({ ...prev, [turnSeq]: false }));
         }
       }
@@ -481,9 +494,9 @@ export default function TokenStatsPage() {
 
     const timer = setInterval(() => {
       if (shouldRefreshTurns) {
-        void loadSessionDebugData(appliedSessionKey);
+        void loadSessionDebugData(appliedSessionKey, appliedConversationId);
         if (expandedTurnSeq != null) {
-          void ensureTurnRecords(appliedSessionKey, expandedTurnSeq, true);
+          void ensureTurnRecords(appliedSessionKey, expandedTurnSeq, true, appliedConversationId);
         }
       } else {
         void loadRecords(page);
@@ -491,6 +504,7 @@ export default function TokenStatsPage() {
     }, AUTO_REFRESH_MS);
     return () => clearInterval(timer);
   }, [
+    appliedConversationId,
     appliedSessionKey,
     ensureTurnRecords,
     expandedTurnSeq,
@@ -511,11 +525,13 @@ export default function TokenStatsPage() {
       return;
     }
     const sk = searchParams.get('session_key') || '';
+    const cv = searchParams.get('conversation_id') || '';
     const m = searchParams.get('model') || '';
     const p = searchParams.get('provider') || '';
     const ts = searchParams.get('turn_seq') || '';
     queueMicrotask(() => {
       setFilterSessionKey(sk);
+      setFilterConversationId(cv);
       setFilterModel(m);
       setFilterProvider(p);
       setFilterTurnSeq(ts);
@@ -523,6 +539,7 @@ export default function TokenStatsPage() {
       filtersRef.current = {
         ...filtersRef.current,
         filterSessionKey: sk,
+        filterConversationId: cv,
         filterModel: m,
         filterProvider: p,
         filterTurnSeq: ts,
@@ -545,8 +562,8 @@ export default function TokenStatsPage() {
 
     setTurnRecordsBySeq({});
     setLoadingTurnRecords({});
-    void loadSessionDebugData(appliedSessionKey);
-  }, [appliedSessionKey, loadSessionDebugData]);
+    void loadSessionDebugData(appliedSessionKey, appliedConversationId);
+  }, [appliedConversationId, appliedSessionKey, loadSessionDebugData]);
 
   useEffect(() => {
     setExpandedTurnSeq(appliedTurnSeq);
@@ -555,8 +572,8 @@ export default function TokenStatsPage() {
   useEffect(() => {
     if (!appliedSessionKey || expandedTurnSeq == null) return;
     if (turnRecordsBySeq[expandedTurnSeq] || loadingTurnRecords[expandedTurnSeq]) return;
-    void ensureTurnRecords(appliedSessionKey, expandedTurnSeq);
-  }, [appliedSessionKey, ensureTurnRecords, expandedTurnSeq, loadingTurnRecords, turnRecordsBySeq]);
+    void ensureTurnRecords(appliedSessionKey, expandedTurnSeq, false, appliedConversationId);
+  }, [appliedConversationId, appliedSessionKey, ensureTurnRecords, expandedTurnSeq, loadingTurnRecords, turnRecordsBySeq]);
 
   useEffect(() => {
     if (view !== 'turns' || appliedTurnSeq == null || loadingSessionTurns) return;
@@ -569,6 +586,7 @@ export default function TokenStatsPage() {
   const handleSearch = () => {
     const newParams: Record<string, string> = {};
     if (filterSessionKey) newParams.session_key = filterSessionKey;
+    if (filterConversationId) newParams.conversation_id = filterConversationId;
     if (filterModel) newParams.model = filterModel;
     if (filterProvider) newParams.provider = filterProvider;
     if (filterTurnSeq) newParams.turn_seq = filterTurnSeq;
@@ -579,6 +597,7 @@ export default function TokenStatsPage() {
 
   const handleClearFilters = () => {
     setFilterSessionKey('');
+    setFilterConversationId('');
     setFilterModel('');
     setFilterProvider('');
     setFilterTurnSeq('');
@@ -589,6 +608,7 @@ export default function TokenStatsPage() {
     setSearchParams({}, { replace: true });
     filtersRef.current = {
       filterSessionKey: '',
+      filterConversationId: '',
       filterModel: '',
       filterProvider: '',
       filterTurnSeq: '',
@@ -604,6 +624,7 @@ export default function TokenStatsPage() {
   const handleLeaveSessionMode = () => {
     const nextParams = new URLSearchParams(searchParams);
     nextParams.delete('session_key');
+    nextParams.delete('conversation_id');
     nextParams.delete('turn_seq');
     setView('records');
     setSearchParams(nextParams, { replace: true });
@@ -611,6 +632,7 @@ export default function TokenStatsPage() {
 
   const hasFilters =
     filterSessionKey ||
+    filterConversationId ||
     filterModel ||
     filterProvider ||
     filterTurnSeq ||
@@ -723,9 +745,9 @@ export default function TokenStatsPage() {
                 loadRecords(page);
               }
               if (isSessionMode) {
-                void loadSessionDebugData(appliedSessionKey);
+                void loadSessionDebugData(appliedSessionKey, appliedConversationId);
                 if (view === 'turns' && expandedTurnSeq != null) {
-                  void ensureTurnRecords(appliedSessionKey, expandedTurnSeq, true);
+                  void ensureTurnRecords(appliedSessionKey, expandedTurnSeq, true, appliedConversationId);
                 }
               } else {
                 loadSummary();

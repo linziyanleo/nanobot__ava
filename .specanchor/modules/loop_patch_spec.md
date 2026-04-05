@@ -13,6 +13,7 @@
 ### 核心能力
 - **属性注入**：在 `AgentLoop.__init__` 完成后绑定 db/token_stats/media_service/categorized_memory/history_summarizer/history_compressor
 - **Token 统计**：包装 `_run_agent_loop`（拦截 provider 调用获取原始 usage）和 `_process_message`（每轮记录完整字段）
+- **Conversation 分段**：为同一 `session_key` 下的逻辑新会话维护 `session.metadata["conversation_id"]`；`/new` 前置轮换新 id，后续 turn 在该 conversation 内重新从 0 编号
 - **Phase 0 预记录**：在 `patched_run_agent_loop` 开头（LLM 调用前）写入 pending 状态的 token_usage 记录，首次 LLM 调用完成后 UPDATE 填入真实数值
 - **实时广播**：通过 `bus.dispatch_observe_event()` 广播 `message_arrived` / `processing_started` / `token_recorded` / `turn_completed` 四类生命周期事件
 - **Database 共享**：通过 `set_shared_db()` 接收 storage_patch 的共享 Database 实例
@@ -64,6 +65,7 @@ loop._full_last_usage = {
 
 | 字段 | 来源 |
 |------|------|
+| `conversation_id` | `self._current_conversation_id`（来自 `session.metadata["conversation_id"]`；`/new` 会前置轮换） |
 | `prompt_tokens` / `completion_tokens` | `_full_last_usage` |
 | `cached_tokens` / `cache_creation_tokens` | `_full_last_usage._cached_tokens` 等（预解析）|
 | `current_turn_tokens` | tiktoken 估算 `msg.content` |
@@ -123,6 +125,8 @@ def _get_or_create_db(workspace_path):
 | Phase 0 预记录 | LLM 调用前 token_usage 表有 finish_reason="pending" 的记录 |
 | Phase 0 UPDATE | 首次 LLM 调用后 pending 记录被 UPDATE |
 | Phase 0 异常 | LLM 异常时 pending 记录被标记为 error |
+| `/new` conversation 轮换 | slash `/new` 后 `session.metadata["conversation_id"]` 被刷新，下一条普通消息从新 conversation 的 Turn #0 开始 |
+| 同序号 turn 不串线 | 同一 `session_key` 下旧 `conversation_id` 的 Turn #0 与 `/new` 后新 `conversation_id` 的 Turn #0 分开聚合 |
 | 实时广播时序 | message_arrived → token_recorded(pending) → processing_started → turn_completed |
 | shared_db | set_shared_db() 后新 AgentLoop 获得共享 db |
 | 幂等性 | 多次 apply 不重复包装 |

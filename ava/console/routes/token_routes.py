@@ -32,6 +32,7 @@ async def get_token_records(
     limit: int = Query(100, ge=1, le=1000),
     offset: int = Query(0, ge=0),
     session_key: str | None = Query(None, description="Filter by session key"),
+    conversation_id: str | None = Query(None, description="Filter by logical conversation id"),
     model: str | None = Query(None, description="Filter by model (substring match)"),
     provider: str | None = Query(None, description="Filter by provider (substring match)"),
     start_time: str | None = Query(None, description="Filter: timestamp >= ISO string"),
@@ -42,7 +43,7 @@ async def get_token_records(
 ):
     """Individual LLM call records (newest first), with optional filters."""
     collector = _get_collector()
-    filt = dict(session_key=session_key, model=model, provider=provider, start_time=start_time, end_time=end_time, turn_seq=turn_seq, model_role=model_role)
+    filt = dict(session_key=session_key, conversation_id=conversation_id, model=model, provider=provider, start_time=start_time, end_time=end_time, turn_seq=turn_seq, model_role=model_role)
     return {
         "records": collector.get_records(limit=limit, offset=offset, **filt),
         "total": collector.get_total_count(**filt),
@@ -68,19 +69,21 @@ async def get_tokens_by_provider(
 @router.get("/tokens/by-session")
 async def get_tokens_by_session(
     session_key: str = Query(..., description="Session key (e.g. telegram:12345)"),
+    conversation_id: str | None = Query(None, description="Logical conversation id"),
     user: UserInfo = Depends(auth.require_role("admin", "editor", "viewer")),
 ):
     """Per-turn token aggregation for a specific session."""
-    return _get_collector().get_by_session(session_key)
+    return _get_collector().get_by_session(session_key, conversation_id=conversation_id)
 
 
 @router.get("/tokens/by-session/detailed")
 async def get_tokens_by_session_detailed(
     session_key: str = Query(..., description="Session key"),
+    conversation_id: str | None = Query(None, description="Logical conversation id"),
     user: UserInfo = Depends(auth.require_role("admin", "editor", "viewer")),
 ):
     """Per-iteration token records for a specific session (no aggregation)."""
-    return _get_collector().get_by_session_detailed(session_key)
+    return _get_collector().get_by_session_detailed(session_key, conversation_id=conversation_id)
 
 
 @router.get("/tokens/timeline")

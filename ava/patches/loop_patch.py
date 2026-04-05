@@ -22,6 +22,8 @@ Execution order note:
 
 from __future__ import annotations
 
+from uuid import uuid4
+
 from loguru import logger
 
 from ava.launcher import register_patch
@@ -56,6 +58,32 @@ def _get_or_create_db(workspace_path) -> object | None:
     except Exception as exc:
         logger.warning("Failed to create fallback Database: {}", exc)
         return None
+
+
+def _new_conversation_id() -> str:
+    return f"conv_{uuid4().hex[:12]}"
+
+
+def _ensure_session_conversation_id(session, *, rotate: bool = False) -> tuple[str, bool]:
+    metadata = getattr(session, "metadata", None)
+    if not isinstance(metadata, dict):
+        metadata = {}
+        session.metadata = metadata
+
+    current = metadata.get("conversation_id")
+    if rotate or not isinstance(current, str) or not current:
+        current = _new_conversation_id()
+        metadata["conversation_id"] = current
+        return current, True
+
+    return current, False
+
+
+def _is_new_command(raw: str) -> bool:
+    stripped = (raw or "").strip().lower()
+    if not stripped.startswith("/"):
+        return False
+    return (stripped[1:].split() or [""])[0] == "new"
 
 
 def _register_bg_task_commands(router, bg_store) -> None:
@@ -167,6 +195,7 @@ def apply_loop_patch() -> str:
 
         db = _get_or_create_db(self.workspace)
         self.db = db
+        self._current_conversation_id = ""
 
         # TokenStatsCollector
         try:
@@ -349,6 +378,7 @@ def apply_loop_patch() -> str:
         from datetime import datetime as _dt
 
         sk = getattr(self, "_current_session_key", "") or ""
+        conversation_id = getattr(self, "_current_conversation_id", "") or ""
         user_msg = getattr(self, "_current_user_message", "") or ""
         turn_seq = getattr(self, "_current_turn_seq", None)
 
@@ -381,6 +411,7 @@ def apply_loop_patch() -> str:
                     provider=provider_name,
                     usage={"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
                     session_key=sk,
+                    conversation_id=conversation_id,
                     turn_seq=turn_seq,
                     user_message=user_msg[:1000],
                     system_prompt=getattr(self, "_last_system_prompt", ""),
@@ -488,6 +519,7 @@ def apply_loop_patch() -> str:
                     provider=provider_name,
                     usage=usage_data,
                     session_key=sk_inner,
+                    conversation_id=conversation_id,
                     turn_seq=turn_seq,
                     user_message="",
                     output_content="",
@@ -587,8 +619,11 @@ def apply_loop_patch() -> str:
         on_stream_end=None,
     ):
         sk = session_key or getattr(msg, "session_key", "")
+        raw = (getattr(msg, "content", "") or "").strip()
+        is_new_command = _is_new_command(raw)
         self._current_session_key = sk
         self._current_user_message = getattr(msg, "content", "") or ""
+        self._current_conversation_id = ""
         self._current_turn_seq = None
         self._turn_record_ids = []
         self._turn_iteration = 0
@@ -596,6 +631,14 @@ def apply_loop_patch() -> str:
         if sk:
             try:
                 session = self.sessions.get_or_create(sk)
+                if is_new_command:
+                    conversation_id, changed = _ensure_session_conversation_id(session, rotate=True)
+                    self._current_conversation_id = conversation_id
+                elif not raw.startswith("/"):
+                    conversation_id, changed = _ensure_session_conversation_id(session)
+                    self._current_conversation_id = conversation_id
+                    if changed:
+                        self.sessions.save(session)
                 existing_messages = getattr(session, "messages", []) or []
                 self._current_turn_seq = sum(
                     1
@@ -650,6 +693,7 @@ def apply_loop_patch() -> str:
             self._turn_record_ids = []
             self._turn_iteration = 0
             self._phase0_record_id = None
+            self._current_conversation_id = ""
             raise
 
         # Backfill user_message, output_content on DB records
@@ -694,6 +738,7 @@ def apply_loop_patch() -> str:
         self._turn_iteration = 0
         self._phase0_record_id = None
         self._current_turn_seq = None
+        self._current_conversation_id = ""
 
         return result
 

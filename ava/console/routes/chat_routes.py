@@ -29,8 +29,7 @@ async def create_session(
     body: ChatSessionCreateRequest,
     user: UserInfo = Depends(auth.require_role("admin", "editor", "viewer")),
 ):
-    sid = _get_chat_service().create_session(user.username, body.title)
-    return {"session_id": sid}
+    return _get_chat_service().create_session(user.username, body.title)
 
 @router.delete("/sessions/{session_id}")
 async def delete_session(

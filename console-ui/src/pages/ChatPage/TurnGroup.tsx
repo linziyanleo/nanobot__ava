@@ -84,7 +84,7 @@ export function TurnGroupComponent({ turn, index, tokenStats, iterationStats, se
           {turn.toolCalls.map((tc, i) => {
             // iteration 0 = initial assistant response, iteration 1+ = after each tool result
             // Tool call at index i corresponds to iteration i (the LLM call that produced it)
-            const iterKey = turnSeq != null ? `${turnSeq}:${i}` : null
+            const iterKey = turnSeq != null ? `${tokenStats?.conversation_id || ''}:${turnSeq}:${i}` : null
             const iterStat = iterKey ? iterationStats?.get(iterKey) : undefined
             return (
               <ToolCallBlock
@@ -104,10 +104,11 @@ export function TurnGroupComponent({ turn, index, tokenStats, iterationStats, se
         let bubbleStats = i === finalAssistant.length - 1 ? tokenStats : undefined
         // If we have iteration data, use the last iteration (final response after all tool calls)
         if (bubbleStats && iterationStats && turnSeq != null) {
-          const lastIterKey = `${turnSeq}:${turn.toolCalls.length}`
+          const lastIterKey = `${bubbleStats.conversation_id || ''}:${turnSeq}:${turn.toolCalls.length}`
           const lastIter = iterationStats.get(lastIterKey)
           if (lastIter) {
             bubbleStats = {
+              conversation_id: lastIter.conversation_id,
               turn_seq: lastIter.turn_seq,
               prompt_tokens: lastIter.prompt_tokens,
               completion_tokens: lastIter.completion_tokens,

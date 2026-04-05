@@ -5,6 +5,7 @@ export interface SessionMeta {
   scene: SceneType
   created_at: string
   updated_at: string
+  conversation_id?: string
   token_stats: {
     total_prompt_tokens: number
     total_completion_tokens: number
@@ -39,6 +40,7 @@ export interface ToolCallWithResult {
 }
 
 export interface TurnTokenStats {
+  conversation_id: string
   turn_seq: number | null
   prompt_tokens: number
   completion_tokens: number
@@ -48,6 +50,7 @@ export interface TurnTokenStats {
 }
 
 export interface IterationTokenStats {
+  conversation_id: string
   turn_seq: number | null
   iteration: number
   prompt_tokens: number

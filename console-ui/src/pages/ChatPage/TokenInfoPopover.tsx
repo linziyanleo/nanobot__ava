@@ -68,6 +68,7 @@ export function TokenInfoPopover({ stats, sessionKey, turnSeq, isMobile, onClose
               <button
                 onClick={() => {
                   const params = new URLSearchParams({ session_key: sessionKey })
+                  if (stats.conversation_id) params.set('conversation_id', stats.conversation_id)
                   if (turnSeq != null) params.set('turn_seq', String(turnSeq))
                   navigate(`/tokens?${params.toString()}`)
                 }}
@@ -124,6 +125,7 @@ export function TokenInfoPopover({ stats, sessionKey, turnSeq, isMobile, onClose
           <button
             onClick={() => {
               const params = new URLSearchParams({ session_key: sessionKey })
+              if (stats.conversation_id) params.set('conversation_id', stats.conversation_id)
               if (turnSeq != null) params.set('turn_seq', String(turnSeq))
               navigate(`/tokens?${params.toString()}`)
             }}

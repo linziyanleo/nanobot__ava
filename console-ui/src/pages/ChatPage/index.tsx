@@ -71,9 +71,17 @@ export default function ChatPage() {
         setStreaming('')
         setThinkingStreaming('')
         setSending(false)
-        loadSessionMessagesRef.current(sessionKey)
+        void (async () => {
+          const metas = await loadSessionListRef.current()
+          const meta = metas.find((m) => m.key === sessionKey) || null
+          await loadSessionMessagesWithMetaRef.current(sessionKey, meta)
+        })()
       } else if (data.type === 'async_result') {
-        loadSessionMessagesRef.current(sessionKey)
+        void (async () => {
+          const metas = await loadSessionListRef.current()
+          const meta = metas.find((m) => m.key === sessionKey) || null
+          await loadSessionMessagesWithMetaRef.current(sessionKey, meta)
+        })()
       }
     }
     ws.onerror = () => setSending(false)
@@ -135,7 +143,11 @@ export default function ChatPage() {
         setProcessing(true)
       } else if (data.type === 'turn_completed') {
         setProcessing(false)
-        loadSessionMessagesRef.current(sessionKey, true)
+        void (async () => {
+          const metas = await loadSessionListRef.current()
+          const meta = metas.find((m) => m.key === sessionKey) || null
+          await loadSessionMessagesWithMetaRef.current(sessionKey, meta, true)
+        })()
       }
     }
 
@@ -154,6 +166,7 @@ export default function ChatPage() {
       const data = await api<SessionMeta[]>('/chat/sessions')
       const metas: SessionMeta[] = data.map((s) => ({
         ...s,
+        conversation_id: s.conversation_id || '',
         token_stats: s.token_stats || {
           total_prompt_tokens: 0,
           total_completion_tokens: 0,
@@ -164,6 +177,12 @@ export default function ChatPage() {
       }))
 
       setSessions(metas)
+      if (activeSession) {
+        const activeMeta = metas.find((m) => m.key === activeSession) || null
+        if (activeMeta) {
+          setCurrentMeta(activeMeta)
+        }
+      }
 
       if (!initializedRef.current && metas.length > 0) {
         initializedRef.current = true
@@ -179,10 +198,12 @@ export default function ChatPage() {
           }
         }
       }
+      return metas
     } catch (err) {
       console.error('Failed to load sessions:', err)
+      return []
     }
-  }, [loadSessionMessagesWithMeta, connectWs])
+  }, [activeSession, loadSessionMessagesWithMeta, connectWs])
 
   useEffect(() => {
     loadSessionList()
@@ -257,7 +278,7 @@ export default function ChatPage() {
     setError('')
     try {
       const title = `Chat ${sessions.filter((s) => s.scene === 'console').length + 1}`
-      const res = await api<{ session_id: string }>('/chat/sessions', {
+      const res = await api<{ session_id: string; conversation_id: string }>('/chat/sessions', {
         method: 'POST',
         body: JSON.stringify({ title }),
       })
@@ -272,6 +293,7 @@ export default function ChatPage() {
         scene: 'console',
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
+        conversation_id: res.conversation_id,
         token_stats: { total_prompt_tokens: 0, total_completion_tokens: 0, total_tokens: 0, llm_calls: 0 },
         message_count: 0,
       })
@@ -332,6 +354,12 @@ export default function ChatPage() {
 
   const activeSessionRef = useRef(activeSession)
   activeSessionRef.current = activeSession
+
+  const loadSessionListRef = useRef(loadSessionList)
+  loadSessionListRef.current = loadSessionList
+
+  const loadSessionMessagesWithMetaRef = useRef(loadSessionMessagesWithMeta)
+  loadSessionMessagesWithMetaRef.current = loadSessionMessagesWithMeta
 
   // Keep a ref to loadSessionMessages so ws.onmessage always uses the latest version
   // without re-creating the WebSocket every time sessions state updates.

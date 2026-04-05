@@ -23,6 +23,7 @@ class TokenUsageRecord:
     completion_tokens: int
     total_tokens: int
     session_key: str = ""
+    conversation_id: str = ""
     turn_seq: int | None = None
     iteration: int = 0
     user_message: str = ""
@@ -78,6 +79,7 @@ class TokenStatsCollector:
         provider: str,
         usage: dict[str, Any],
         session_key: str = "",
+        conversation_id: str = "",
         turn_seq: int | None = None,
         iteration: int = 0,
         user_message: str = "",
@@ -113,14 +115,14 @@ class TokenStatsCollector:
             self._db.execute(
                 """INSERT INTO token_usage
                    (timestamp, model, provider, prompt_tokens, completion_tokens, total_tokens,
-                    session_key, turn_seq, iteration, user_message, output_content,
+                    session_key, conversation_id, turn_seq, iteration, user_message, output_content,
                     system_prompt_preview, conversation_history, full_request_payload, finish_reason,
                     model_role, cached_tokens, cache_creation_tokens, cost_usd, current_turn_tokens,
                     tool_names)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
                     ts, model, provider, prompt_tokens, completion_tokens, total_tokens,
-                    session_key, turn_seq, iteration, user_message, output_content,
+                    session_key, conversation_id, turn_seq, iteration, user_message, output_content,
                     system_prompt, conversation_history, full_request_payload, finish_reason,
                     model_role, cached_tokens, cache_creation_tokens, cost_usd, current_turn_tokens,
                     tool_names,
@@ -138,6 +140,7 @@ class TokenStatsCollector:
             completion_tokens=completion_tokens,
             total_tokens=total_tokens,
             session_key=session_key,
+            conversation_id=conversation_id,
             turn_seq=turn_seq,
             iteration=iteration,
             user_message=user_message,
@@ -196,6 +199,7 @@ class TokenStatsCollector:
     def _build_filter(
         self,
         session_key: str | None = None,
+        conversation_id: str | None = None,
         model: str | None = None,
         provider: str | None = None,
         start_time: str | None = None,
@@ -209,6 +213,9 @@ class TokenStatsCollector:
         if session_key:
             clauses.append("session_key LIKE ?")
             params.append(f"%{session_key}%")
+        if conversation_id:
+            clauses.append("conversation_id = ?")
+            params.append(conversation_id)
         if model:
             clauses.append("model LIKE ?")
             params.append(f"%{model}%")
@@ -247,6 +254,7 @@ class TokenStatsCollector:
         limit: int = 100,
         offset: int = 0,
         session_key: str | None = None,
+        conversation_id: str | None = None,
         model: str | None = None,
         provider: str | None = None,
         start_time: str | None = None,
@@ -256,7 +264,7 @@ class TokenStatsCollector:
     ) -> list[dict[str, Any]]:
         if self._use_db:
             self._ensure_turn_seq(session_key)
-            where, params = self._build_filter(session_key, model, provider, start_time, end_time, turn_seq, model_role)
+            where, params = self._build_filter(session_key, conversation_id, model, provider, start_time, end_time, turn_seq, model_role)
             rows = self._db.fetchall(
                 f"SELECT * FROM token_usage{where} ORDER BY timestamp DESC LIMIT ? OFFSET ?",
                 (*params, limit, offset),
@@ -268,6 +276,8 @@ class TokenStatsCollector:
             filtered = self._records
             if session_key:
                 filtered = [r for r in filtered if session_key.lower() in getattr(r, "session_key", "").lower()]
+            if conversation_id:
+                filtered = [r for r in filtered if getattr(r, "conversation_id", "") == conversation_id]
             if model:
                 filtered = [r for r in filtered if model.lower() in getattr(r, "model", "").lower()]
             if provider:
@@ -292,6 +302,7 @@ class TokenStatsCollector:
     def get_total_count(
         self,
         session_key: str | None = None,
+        conversation_id: str | None = None,
         model: str | None = None,
         provider: str | None = None,
         start_time: str | None = None,
@@ -301,7 +312,7 @@ class TokenStatsCollector:
     ) -> int:
         if self._use_db:
             self._ensure_turn_seq(session_key)
-            where, params = self._build_filter(session_key, model, provider, start_time, end_time, turn_seq, model_role)
+            where, params = self._build_filter(session_key, conversation_id, model, provider, start_time, end_time, turn_seq, model_role)
             row = self._db.fetchone(f"SELECT COUNT(*) as cnt FROM token_usage{where}", tuple(params))
             return row["cnt"] if row else 0
 
@@ -310,6 +321,8 @@ class TokenStatsCollector:
             filtered = self._records
             if session_key:
                 filtered = [r for r in filtered if session_key.lower() in getattr(r, "session_key", "").lower()]
+            if conversation_id:
+                filtered = [r for r in filtered if getattr(r, "conversation_id", "") == conversation_id]
             if model:
                 filtered = [r for r in filtered if model.lower() in getattr(r, "model", "").lower()]
             if provider:
@@ -443,57 +456,74 @@ class TokenStatsCollector:
                 d["calls"] += 1
             return [{"time": k, **v} for k, v in sorted(buckets.items())]
 
-    def get_by_session(self, session_key: str) -> list[dict[str, Any]]:
+    def get_by_session(self, session_key: str, conversation_id: str | None = None) -> list[dict[str, Any]]:
         """Per-turn token aggregation for a given session."""
         if self._use_db:
             self._ensure_turn_seq(session_key)
+            where = "WHERE session_key = ?"
+            params: list[Any] = [session_key]
+            if conversation_id:
+                where += " AND conversation_id = ?"
+                params.append(conversation_id)
             rows = self._db.fetchall(
-                """SELECT turn_seq,
+                f"""SELECT conversation_id, turn_seq,
                           SUM(prompt_tokens) as prompt_tokens,
                           SUM(completion_tokens) as completion_tokens,
                           SUM(total_tokens) as total_tokens,
                           COUNT(*) as llm_calls,
                           GROUP_CONCAT(DISTINCT model) as models
                    FROM token_usage
-                   WHERE session_key = ?
-                   GROUP BY turn_seq
-                   ORDER BY turn_seq""",
-                (session_key,),
+                   {where}
+                   GROUP BY conversation_id, turn_seq
+                   ORDER BY conversation_id, turn_seq""",
+                tuple(params),
             )
             return [dict(r) for r in rows]
 
         self._reload_if_changed()
         with self._lock:
-            buckets: dict[int | None, dict[str, Any]] = defaultdict(
+            buckets: dict[tuple[str, int | None], dict[str, Any]] = defaultdict(
                 lambda: {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0, "llm_calls": 0, "models": set()}
             )
             for r in self._records:
                 if r.session_key != session_key:
                     continue
-                d = buckets[r.turn_seq]
+                if conversation_id and getattr(r, "conversation_id", "") != conversation_id:
+                    continue
+                bucket_key = (getattr(r, "conversation_id", ""), r.turn_seq)
+                d = buckets[bucket_key]
                 d["prompt_tokens"] += r.prompt_tokens
                 d["completion_tokens"] += r.completion_tokens
                 d["total_tokens"] += r.total_tokens
                 d["llm_calls"] += 1
                 d["models"].add(r.model)
             return [
-                {"turn_seq": k, **{kk: (", ".join(sorted(vv)) if kk == "models" else vv) for kk, vv in v.items()}}
-                for k, v in sorted(buckets.items(), key=lambda x: (x[0] is None, x[0]))
+                {
+                    "conversation_id": conv_id,
+                    "turn_seq": turn_seq,
+                    **{kk: (", ".join(sorted(vv)) if kk == "models" else vv) for kk, vv in v.items()},
+                }
+                for (conv_id, turn_seq), v in sorted(buckets.items(), key=lambda x: (x[0][0], x[0][1] is None, x[0][1]))
             ]
 
-    def get_by_session_detailed(self, session_key: str) -> list[dict[str, Any]]:
+    def get_by_session_detailed(self, session_key: str, conversation_id: str | None = None) -> list[dict[str, Any]]:
         """Per-iteration token records for a given session (no aggregation)."""
         if self._use_db:
             self._ensure_turn_seq(session_key)
+            where = "WHERE session_key = ?"
+            params: list[Any] = [session_key]
+            if conversation_id:
+                where += " AND conversation_id = ?"
+                params.append(conversation_id)
             rows = self._db.fetchall(
-                """SELECT turn_seq, iteration,
+                f"""SELECT conversation_id, turn_seq, iteration,
                           prompt_tokens, completion_tokens, total_tokens,
                           cached_tokens, cache_creation_tokens,
                           model, model_role, tool_names, finish_reason
                    FROM token_usage
-                   WHERE session_key = ?
-                   ORDER BY turn_seq, iteration""",
-                (session_key,),
+                   {where}
+                   ORDER BY conversation_id, turn_seq, iteration""",
+                tuple(params),
             )
             return [dict(r) for r in rows]
 
@@ -503,7 +533,10 @@ class TokenStatsCollector:
             for r in self._records:
                 if r.session_key != session_key:
                     continue
+                if conversation_id and getattr(r, "conversation_id", "") != conversation_id:
+                    continue
                 results.append({
+                    "conversation_id": getattr(r, "conversation_id", ""),
                     "turn_seq": r.turn_seq,
                     "iteration": r.iteration,
                     "prompt_tokens": r.prompt_tokens,
@@ -516,7 +549,7 @@ class TokenStatsCollector:
                     "tool_names": r.tool_names,
                     "finish_reason": r.finish_reason,
                 })
-            results.sort(key=lambda x: (x["turn_seq"] is None, x["turn_seq"] or 0, x["iteration"]))
+            results.sort(key=lambda x: (x["conversation_id"], x["turn_seq"] is None, x["turn_seq"] or 0, x["iteration"]))
             return results
 
     def reset(self) -> None:

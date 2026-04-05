@@ -67,6 +67,11 @@ class Database:
                 conn.execute(f"ALTER TABLE token_usage ADD COLUMN {col} {col_type} DEFAULT {default}")
             except sqlite3.OperationalError:
                 pass  # column already exists
+        for sql in _SAFE_POST_MIGRATION_SQL:
+            try:
+                conn.execute(sql)
+            except sqlite3.OperationalError as exc:
+                logger.warning("Skipped post-migration SQL due to legacy schema mismatch: {}", exc)
         conn.commit()
 
     # ------------------------------------------------------------------
@@ -373,6 +378,11 @@ _SAFE_ALTER_COLUMNS: list[tuple[str, str, str]] = [
     ("cost_usd", "REAL", "0"),
     ("current_turn_tokens", "INTEGER", "0"),
     ("tool_names", "TEXT", "''"),
+    ("conversation_id", "TEXT", "''"),
+]
+
+_SAFE_POST_MIGRATION_SQL: list[str] = [
+    "CREATE INDEX IF NOT EXISTS idx_tu_conv_turn ON token_usage(session_key, conversation_id, turn_seq)",
 ]
 
 _SCHEMA_DDL = """
@@ -417,6 +427,7 @@ CREATE TABLE IF NOT EXISTS token_usage (
     completion_tokens INTEGER DEFAULT 0,
     total_tokens INTEGER DEFAULT 0,
     session_key TEXT,
+    conversation_id TEXT DEFAULT '',
     turn_seq INTEGER,
     iteration INTEGER DEFAULT 0,
     user_message TEXT DEFAULT '',

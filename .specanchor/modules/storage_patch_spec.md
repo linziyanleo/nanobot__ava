@@ -104,7 +104,12 @@
 - 共享失败时仅 warning（loop_patch 已有 fallback 机制自行创建 Database）
 - 确保后续创建的 `AgentLoop` 实例获得同一个 Database 连接
 
-### 5.5 集成 Session Backfill
+### 5.5 token_usage 兼容升级
+- `Database._create_schema()` 对 legacy `token_usage` 表采用“先 `ALTER TABLE` 补列，再创建新索引”的顺序
+- `2026-04-05` 新增 `conversation_id TEXT DEFAULT ''` 与索引 `idx_tu_conv_turn(session_key, conversation_id, turn_seq)`，用于区分同一 `session_key` 下被 `/new` 切开的多段逻辑会话
+- 该顺序不能反过来：若旧库尚未补出 `conversation_id`，提前创建索引会导致 SQLite 初始化直接报错
+
+### 5.6 集成 Session Backfill
 - `patched_load` 在从 SQLite 加载 session 后，直接调用 `ava.session.backfill_turns._backfill_messages()` 执行回填
 - Backfill 逻辑从 `channel_patch` 移入 `storage_patch`，解决了两者对 `SessionManager._load` 的冲突
 - Backfill 失败时仅 warning，不影响 session 返回

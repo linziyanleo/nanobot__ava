@@ -38,10 +38,17 @@ class ChatService:
             return "discord"
         return "other"
 
+    @staticmethod
+    def _extract_conversation_id(meta: dict[str, Any] | None) -> str:
+        if not isinstance(meta, dict):
+            return ""
+        value = meta.get("conversation_id")
+        return value if isinstance(value, str) else ""
+
     def list_sessions(self, user_id: str | None = None) -> list[dict]:
         if self._use_db:
             rows = self._db.fetchall(
-                """SELECT s.key, s.created_at, s.updated_at, s.token_stats,
+                """SELECT s.key, s.created_at, s.updated_at, s.metadata, s.token_stats,
                           (SELECT COUNT(*) FROM session_messages WHERE session_id = s.id) as msg_count
                    FROM sessions s
                    ORDER BY s.updated_at DESC"""
@@ -49,7 +56,13 @@ class ChatService:
             sessions = []
             for r in rows:
                 key = r["key"]
+                meta: dict[str, Any] = {}
                 ts: dict = {}
+                if r["metadata"]:
+                    try:
+                        meta = json.loads(r["metadata"])
+                    except json.JSONDecodeError:
+                        pass
                 if r["token_stats"]:
                     try:
                         ts = json.loads(r["token_stats"])
@@ -60,6 +73,7 @@ class ChatService:
                     "scene": self._derive_scene(key),
                     "created_at": r["created_at"] or "",
                     "updated_at": r["updated_at"] or "",
+                    "conversation_id": self._extract_conversation_id(meta),
                     "token_stats": {
                         "total_prompt_tokens": ts.get("total_prompt_tokens", 0),
                         "total_completion_tokens": ts.get("total_completion_tokens", 0),
@@ -85,6 +99,7 @@ class ChatService:
                 "total_prompt_tokens": 0, "total_completion_tokens": 0,
                 "total_tokens": 0, "llm_calls": 0,
             }
+            conversation_id = ""
             msg_count = max(0, len(lines) - 1)
             if first_line:
                 try:
@@ -94,6 +109,7 @@ class ChatService:
                         created_at = parsed.get("created_at", "")
                         updated_at = parsed.get("updated_at", "")
                         token_stats = parsed.get("token_stats", token_stats)
+                        conversation_id = parsed.get("conversation_id") or self._extract_conversation_id(parsed.get("metadata"))
                 except json.JSONDecodeError:
                     pass
             sessions.append({
@@ -101,6 +117,7 @@ class ChatService:
                 "scene": self._derive_scene(key),
                 "created_at": created_at,
                 "updated_at": updated_at,
+                "conversation_id": conversation_id,
                 "token_stats": token_stats,
                 "message_count": msg_count,
             })
@@ -171,14 +188,22 @@ class ChatService:
                 continue
         return messages
 
-    def create_session(self, user_id: str, title: str = "") -> str:
+    def create_session(self, user_id: str, title: str = "") -> dict[str, str]:
         sid = uuid.uuid4().hex[:8]
+        conversation_id = f"conv_{uuid.uuid4().hex[:12]}"
         now = datetime.now(timezone.utc).isoformat()
         session_title = title or f"Session {sid}"
         session_key = f"console:{sid}"
 
         if self._use_db:
-            meta = json.dumps({"title": session_title, "user": user_id}, ensure_ascii=False)
+            meta = json.dumps(
+                {
+                    "title": session_title,
+                    "user": user_id,
+                    "conversation_id": conversation_id,
+                },
+                ensure_ascii=False,
+            )
             ts_json = json.dumps({
                 "total_prompt_tokens": 0, "total_completion_tokens": 0,
                 "total_tokens": 0, "llm_calls": 0,
@@ -198,6 +223,7 @@ class ChatService:
                 "updated_at": now,
                 "title": session_title,
                 "user": user_id,
+                "conversation_id": conversation_id,
                 "token_stats": {
                     "total_prompt_tokens": 0,
                     "total_completion_tokens": 0,
@@ -206,7 +232,7 @@ class ChatService:
                 },
             }, ensure_ascii=False)
             session_file.write_text(metadata_line + "\n", "utf-8")
-        return sid
+        return {"session_id": sid, "conversation_id": conversation_id}
 
     async def send_message(
         self,

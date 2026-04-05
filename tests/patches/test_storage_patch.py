@@ -1,6 +1,7 @@
 """Tests for storage_patch — SQLite storage replacement."""
 
 import json
+import sqlite3
 from datetime import datetime
 from unittest.mock import MagicMock
 
@@ -69,6 +70,50 @@ def _make_session(key="test:123", messages=None):
 
 
 class TestStoragePatch:
+    def test_database_upgrades_legacy_token_usage_before_creating_conversation_index(self, tmp_path):
+        """Legacy DB without conversation_id should still migrate cleanly."""
+        db_path = tmp_path / "legacy.db"
+        conn = sqlite3.connect(str(db_path))
+        conn.executescript(
+            """
+            CREATE TABLE token_usage (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                timestamp TEXT NOT NULL,
+                model TEXT NOT NULL,
+                provider TEXT NOT NULL,
+                prompt_tokens INTEGER DEFAULT 0,
+                completion_tokens INTEGER DEFAULT 0,
+                total_tokens INTEGER DEFAULT 0,
+                session_key TEXT,
+                turn_seq INTEGER,
+                iteration INTEGER DEFAULT 0,
+                user_message TEXT DEFAULT '',
+                output_content TEXT DEFAULT '',
+                system_prompt_preview TEXT DEFAULT '',
+                conversation_history TEXT DEFAULT '',
+                full_request_payload TEXT DEFAULT '',
+                finish_reason TEXT DEFAULT '',
+                model_role TEXT DEFAULT 'default',
+                cached_tokens INTEGER DEFAULT 0,
+                cache_creation_tokens INTEGER DEFAULT 0,
+                cost_usd REAL DEFAULT 0,
+                current_turn_tokens INTEGER DEFAULT 0,
+                tool_names TEXT DEFAULT ''
+            );
+            """
+        )
+        conn.commit()
+        conn.close()
+
+        from ava.storage import Database
+
+        db = Database(db_path)
+        columns = {row["name"] for row in db.fetchall("PRAGMA table_info(token_usage)")}
+        indexes = {row["name"] for row in db.fetchall("PRAGMA index_list(token_usage)")}
+
+        assert "conversation_id" in columns
+        assert "idx_tu_conv_turn" in indexes
+
     def test_patch_applies_without_error(self, tmp_path):
         """T5.0: apply_storage_patch runs without error."""
         from unittest.mock import patch as mock_patch

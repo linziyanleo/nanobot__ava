@@ -1,5 +1,6 @@
 """Tests for loop_patch — AgentLoop attribute injection + token stats."""
 
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 from pathlib import Path
 
@@ -251,3 +252,147 @@ class TestTokenStatsRecordId:
         filtered = collector.get_records(limit=10, session_key="telegram:1", turn_seq=1)
         assert len(filtered) == 1
         assert filtered[0]["model"] == "model-b"
+
+    def test_legacy_records_without_conversation_id_stay_visible_in_global_audit(self, tmp_path):
+        from ava.storage import Database
+        db = Database(tmp_path / "test.db")
+        from ava.console.services.token_stats_service import TokenStatsCollector
+        collector = TokenStatsCollector(data_dir=tmp_path, db=db)
+
+        collector.record(
+            model="legacy-model",
+            provider="provider",
+            usage={"prompt_tokens": 8, "completion_tokens": 4, "total_tokens": 12},
+            session_key="telegram:1",
+            conversation_id="",
+            turn_seq=0,
+            finish_reason="stop",
+            model_role="chat",
+        )
+        collector.record(
+            model="current-model",
+            provider="provider",
+            usage={"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15},
+            session_key="telegram:1",
+            conversation_id="conv_current",
+            turn_seq=0,
+            finish_reason="stop",
+            model_role="chat",
+        )
+
+        all_records = collector.get_records(limit=10, session_key="telegram:1")
+        assert {row["model"] for row in all_records} == {"legacy-model", "current-model"}
+
+        filtered = collector.get_records(
+            limit=10,
+            session_key="telegram:1",
+            conversation_id="conv_current",
+        )
+        assert len(filtered) == 1
+        assert filtered[0]["model"] == "current-model"
+
+    @pytest.mark.asyncio
+    async def test_new_rotates_conversation_id_and_keeps_turn_zero_separate(self, tmp_path):
+        from ava.patches.loop_patch import apply_loop_patch
+        from ava.storage import Database
+        from ava.console.services.token_stats_service import TokenStatsCollector
+
+        class DummySession:
+            def __init__(self):
+                self.key = "telegram:1"
+                self.metadata = {"conversation_id": "conv_old"}
+                self.messages = [
+                    {"role": "user", "content": "old question"},
+                    {"role": "assistant", "content": "old answer"},
+                ]
+
+            def clear(self):
+                self.messages = []
+
+        class DummySessions:
+            def __init__(self, session):
+                self._session = session
+                self.saved_metadata: list[dict[str, str]] = []
+
+            def get_or_create(self, key):
+                assert key == self._session.key
+                return self._session
+
+            def save(self, session):
+                self.saved_metadata.append(dict(session.metadata))
+
+        session = DummySession()
+        sessions = DummySessions(session)
+        db = Database(tmp_path / "test.db")
+        collector = TokenStatsCollector(data_dir=tmp_path, db=db)
+
+        collector.record(
+            model="model-old",
+            provider="provider",
+            usage={"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15},
+            session_key=session.key,
+            conversation_id="conv_old",
+            turn_seq=0,
+            finish_reason="stop",
+            model_role="chat",
+        )
+
+        captured: list[tuple[str, str, int | None]] = []
+
+        async def original_process_message(self, msg, **kwargs):
+            captured.append((msg.content, self._current_conversation_id, self._current_turn_seq))
+            live_session = self.sessions.get_or_create(kwargs.get("session_key") or msg.session_key)
+            if msg.content == "/new":
+                live_session.clear()
+                self.sessions.save(live_session)
+                return SimpleNamespace(content="")
+
+            live_session.messages.append({"role": "user", "content": msg.content})
+            collector.record(
+                model="model-new",
+                provider="provider",
+                usage={"prompt_tokens": 12, "completion_tokens": 6, "total_tokens": 18},
+                session_key=live_session.key,
+                conversation_id=self._current_conversation_id,
+                turn_seq=self._current_turn_seq,
+                finish_reason="stop",
+                model_role="chat",
+            )
+            live_session.messages.append({"role": "assistant", "content": "reply"})
+            self.sessions.save(live_session)
+            return SimpleNamespace(content="reply")
+
+        AgentLoop._process_message = original_process_message
+        apply_loop_patch()
+
+        loop = SimpleNamespace(
+            sessions=sessions,
+            bg_tasks=None,
+            token_stats=collector,
+            bus=None,
+        )
+
+        await AgentLoop._process_message(loop, SimpleNamespace(content="/new", session_key=session.key))
+        rotated_conversation_id = session.metadata["conversation_id"]
+
+        assert rotated_conversation_id != "conv_old"
+        assert captured[0] == ("/new", rotated_conversation_id, 1)
+
+        await AgentLoop._process_message(loop, SimpleNamespace(content="fresh question", session_key=session.key))
+
+        assert captured[1] == ("fresh question", rotated_conversation_id, 0)
+
+        per_turn = collector.get_by_session(session.key)
+        assert {(row["conversation_id"], row["turn_seq"]) for row in per_turn} == {
+            ("conv_old", 0),
+            (rotated_conversation_id, 0),
+        }
+
+        filtered = collector.get_records(
+            limit=10,
+            session_key=session.key,
+            conversation_id=rotated_conversation_id,
+            turn_seq=0,
+        )
+        assert len(filtered) == 1
+        assert filtered[0]["model"] == "model-new"

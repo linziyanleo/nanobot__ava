@@ -33,6 +33,7 @@ export function parseJsonl(content: string, filename: string): { meta: SessionMe
           key: data.key || filename,
           created_at: data.created_at || '',
           updated_at: data.updated_at || '',
+          conversation_id: data.conversation_id || '',
           token_stats: data.token_stats || {
             total_prompt_tokens: 0,
             total_completion_tokens: 0,
@@ -57,6 +58,7 @@ export function parseJsonl(content: string, filename: string): { meta: SessionMe
       key: filename,
       created_at: '',
       updated_at: '',
+      conversation_id: '',
       token_stats: { total_prompt_tokens: 0, total_completion_tokens: 0, total_tokens: 0, llm_calls: 0 },
       message_count: 0,
     }

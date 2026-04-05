@@ -41,7 +41,10 @@ export function MessageArea({ session, turns, loading, isConsole, streaming, thi
       setIterationStats(new Map());
       return;
     }
-    api<TurnTokenStats[]>(`/stats/tokens/by-session?session_key=${encodeURIComponent(session.key)}`)
+    const conversationFilter = session.conversation_id
+      ? `&conversation_id=${encodeURIComponent(session.conversation_id)}`
+      : ''
+    api<TurnTokenStats[]>(`/stats/tokens/by-session?session_key=${encodeURIComponent(session.key)}${conversationFilter}`)
       .then(data => {
         const map = new Map<number, TurnTokenStats>();
         for (const item of data) {
@@ -50,16 +53,16 @@ export function MessageArea({ session, turns, loading, isConsole, streaming, thi
         setTurnTokenStats(map);
       })
       .catch(() => setTurnTokenStats(new Map()));
-    api<IterationTokenStats[]>(`/stats/tokens/by-session/detailed?session_key=${encodeURIComponent(session.key)}`)
+    api<IterationTokenStats[]>(`/stats/tokens/by-session/detailed?session_key=${encodeURIComponent(session.key)}${conversationFilter}`)
       .then(data => {
         const map = new Map<string, IterationTokenStats>();
         for (const item of data) {
-          map.set(`${item.turn_seq ?? ''}:${item.iteration}`, item);
+          map.set(`${item.conversation_id || ''}:${item.turn_seq ?? ''}:${item.iteration}`, item);
         }
         setIterationStats(map);
       })
       .catch(() => setIterationStats(new Map()));
-  }, [session?.key, turns.length]);
+  }, [session?.key, session?.conversation_id, turns.length]);
 
   const checkScrollPosition = useCallback(() => {
     const el = scrollContainerRef.current

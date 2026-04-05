@@ -307,7 +307,12 @@ export const MessageBubble = React.memo(function MessageBubble({ message, isUser
       {/* Right-side token label (desktop only) */}
       {!isUser && !isMobile && tokenStats && (
         <button
-          onClick={() => navigate(`/tokens?session_key=${sessionKey}&turn_seq=${tokenStats.turn_seq}`)}
+          onClick={() => {
+            const params = new URLSearchParams({ session_key: sessionKey || '' })
+            if (tokenStats.conversation_id) params.set('conversation_id', tokenStats.conversation_id)
+            if (tokenStats.turn_seq != null) params.set('turn_seq', String(tokenStats.turn_seq))
+            navigate(`/tokens?${params.toString()}`)
+          }}
           className="text-[10px] font-mono text-[var(--text-secondary)] whitespace-nowrap ml-2 self-center hover:text-[var(--accent)] transition-colors"
           title="查看 Token 统计"
         >
