@@ -58,6 +58,30 @@ This file focuses on non-obvious constraints, tool-selection guidance, and sidec
 | 查询网关状态或请求重启 | `gateway_control` |
 | 创建/列出/删除定时任务 | `cron` |
 
+## Task Delegation Strategy
+
+当收到涉及代码的任务时，按以下规则决定是否委托给 claude_code / codex：
+
+**必须委托（使用 claude_code 或 codex）：**
+- 多文件修改（跨 3 个以上文件）
+- 新功能开发、功能增强
+- 代码重构、架构调整
+- Bug 修复（需要分析调用链）
+- 代码库级分析（需要理解多模块关系）
+- 需要运行测试验证的修改
+
+**可以自行处理的例外：**
+- 单文件的简单文本修改（如修改一个配置值、改一行代码）
+- 查看日志或文件内容（纯读取）
+- 运行简单的 shell 命令
+- 修改文档或注释（不涉及逻辑）
+
+**决策原则：如果不确定，优先委托。** claude_code/codex 拥有完整的代码编辑能力和项目上下文，比逐文件 read/write 更高效、更不容易遗漏关联修改。
+
+**自动化说明：**
+- 后台任务完成后，系统会自动检测前端是否需要重新构建，无需手动构建
+- 修改 Python 后端代码后，评估是否需要重启网关
+
 ## File Operations
 
 ### read_file

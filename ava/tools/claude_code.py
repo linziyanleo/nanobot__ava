@@ -69,13 +69,13 @@ class ClaudeCodeTool(Tool):
     @property
     def description(self) -> str:
         return (
-            "Run Claude Code CLI to execute code tasks: modify code, add features, "
-            "fix bugs, refactor, or analyze a codebase. Default is async execution "
-            "(task runs in background, notifies when complete). "
-            "Use mode='fast' for simple tasks (async, max 5 turns), "
-            "'standard' for complex tasks (async, max 15 turns), "
-            "'readonly' for analysis (async), "
-            "'sync' for synchronous blocking execution (backward compatible)."
+            "Run Claude Code CLI for code tasks. "
+            "For ANY task involving code modification, refactoring, bug fixing, "
+            "or multi-file analysis, ALWAYS prefer this tool over manually "
+            "reading/writing files one by one with read_file/write_file/edit_file. "
+            "Default is async (background, notifies when complete). "
+            "Modes: 'fast' (async, max 5 turns), 'standard' (async, default), "
+            "'readonly' (async, analysis only), 'sync' (blocking)."
         )
 
     @property
@@ -135,6 +135,7 @@ class ClaudeCodeTool(Tool):
             prompt=prompt,
             project_path=project,
             timeout=timeout,
+            auto_continue=mode in ("standard", "fast"),
             mode=mode,
             session_id=session_id,
             project=project,

@@ -67,12 +67,13 @@ class CodexTool(Tool):
     @property
     def description(self) -> str:
         return (
-            "Run OpenAI Codex CLI to run code tasks: modify code, add features, "
-            "fix bugs, refactor, or analyze a codebase. All runs are async "
-            "(task runs in background, notifies when complete). "
-            "Use mode='fast' for simple tasks (shorter timeout), "
-            "'standard' for complex tasks (default), "
-            "'readonly' for analysis only (read-only sandbox)."
+            "Run OpenAI Codex CLI for code tasks. "
+            "ALWAYS prefer this tool (or claude_code) for code modification, "
+            "refactoring, bug fixing, or multi-file analysis over manually "
+            "reading/writing files with read_file/write_file/edit_file. "
+            "All runs are async (background, notifies when complete). "
+            "Modes: 'fast' (shorter timeout), 'standard' (default), "
+            "'readonly' (read-only sandbox)."
         )
 
     @property
@@ -133,6 +134,7 @@ class CodexTool(Tool):
             prompt=prompt,
             project_path=project,
             timeout=timeout,
+            auto_continue=True,
             mode=mode,
             project=project,
         )
