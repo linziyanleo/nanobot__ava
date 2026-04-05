@@ -116,14 +116,19 @@ export function ToolCallBlock({ tc, isLoading, tokenStats, iterationStats }: Too
 
   const regexImageUrls = useMemo(() => {
     if (fnName === 'image_gen' && resultText) {
-      return extractImagePaths(resultText).map((p) => imageUrl(p))
+      const refImg = parsedArgs.reference_image as string | undefined
+      const refUrls = refImg && (refImg.startsWith('/') || refImg.startsWith('~'))
+        ? [imageUrl(refImg)]
+        : []
+      return [...refUrls, ...extractImagePaths(resultText).map((p) => imageUrl(p))]
     }
     if ((fnName === 'vision' || fnName === 'analyze_image') && parsedArgs.url) {
       const u = parsedArgs.url as string
       if (u.startsWith('http://') || u.startsWith('https://')) return [u]
+      if (u.startsWith('/') || u.startsWith('~')) return [imageUrl(u)]
     }
     return []
-  }, [fnName, resultText, parsedArgs.url])
+  }, [fnName, resultText, parsedArgs.url, parsedArgs.reference_image])
 
   const [apiImageUrls, setApiImageUrls] = useState<string[]>([])
   const prompt = (parsedArgs.prompt || '') as string
@@ -476,7 +481,13 @@ export function ToolCallBlock({ tc, isLoading, tokenStats, iterationStats }: Too
                 </pre>
               </div>
             )}
-            {mediaImageUrls.length > 0 && (
+            {mediaImageUrls.length > 0 && (fnName === 'vision' || fnName === 'analyze_image') && (
+              <div className="pt-1">
+                <div className="text-[var(--text-secondary)] mb-0.5 font-medium">Input Image</div>
+                <ImageCarousel urls={mediaImageUrls} alt={displayPrompt || fnName} />
+              </div>
+            )}
+            {mediaImageUrls.length > 0 && fnName !== 'vision' && fnName !== 'analyze_image' && (
               <div className="pt-1">
                 <ImageCarousel urls={mediaImageUrls} alt={displayPrompt || fnName} />
               </div>
