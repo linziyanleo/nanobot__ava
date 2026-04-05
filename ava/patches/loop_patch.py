@@ -583,12 +583,15 @@ def apply_loop_patch() -> str:
         on_stream=None,
         on_stream_end=None,
     ):
-        # Set context so intercepted_chat can use it for inline recording
         sk = session_key or getattr(msg, "session_key", "")
         self._current_session_key = sk
         self._current_user_message = getattr(msg, "content", "") or ""
         self._turn_record_ids = []
         self._turn_iteration = 0
+
+        bg_store = getattr(self, "bg_tasks", None)
+        if bg_store and hasattr(bg_store, "reset_continuation_budget") and sk:
+            bg_store.reset_continuation_budget(sk)
 
         import asyncio as _asyncio_pm
         try:

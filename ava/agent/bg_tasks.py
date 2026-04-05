@@ -21,6 +21,8 @@ if TYPE_CHECKING:
 
 TaskStatus = Literal["queued", "running", "succeeded", "failed", "cancelled", "interrupted"]
 
+_MAX_CONTINUATION_BUDGET = 5
+
 
 @dataclass
 class TimelineEvent:
@@ -47,6 +49,7 @@ class TaskSnapshot:
     todo_summary: dict[str, int] | None = None
     project_path: str = ""
     cli_session_id: str = ""
+    auto_continue: bool = False
 
     def to_dict(self) -> dict[str, Any]:
         d = asdict(self)
@@ -66,6 +69,8 @@ class BackgroundTaskStore:
         self._tasks: dict[str, asyncio.Task] = {}
         self._finished: dict[str, TaskSnapshot] = {}
         self._agent_loop: AgentLoop | None = None
+        self._continuation_budgets: dict[str, int] = {}
+        self._last_rebuild_result: Any | None = None
         self._ensure_tables()
 
     def set_agent_loop(self, loop: AgentLoop) -> None:
@@ -123,6 +128,7 @@ class BackgroundTaskStore:
         prompt: str,
         project_path: str,
         timeout: int,
+        auto_continue: bool = False,
         **executor_kwargs: Any,
     ) -> str:
         task_id = uuid.uuid4().hex[:12]
@@ -136,6 +142,7 @@ class BackgroundTaskStore:
             project_path=project_path,
             started_at=now,
             timeline=[TimelineEvent(timestamp=now, event="submitted", detail=prompt[:100])],
+            auto_continue=auto_continue,
         )
         self._active[task_id] = snapshot
         self._persist_task(snapshot)
@@ -364,6 +371,113 @@ class BackgroundTaskStore:
                     await result_or_coro
         except Exception as exc:
             logger.warning("BackgroundTaskStore: failed to publish outbound: {}", exc)
+
+        rebuild_info = await self._run_post_task_hooks(snapshot)
+
+        if snapshot.auto_continue:
+            await self._trigger_continuation(snapshot, rebuild_info)
+
+    # ------------------------------------------------------------------
+    # Post-task hooks + Continuation
+    # ------------------------------------------------------------------
+
+    async def _run_post_task_hooks(self, snapshot: TaskSnapshot) -> str:
+        """Post-task 钩子：检测前端变更 → 自动 rebuild。返回 hook 结果描述。"""
+        parts: list[str] = []
+        if snapshot.task_type == "coding" and snapshot.status == "succeeded":
+            rebuild_info = await self._maybe_rebuild_frontend(snapshot)
+            if rebuild_info:
+                parts.append(rebuild_info)
+        return "\n".join(parts)
+
+    async def _maybe_rebuild_frontend(self, snapshot: TaskSnapshot) -> str | None:
+        """检测产物新鲜度 → 自动 rebuild。复用 needs_console_ui_build()。"""
+        from pathlib import Path
+        project = snapshot.project_path
+        if not project:
+            return None
+
+        console_ui_dir = Path(project) / "console-ui"
+        if not console_ui_dir.exists():
+            return None
+
+        try:
+            from ava.console.ui_build import needs_console_ui_build, rebuild_console_ui
+            if not needs_console_ui_build(console_ui_dir):
+                return None
+            logger.info("Post-task hook: console-ui dist is stale, auto-rebuilding...")
+            result = await rebuild_console_ui(console_ui_dir)
+            self._last_rebuild_result = result
+            if result.success:
+                info = f"[Auto Rebuild] Frontend rebuilt: hash={result.version_hash[:12]}, {result.duration_ms}ms"
+                logger.info(info)
+                return info
+            else:
+                info = f"[Auto Rebuild] Frontend rebuild failed: {result.error}"
+                logger.warning(info)
+                return info
+        except Exception as exc:
+            logger.warning("Post-task frontend rebuild error: {}", exc)
+            return f"[Auto Rebuild] Error: {exc}"
+
+    async def _trigger_continuation(self, snapshot: TaskSnapshot, rebuild_info: str = "") -> None:
+        """参考 cron 的 process_direct，在 origin session 中触发 agent loop 继续。"""
+        if snapshot.status not in ("succeeded", "failed"):
+            return
+
+        loop = self._agent_loop
+        if not loop:
+            return
+
+        key = snapshot.origin_session_key
+        budget = self._continuation_budgets.get(key, _MAX_CONTINUATION_BUDGET)
+        if budget <= 0:
+            logger.warning(
+                "Continuation budget exhausted for session {}, skipping", key,
+            )
+            return
+
+        self._continuation_budgets[key] = budget - 1
+
+        parts = key.split(":", 1)
+        channel = parts[0] if parts else "cli"
+        chat_id = parts[1] if len(parts) > 1 else "direct"
+
+        content = self._build_continuation_message(snapshot, rebuild_info)
+        try:
+            resp = await loop.process_direct(
+                content,
+                session_key=key,
+                channel=channel,
+                chat_id=chat_id,
+            )
+            if resp and resp.content:
+                bus = getattr(loop, "bus", None)
+                if bus and hasattr(bus, "publish_outbound"):
+                    result_or_coro = bus.publish_outbound(resp)
+                    if asyncio.iscoroutine(result_or_coro):
+                        await result_or_coro
+        except Exception as exc:
+            logger.error("Continuation failed for session {}: {}", key, exc)
+
+    def _build_continuation_message(self, snapshot: TaskSnapshot, rebuild_info: str = "") -> str:
+        status = "SUCCESS" if snapshot.status == "succeeded" else "ERROR"
+        result_text = snapshot.result_preview or snapshot.error_message or "(no output)"
+        parts = [
+            f"[Background Task Completed — {status}]",
+            f"Task: {snapshot.task_type}:{snapshot.task_id}",
+            f"Duration: {snapshot.elapsed_ms}ms",
+            "",
+            result_text,
+        ]
+        if rebuild_info:
+            parts.extend(["", rebuild_info])
+        parts.extend(["", "请基于以上结果继续处理后续步骤。如果所有工作已完成，请总结。"])
+        return "\n".join(parts)
+
+    def reset_continuation_budget(self, session_key: str) -> None:
+        """用户发送新消息时重置 budget（由 loop_patch 调用）。"""
+        self._continuation_budgets.pop(session_key, None)
 
     # ------------------------------------------------------------------
     # Lifecycle 集成
