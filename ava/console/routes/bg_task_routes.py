@@ -52,6 +52,18 @@ async def get_task(task_id: str):
     return status["tasks"][0]
 
 
+@router.get("/{task_id}/detail")
+async def get_task_detail(task_id: str):
+    """获取任务的完整 prompt 和 result。"""
+    bg_store = _get_bg_store()
+    if not bg_store:
+        return {"error": "BackgroundTaskStore not initialized"}
+    detail = bg_store.get_task_detail(task_id)
+    if not detail:
+        return {"error": f"Task {task_id} not found"}
+    return detail
+
+
 @router.get("/{task_id}/timeline")
 async def get_timeline(task_id: str):
     bg_store = _get_bg_store()

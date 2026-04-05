@@ -129,13 +129,14 @@ class BackgroundTaskStore:
         project_path: str,
         timeout: int,
         auto_continue: bool = False,
+        task_type: str = "coding",
         **executor_kwargs: Any,
     ) -> str:
         task_id = uuid.uuid4().hex[:12]
         now = time.time()
         snapshot = TaskSnapshot(
             task_id=task_id,
-            task_type="coding",
+            task_type=task_type,
             origin_session_key=origin_session_key,
             status="queued",
             prompt_preview=prompt[:200],
@@ -145,7 +146,7 @@ class BackgroundTaskStore:
             auto_continue=auto_continue,
         )
         self._active[task_id] = snapshot
-        self._persist_task(snapshot)
+        self._persist_task(snapshot, full_prompt=prompt)
         self._persist_event(task_id, "submitted", prompt[:100])
 
         async def _run() -> None:
@@ -161,10 +162,13 @@ class BackgroundTaskStore:
                 snapshot.status = "succeeded"
                 snapshot.finished_at = time.time()
                 snapshot.elapsed_ms = int((snapshot.finished_at - snapshot.started_at) * 1000)
-                snapshot.result_preview = str(result.get("result", ""))[:500]
+                full_result_str = str(result.get("result", ""))
+                snapshot.result_preview = full_result_str[:500]
                 snapshot.cli_session_id = result.get("session_id", "")
                 self._record_event(task_id, "succeeded", snapshot.result_preview[:100])
-                self._update_task_status(task_id, "succeeded", snapshot)
+                self._update_task_status(
+                    task_id, "succeeded", snapshot, full_result=full_result_str,
+                )
                 await self._on_complete(snapshot, result)
             except asyncio.TimeoutError:
                 snapshot.status = "failed"
@@ -514,11 +518,18 @@ class BackgroundTaskStore:
     # SQLite 持久层
     # ------------------------------------------------------------------
 
-    def _persist_task(self, snapshot: TaskSnapshot) -> None:
+    def _persist_task(
+        self, snapshot: TaskSnapshot, *, full_prompt: str = "", full_result: str = "",
+    ) -> None:
         if not self._db:
             return
         try:
             import json
+            extra: dict[str, Any] = {"cli_session_id": snapshot.cli_session_id}
+            if full_prompt:
+                extra["full_prompt"] = full_prompt
+            if full_result:
+                extra["full_result"] = full_result
             self._db.execute(
                 """INSERT OR REPLACE INTO bg_tasks
                    (task_id, task_type, origin_session_key, status,
@@ -531,7 +542,7 @@ class BackgroundTaskStore:
                     snapshot.prompt_preview, snapshot.project_path,
                     snapshot.started_at, snapshot.finished_at,
                     snapshot.result_preview, snapshot.error_message,
-                    json.dumps({"cli_session_id": snapshot.cli_session_id}),
+                    json.dumps(extra),
                 ),
             )
             self._db.commit()
@@ -540,16 +551,31 @@ class BackgroundTaskStore:
 
     def _update_task_status(
         self, task_id: str, status: str, snapshot: TaskSnapshot | None = None,
+        *, full_result: str = "",
     ) -> None:
         if not self._db:
             return
         try:
             if snapshot:
+                import json as _json
+                # 读取现有 extra，合并 full_result
+                row = self._db.fetchone(
+                    "SELECT extra FROM bg_tasks WHERE task_id=?", (task_id,),
+                )
+                extra: dict[str, Any] = {}
+                if row:
+                    try:
+                        extra = _json.loads(row["extra"] or "{}")
+                    except Exception:
+                        pass
+                extra["cli_session_id"] = snapshot.cli_session_id
+                if full_result:
+                    extra["full_result"] = full_result
                 self._db.execute(
                     """UPDATE bg_tasks SET status=?, finished_at=?,
-                       result_preview=?, error_message=? WHERE task_id=?""",
+                       result_preview=?, error_message=?, extra=? WHERE task_id=?""",
                     (status, snapshot.finished_at, snapshot.result_preview,
-                     snapshot.error_message, task_id),
+                     snapshot.error_message, _json.dumps(extra), task_id),
                 )
             else:
                 self._db.execute(
@@ -648,6 +674,35 @@ class BackgroundTaskStore:
         except Exception as exc:
             logger.warning("BackgroundTaskStore: query_history failed: {}", exc)
             return {"tasks": [], "total": 0, "page": page, "page_size": page_size}
+
+    def get_task_detail(self, task_id: str) -> dict[str, Any] | None:
+        """获取单个任务的完整 prompt 和 result（从 extra JSON 中读取）。"""
+        # 先查内存中的活跃任务
+        snap = self._active.get(task_id) or self._finished.get(task_id)
+        if not self._db:
+            if snap:
+                return {"task_id": task_id, "full_prompt": "", "full_result": ""}
+            return None
+        try:
+            row = self._db.fetchone(
+                "SELECT extra FROM bg_tasks WHERE task_id=?", (task_id,),
+            )
+            if not row:
+                return None
+            import json as _json
+            extra = {}
+            try:
+                extra = _json.loads(row["extra"] or "{}")
+            except Exception:
+                pass
+            return {
+                "task_id": task_id,
+                "full_prompt": extra.get("full_prompt", ""),
+                "full_result": extra.get("full_result", ""),
+            }
+        except Exception as exc:
+            logger.warning("BackgroundTaskStore: get_task_detail failed: {}", exc)
+            return None
 
     def _load_timeline_from_db(self, task_id: str) -> list[TimelineEvent]:
         if not self._db:

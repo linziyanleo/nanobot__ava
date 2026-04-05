@@ -134,6 +134,7 @@ class CodexTool(Tool):
             prompt=prompt,
             project_path=project,
             timeout=timeout,
+            task_type="codex",
             auto_continue=True,
             mode=mode,
             project=project,

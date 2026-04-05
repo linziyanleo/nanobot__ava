@@ -74,6 +74,15 @@ async def get_tokens_by_session(
     return _get_collector().get_by_session(session_key)
 
 
+@router.get("/tokens/by-session/detailed")
+async def get_tokens_by_session_detailed(
+    session_key: str = Query(..., description="Session key"),
+    user: UserInfo = Depends(auth.require_role("admin", "editor", "viewer")),
+):
+    """Per-iteration token records for a specific session (no aggregation)."""
+    return _get_collector().get_by_session_detailed(session_key)
+
+
 @router.get("/tokens/timeline")
 async def get_token_timeline(
     interval: str = Query("hour", pattern="^(hour|day)$"),

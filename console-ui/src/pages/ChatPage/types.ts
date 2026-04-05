@@ -47,6 +47,20 @@ export interface TurnTokenStats {
   models: string
 }
 
+export interface IterationTokenStats {
+  turn_seq: number | null
+  iteration: number
+  prompt_tokens: number
+  completion_tokens: number
+  total_tokens: number
+  cached_tokens: number
+  cache_creation_tokens: number
+  model: string
+  model_role: string
+  tool_names: string
+  finish_reason: string
+}
+
 export interface TurnGroup {
   userMessage: RawMessage
   assistantSteps: RawMessage[]

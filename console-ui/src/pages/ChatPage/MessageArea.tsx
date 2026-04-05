@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, useCallback } from 'react'
 import { MessageSquare, Loader2, Brain, ChevronDown, ChevronRight, RefreshCw, Copy, Check, ArrowDown, Search, Menu } from 'lucide-react'
-import type { SessionMeta, TurnGroup, TurnTokenStats } from './types';
+import type { SessionMeta, TurnGroup, TurnTokenStats, IterationTokenStats } from './types';
 import { SCENE_LABELS } from './types'
 import { TurnGroupComponent } from './TurnGroup'
 import { ChatInput } from './ChatInput'
@@ -29,6 +29,7 @@ export function MessageArea({ session, turns, loading, isConsole, streaming, thi
   const isInitialScroll = useRef(true)
   const [thinkingExpanded, setThinkingExpanded] = useState(false)
   const [turnTokenStats, setTurnTokenStats] = useState<Map<number, TurnTokenStats>>(new Map());
+  const [iterationStats, setIterationStats] = useState<Map<string, IterationTokenStats>>(new Map());
   const [refreshing, setRefreshing] = useState(false)
   const [keyCopied, setKeyCopied] = useState(false)
   const [showScrollDown, setShowScrollDown] = useState(false)
@@ -48,6 +49,15 @@ export function MessageArea({ session, turns, loading, isConsole, streaming, thi
         setTurnTokenStats(map);
       })
       .catch(() => setTurnTokenStats(new Map()));
+    api<IterationTokenStats[]>(`/stats/tokens/by-session/detailed?session_key=${encodeURIComponent(session.key)}`)
+      .then(data => {
+        const map = new Map<string, IterationTokenStats>();
+        for (const item of data) {
+          map.set(`${item.turn_seq ?? ''}:${item.iteration}`, item);
+        }
+        setIterationStats(map);
+      })
+      .catch(() => setIterationStats(new Map()));
   }, [session?.key, turns.length]);
 
   const checkScrollPosition = useCallback(() => {
@@ -177,7 +187,7 @@ export function MessageArea({ session, turns, loading, isConsole, streaming, thi
         ) : (
           <>
             {turns.map((turn, i) => (
-              <TurnGroupComponent key={i} turn={turn} index={i} tokenStats={turnTokenStats.get(i)} sessionKey={session?.key} />
+              <TurnGroupComponent key={i} turn={turn} index={i} tokenStats={turnTokenStats.get(i)} iterationStats={iterationStats} sessionKey={session?.key} />
             ))}
             {thinkingStreaming && (
               <div className="flex justify-start">

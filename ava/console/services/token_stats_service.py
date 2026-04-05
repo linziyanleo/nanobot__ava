@@ -463,6 +463,43 @@ class TokenStatsCollector:
                 for k, v in sorted(buckets.items(), key=lambda x: (x[0] is None, x[0]))
             ]
 
+    def get_by_session_detailed(self, session_key: str) -> list[dict[str, Any]]:
+        """Per-iteration token records for a given session (no aggregation)."""
+        if self._use_db:
+            rows = self._db.fetchall(
+                """SELECT turn_seq, iteration,
+                          prompt_tokens, completion_tokens, total_tokens,
+                          cached_tokens, cache_creation_tokens,
+                          model, model_role, tool_names, finish_reason
+                   FROM token_usage
+                   WHERE session_key = ?
+                   ORDER BY turn_seq, iteration""",
+                (session_key,),
+            )
+            return [dict(r) for r in rows]
+
+        self._reload_if_changed()
+        with self._lock:
+            results = []
+            for r in self._records:
+                if r.session_key != session_key:
+                    continue
+                results.append({
+                    "turn_seq": r.turn_seq,
+                    "iteration": r.iteration,
+                    "prompt_tokens": r.prompt_tokens,
+                    "completion_tokens": r.completion_tokens,
+                    "total_tokens": r.total_tokens,
+                    "cached_tokens": r.cached_tokens,
+                    "cache_creation_tokens": r.cache_creation_tokens,
+                    "model": r.model,
+                    "model_role": r.model_role,
+                    "tool_names": r.tool_names,
+                    "finish_reason": r.finish_reason,
+                })
+            results.sort(key=lambda x: (x["turn_seq"] is None, x["turn_seq"] or 0, x["iteration"]))
+            return results
+
     def reset(self) -> None:
         if self._use_db:
             self._db.execute("DELETE FROM token_usage")

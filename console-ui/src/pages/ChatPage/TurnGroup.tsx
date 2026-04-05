@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from 'react'
 import { Loader2, Clock, Info } from 'lucide-react'
-import type { TurnGroup as TurnGroupType, TurnTokenStats } from './types'
+import type { TurnGroup as TurnGroupType, TurnTokenStats, IterationTokenStats } from './types'
 import { MessageBubble } from './MessageBubble'
 import { ToolCallBlock } from './ToolCallBlock'
 import { SubagentResultBlock, isSubagentMessage } from './SubagentResultBlock'
@@ -11,10 +11,11 @@ interface TurnGroupProps {
   turn: TurnGroupType
   index?: number
   tokenStats?: TurnTokenStats
+  iterationStats?: Map<string, IterationTokenStats>
   sessionKey?: string
 }
 
-export function TurnGroupComponent({ turn, index, tokenStats, sessionKey }: TurnGroupProps) {
+export function TurnGroupComponent({ turn, index, tokenStats, iterationStats, sessionKey }: TurnGroupProps) {
   const duration = calcDuration(turn.startTime, turn.endTime)
   const hasToolCalls = turn.toolCalls.length > 0
   const [showTokenInfo, setShowTokenInfo] = useState(false)
@@ -79,27 +80,52 @@ export function TurnGroupComponent({ turn, index, tokenStats, sessionKey }: Turn
               </div>
             )}
           </div>
-          {turn.toolCalls.map((tc, i) => (
-            <ToolCallBlock
-              key={tc.call.id || i}
-              tc={tc}
-              isLoading={!turn.isComplete && !tc.result}
-              tokenStats={tokenStats}
-            />
-          ))}
+          {turn.toolCalls.map((tc, i) => {
+            // iteration 0 = initial assistant response, iteration 1+ = after each tool result
+            // Tool call at index i corresponds to iteration i (the LLM call that produced it)
+            const iterKey = `${index ?? ''}:${i}`
+            const iterStat = iterationStats?.get(iterKey)
+            return (
+              <ToolCallBlock
+                key={tc.call.id || i}
+                tc={tc}
+                isLoading={!turn.isComplete && !tc.result}
+                tokenStats={tokenStats}
+                iterationStats={iterStat}
+              />
+            )
+          })}
         </div>
       )}
 
-      {/* Final assistant response — pass token stats to the last bubble */}
-      {finalAssistant.map((msg, i) => (
-        <MessageBubble
-          key={`final-${i}`}
-          message={msg}
-          isUser={false}
-          tokenStats={i === finalAssistant.length - 1 ? tokenStats : undefined}
-          sessionKey={sessionKey}
-        />
-      ))}
+      {/* Final assistant response — pass last iteration token stats to the last bubble */}
+      {finalAssistant.map((msg, i) => {
+        let bubbleStats = i === finalAssistant.length - 1 ? tokenStats : undefined
+        // If we have iteration data, use the last iteration (final response after all tool calls)
+        if (bubbleStats && iterationStats && index != null) {
+          const lastIterKey = `${index}:${turn.toolCalls.length}`
+          const lastIter = iterationStats.get(lastIterKey)
+          if (lastIter) {
+            bubbleStats = {
+              turn_seq: lastIter.turn_seq,
+              prompt_tokens: lastIter.prompt_tokens,
+              completion_tokens: lastIter.completion_tokens,
+              total_tokens: lastIter.total_tokens,
+              llm_calls: 1,
+              models: lastIter.model,
+            }
+          }
+        }
+        return (
+          <MessageBubble
+            key={`final-${i}`}
+            message={msg}
+            isUser={false}
+            tokenStats={bubbleStats}
+            sessionKey={sessionKey}
+          />
+        )
+      })}
 
       {/* Loading indicator for incomplete turns */}
       {!turn.isComplete && (

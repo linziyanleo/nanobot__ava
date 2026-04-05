@@ -105,6 +105,17 @@ function StatusBadge({ status }: { status: TaskItem['status'] }) {
   )
 }
 
+const TASK_TYPE_LABELS: Record<string, string> = {
+  claude_code: 'Claude Code',
+  codex: 'Codex',
+  coding: 'Coding',
+}
+
+interface TaskDetail {
+  full_prompt: string
+  full_result: string
+}
+
 function TaskCard({
   task,
   onCancel,
@@ -113,7 +124,24 @@ function TaskCard({
   onCancel: (id: string) => void
 }) {
   const [expanded, setExpanded] = useState(false)
+  const [detail, setDetail] = useState<TaskDetail | null>(null)
+  const [detailLoading, setDetailLoading] = useState(false)
   const isActive = task.status === 'queued' || task.status === 'running'
+
+  const handleToggle = () => {
+    const next = !expanded
+    setExpanded(next)
+    if (next && !detail && !detailLoading) {
+      setDetailLoading(true)
+      api<TaskDetail>(`/bg-tasks/${task.task_id}/detail`)
+        .then(d => setDetail(d))
+        .catch(() => {})
+        .finally(() => setDetailLoading(false))
+    }
+  }
+
+  const promptText = detail?.full_prompt || task.prompt_preview || '(no prompt)'
+  const resultText = detail?.full_result || task.result_preview || ''
 
   return (
     <div className={`rounded-xl border transition-all ${
@@ -123,7 +151,7 @@ function TaskCard({
     }`}>
       <div
         className="flex items-start gap-3 p-4 cursor-pointer select-none"
-        onClick={() => setExpanded(v => !v)}
+        onClick={handleToggle}
       >
         <div className="pt-0.5 text-[var(--text-secondary)]">
           {expanded ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
@@ -134,12 +162,12 @@ function TaskCard({
             <StatusBadge status={task.status} />
             <span className="text-xs text-[var(--text-secondary)] font-mono">{task.task_id}</span>
             <span className="text-xs px-1.5 py-0.5 rounded bg-[var(--bg-tertiary)] text-[var(--text-secondary)]">
-              {task.task_type}
+              {TASK_TYPE_LABELS[task.task_type] || task.task_type}
             </span>
           </div>
 
-          <p className="text-sm text-[var(--text-primary)] truncate mb-1" title={task.prompt_preview}>
-            {task.prompt_preview || '(no prompt)'}
+          <p className={`text-sm text-[var(--text-primary)] mb-1 ${expanded ? 'whitespace-pre-wrap break-words' : 'truncate'}`} title={task.prompt_preview}>
+            {expanded ? promptText : (task.prompt_preview || '(no prompt)')}
           </p>
 
           <div className="flex items-center gap-4 text-xs text-[var(--text-secondary)]">
@@ -175,18 +203,18 @@ function TaskCard({
       {expanded && (
         <div className="px-4 pb-4 border-t border-[var(--border)]">
           <div className="pt-3 space-y-3">
-            {task.result_preview && (
+            {resultText && (
               <div>
                 <h4 className="text-xs font-medium text-[var(--text-secondary)] mb-1">结果</h4>
-                <pre className="text-xs bg-[var(--bg-primary)] rounded-lg p-3 overflow-x-auto text-[var(--text-primary)] whitespace-pre-wrap break-all">
-                  {task.result_preview}
+                <pre className="text-xs bg-[var(--bg-primary)] rounded-lg p-3 overflow-x-auto text-[var(--text-primary)] whitespace-pre-wrap break-all max-h-[400px] overflow-y-auto">
+                  {resultText}
                 </pre>
               </div>
             )}
             {task.error_message && (
               <div>
                 <h4 className="text-xs font-medium text-red-400 mb-1">错误</h4>
-                <pre className="text-xs bg-red-500/5 border border-red-500/20 rounded-lg p-3 overflow-x-auto text-red-300 whitespace-pre-wrap break-all">
+                <pre className="text-xs bg-red-500/5 border border-red-500/20 rounded-lg p-3 overflow-x-auto text-red-300 whitespace-pre-wrap break-all max-h-[300px] overflow-y-auto">
                   {task.error_message}
                 </pre>
               </div>
@@ -216,12 +244,18 @@ function TaskCard({
                           <span className="text-[10px] text-[var(--text-secondary)]">{formatTime(ev.timestamp)}</span>
                         </div>
                         {ev.detail && (
-                          <p className="text-[11px] text-[var(--text-secondary)] truncate">{ev.detail}</p>
+                          <p className="text-[11px] text-[var(--text-secondary)] whitespace-pre-wrap break-words">{ev.detail}</p>
                         )}
                       </div>
                     </div>
                   ))}
                 </div>
+              </div>
+            )}
+
+            {detailLoading && (
+              <div className="text-xs text-[var(--text-secondary)] flex items-center gap-1">
+                <Loader2 className="w-3 h-3 animate-spin" /> 加载完整内容...
               </div>
             )}
           </div>

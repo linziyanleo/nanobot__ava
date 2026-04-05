@@ -135,6 +135,7 @@ class ClaudeCodeTool(Tool):
             prompt=prompt,
             project_path=project,
             timeout=timeout,
+            task_type="claude_code",
             auto_continue=mode in ("standard", "fast"),
             mode=mode,
             session_id=session_id,
