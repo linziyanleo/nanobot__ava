@@ -39,6 +39,10 @@ function versionJsonPlugin(): Plugin {
 }
 
 export default defineConfig({
+  define: {
+    __BUILD_TIME__: JSON.stringify(new Date().toISOString()),
+    __BUILD_VERSION__: JSON.stringify(process.env.npm_package_version || '0.0.0'),
+  },
   plugins: [react(), tailwindcss(), versionJsonPlugin()],
   server: {
     proxy: {

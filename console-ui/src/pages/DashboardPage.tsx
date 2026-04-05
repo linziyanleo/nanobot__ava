@@ -460,6 +460,19 @@ export default function DashboardPage() {
           </div>
         </div>
       </div>
+
+      <p className="text-[10px] text-[var(--text-secondary)] font-mono opacity-60 text-right mt-4">
+        v{__BUILD_VERSION__} · Built{' '}
+        {new Date(__BUILD_TIME__).toLocaleString('zh-CN', {
+          timeZone: 'Asia/Shanghai',
+          year: 'numeric',
+          month: '2-digit',
+          day: '2-digit',
+          hour: '2-digit',
+          minute: '2-digit',
+          hour12: false,
+        })}
+      </p>
     </div>
   );
 }
