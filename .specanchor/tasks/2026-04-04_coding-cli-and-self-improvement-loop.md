@@ -5,7 +5,7 @@ specanchor:
   author: "@fanghu"
   created: "2026-04-04"
   status: "draft"
-  last_change: "v3.6: Page Agent 增强 + Token Stats 异常终止 + 浏览器持久化"
+  last_change: "v3.8: bg_tasks 不再在存储层截断 result_preview，显示裁剪下放到 frontend"
   related_modules:
     - ".specanchor/modules/claude_code_tool_spec.md"
     - ".specanchor/modules/tools_patch_spec.md"
@@ -593,6 +593,14 @@ CREATE INDEX IF NOT EXISTS idx_bg_task_events_task ON bg_task_events(task_id);
     - `MODEL_ROLE_CONFIG` 新增 `page-agent` 图标
   - **Config Schema**：`PageAgentConfig` 新增 `user_data_dir` 字段
   - **TOOLS.md**：新增 page_agent 的 Page State 输出说明 + vision 使用指引
+- [x] 2026-04-07 v3.7: BackgroundTaskStore 完成回调不再把完整结果误降级成 preview
+  - **根因**：`submit_coding_task()` 会把完整 `full_result` 落到 DB extra，但 `_on_complete()` 和 `_build_continuation_message()` 只读取 `snapshot.result_preview`，导致 Claude Code / Codex 等后台任务在回写 session history 和 auto-continue 给 nanobot 时都只剩前 500 字符
+  - **修复**：`ava/agent/bg_tasks.py` 新增完整结果解析 helper；session 落盘消息和 continuation prompt 改为优先使用 executor 返回的完整 `result` / `error_message`，`result_preview` 只保留给 `/task`、列表页和 timeline 摘要
+  - **验证**：`tests/agent/test_bg_tasks.py` 补长结果场景，覆盖 session 落盘和 auto-continue 两条链都能拿到尾部标记
+- [x] 2026-04-07 v3.8: BackgroundTaskStore 不再在存储层截断 result_preview
+  - **问题**：`submit_coding_task()` 成功分支仍有 `result[:500]`，导致任务列表/history/DB fallback 拿到的 `result_preview` 天然是截断值；这是后端存储策略，不应替前端决定展示长度
+  - **修复**：`snapshot.result_preview` 改为保存完整结果；timeline 的 `succeeded.detail[:100]` 继续保留为事件摘要，避免把整段正文重复灌进事件流
+  - **验证**：`tests/agent/test_bg_tasks.py` 改为断言内存态和 prune 后 DB 回读都能拿到长结果全文
 - [ ] Phase 2 尚未执行
 - [ ] Phase 3 尚未执行
 

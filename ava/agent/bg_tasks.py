@@ -164,8 +164,8 @@ class BackgroundTaskStore:
                 snapshot.status = "succeeded"
                 snapshot.finished_at = time.time()
                 snapshot.elapsed_ms = int((snapshot.finished_at - snapshot.started_at) * 1000)
-                full_result_str = str(result.get("result", ""))
-                snapshot.result_preview = full_result_str[:500]
+                full_result_str = self._stringify_result_value(result.get("result"))
+                snapshot.result_preview = full_result_str
                 snapshot.cli_session_id = result.get("session_id", "")
                 self._record_event(task_id, "succeeded", snapshot.result_preview[:100])
                 self._update_task_status(
@@ -333,6 +333,29 @@ class BackgroundTaskStore:
             tasks.extend(self._finished.values())
         return tasks
 
+    @staticmethod
+    def _stringify_result_value(value: Any) -> str:
+        if value is None:
+            return ""
+        return value if isinstance(value, str) else str(value)
+
+    def _resolve_result_text(
+        self,
+        snapshot: TaskSnapshot,
+        result: dict[str, Any] | None = None,
+    ) -> str:
+        """优先返回完整结果，preview 仅作为兜底。"""
+        if result:
+            result_text = self._stringify_result_value(result.get("result"))
+            error_text = self._stringify_result_value(result.get("error_message"))
+            if result_text and error_text and error_text not in result_text:
+                return f"{result_text}\n\nError: {error_text}"
+            if result_text:
+                return result_text
+            if error_text:
+                return error_text
+        return snapshot.error_message or snapshot.result_preview or "(no output)"
+
     # ------------------------------------------------------------------
     # 完成回调
     # ------------------------------------------------------------------
@@ -346,7 +369,7 @@ class BackgroundTaskStore:
             return
 
         status_label = "SUCCESS" if snapshot.status == "succeeded" else "ERROR"
-        result_text = snapshot.result_preview or snapshot.error_message or "(no output)"
+        result_text = self._resolve_result_text(snapshot, result)
         formatted = (
             f"[Background Task {snapshot.task_id} {status_label}]\n"
             f"Type: {snapshot.task_type} | Duration: {snapshot.elapsed_ms}ms\n\n"
@@ -389,7 +412,7 @@ class BackgroundTaskStore:
         rebuild_info = await self._run_post_task_hooks(snapshot)
 
         if snapshot.auto_continue:
-            await self._trigger_continuation(snapshot, rebuild_info)
+            await self._trigger_continuation(snapshot, rebuild_info, result=result)
 
     # ------------------------------------------------------------------
     # Post-task hooks + Continuation
@@ -434,7 +457,12 @@ class BackgroundTaskStore:
             logger.warning("Post-task frontend rebuild error: {}", exc)
             return f"[Auto Rebuild] Error: {exc}"
 
-    async def _trigger_continuation(self, snapshot: TaskSnapshot, rebuild_info: str = "") -> None:
+    async def _trigger_continuation(
+        self,
+        snapshot: TaskSnapshot,
+        rebuild_info: str = "",
+        result: dict[str, Any] | None = None,
+    ) -> None:
         """参考 cron 的 process_direct，在 origin session 中触发 agent loop 继续。"""
         if snapshot.status not in ("succeeded", "failed"):
             return
@@ -457,7 +485,7 @@ class BackgroundTaskStore:
         channel = parts[0] if parts else "cli"
         chat_id = parts[1] if len(parts) > 1 else "direct"
 
-        content = self._build_continuation_message(snapshot, rebuild_info)
+        content = self._build_continuation_message(snapshot, rebuild_info, result=result)
         try:
             resp = await loop.process_direct(
                 content,
@@ -474,9 +502,14 @@ class BackgroundTaskStore:
         except Exception as exc:
             logger.error("Continuation failed for session {}: {}", key, exc)
 
-    def _build_continuation_message(self, snapshot: TaskSnapshot, rebuild_info: str = "") -> str:
+    def _build_continuation_message(
+        self,
+        snapshot: TaskSnapshot,
+        rebuild_info: str = "",
+        result: dict[str, Any] | None = None,
+    ) -> str:
         status = "SUCCESS" if snapshot.status == "succeeded" else "ERROR"
-        result_text = snapshot.result_preview or snapshot.error_message or "(no output)"
+        result_text = self._resolve_result_text(snapshot, result)
         parts = [
             f"[Background Task Completed — {status}]",
             f"Task: {snapshot.task_type}:{snapshot.task_id}",

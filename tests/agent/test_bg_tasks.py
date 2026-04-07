@@ -185,9 +185,10 @@ class TestGetStatus:
 
         db = Database(tmp_path / "bg-tasks.db")
         store = BackgroundTaskStore(db=db)
+        long_result = ("db-result-" * 80) + "TAIL_MARKER"
 
         async def quick(**kw):
-            return {"result": "ok-from-db"}
+            return {"result": long_result}
 
         task_id = store.submit_coding_task(
             executor=quick,
@@ -205,7 +206,7 @@ class TestGetStatus:
         assert task_id not in store._finished
         assert status["total"] == 1
         assert status["tasks"][0]["task_id"] == task_id
-        assert status["tasks"][0]["result_preview"] == "ok-from-db"
+        assert status["tasks"][0]["result_preview"] == long_result
 
 
 class TestDigest:
@@ -292,6 +293,36 @@ class TestOnComplete:
         assert "SUCCESS" in mock_session.messages[0]["content"]
         assert "Build succeeded" in mock_session.messages[0]["content"]
         mock_sessions.save.assert_called()
+
+    @pytest.mark.asyncio
+    async def test_long_result_persisted_to_session_without_preview_truncation(self):
+        mock_session = MagicMock()
+        mock_session.messages = []
+        mock_sessions = MagicMock()
+        mock_sessions.get_or_create.return_value = mock_session
+        mock_sessions.save = MagicMock()
+
+        mock_loop = MagicMock()
+        mock_loop.sessions = mock_sessions
+        mock_loop.bus = None
+
+        store = BackgroundTaskStore()
+        store.set_agent_loop(mock_loop)
+
+        long_result = ("x" * 600) + "TAIL_MARKER"
+
+        async def quick(**kw):
+            return {"result": long_result}
+
+        task_id = store.submit_coding_task(
+            executor=quick, origin_session_key="console:s1",
+            prompt="Build", project_path="/tmp", timeout=10,
+        )
+        await asyncio.sleep(0.2)
+
+        snap = store._finished[task_id]
+        assert snap.result_preview == long_result
+        assert "TAIL_MARKER" in mock_session.messages[0]["content"]
 
     @pytest.mark.asyncio
     async def test_outbound_published(self):
@@ -468,6 +499,22 @@ class TestBuildContinuationMessage:
         msg = store._build_continuation_message(snap, "[Auto Rebuild] Frontend rebuilt: hash=abcdef, 2000ms")
         assert "[Auto Rebuild]" in msg
         assert "Frontend rebuilt" in msg
+
+    def test_prefers_full_result_over_preview(self):
+        store = BackgroundTaskStore()
+        snap = TaskSnapshot(
+            task_id="ghi", task_type="coding",
+            origin_session_key="console:s1",
+            status="succeeded", prompt_preview="Refactor",
+            elapsed_ms=3000, result_preview="short preview",
+        )
+        full_result = ("y" * 600) + "TAIL_MARKER"
+        msg = store._build_continuation_message(
+            snap,
+            result={"result": full_result},
+        )
+        assert "TAIL_MARKER" in msg
+        assert "short preview" not in msg
 
 
 class TestTriggerContinuation:
@@ -723,3 +770,35 @@ class TestOnCompleteWithContinuation:
         mock_loop.process_direct.assert_called_once()
         call_kwargs = mock_loop.process_direct.call_args
         assert call_kwargs.kwargs["session_key"] == "telegram:123"
+
+    @pytest.mark.asyncio
+    async def test_continuation_receives_full_result_not_preview(self):
+        mock_session = MagicMock()
+        mock_session.messages = []
+        mock_sessions = MagicMock()
+        mock_sessions.get_or_create.return_value = mock_session
+        mock_sessions.save = MagicMock()
+
+        mock_loop = MagicMock()
+        mock_loop.sessions = mock_sessions
+        mock_loop.bus = None
+        mock_loop.process_direct = AsyncMock(return_value=None)
+
+        store = BackgroundTaskStore()
+        store.set_agent_loop(mock_loop)
+
+        long_result = ("z" * 600) + "TAIL_MARKER"
+
+        async def quick(**kw):
+            return {"result": long_result}
+
+        task_id = store.submit_coding_task(
+            executor=quick, origin_session_key="telegram:123",
+            prompt="Task", project_path="/tmp", timeout=10,
+            auto_continue=True,
+        )
+        await asyncio.sleep(0.3)
+
+        call_kwargs = mock_loop.process_direct.call_args
+        assert call_kwargs is not None
+        assert "TAIL_MARKER" in call_kwargs.args[0]
