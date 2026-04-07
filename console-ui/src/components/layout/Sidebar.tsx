@@ -4,6 +4,7 @@ import {
   Bot,
   PanelLeftClose,
   User,
+  Users,
   LogOut,
   Sun,
   Moon,
@@ -133,23 +134,26 @@ export default function Sidebar() {
       <div className={cn('border-t border-[var(--border)]', collapsed ? 'p-2' : 'p-4')}>
         {collapsed ? (
           <div className="space-y-1">
-            {isAdmin() ? (
-              <FixedTooltip label={user?.username ?? '用户'}>
+            <FixedTooltip label={user?.username ?? '用户'}>
+              <div className="flex justify-center p-2 rounded-lg text-[var(--text-secondary)]">
+                <User className="w-4 h-4" />
+              </div>
+            </FixedTooltip>
+            {isAdmin() && (
+              <FixedTooltip label="用户管理">
                 <NavLink
                   to="/users"
-                  className="flex justify-center p-2 rounded-lg text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)] transition-colors"
+                  className={({ isActive }) =>
+                    cn(
+                      'flex justify-center p-2 rounded-lg transition-colors',
+                      isActive
+                        ? 'bg-[var(--accent)] text-white'
+                        : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)]',
+                    )
+                  }
                 >
-                  <User className="w-4 h-4" />
+                  <Users className="w-4 h-4" />
                 </NavLink>
-              </FixedTooltip>
-            ) : (
-              <FixedTooltip label={`${user?.username ?? '用户'} · 退出`}>
-                <button
-                  onClick={logout}
-                  className="flex justify-center p-2 rounded-lg text-[var(--text-secondary)] hover:text-[var(--danger)] hover:bg-[var(--bg-tertiary)] transition-colors w-full"
-                >
-                  <User className="w-4 h-4" />
-                </button>
               </FixedTooltip>
             )}
             <FixedTooltip label={isDark ? '切换到白天模式' : '切换到黑夜模式'}>
@@ -158,6 +162,14 @@ export default function Sidebar() {
                 className="flex justify-center p-2 rounded-lg text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)] transition-colors w-full"
               >
                 {isDark ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
+              </button>
+            </FixedTooltip>
+            <FixedTooltip label="退出登录">
+              <button
+                onClick={logout}
+                className="flex justify-center p-2 rounded-lg text-[var(--text-secondary)] hover:text-[var(--danger)] hover:bg-[var(--bg-tertiary)] transition-colors w-full"
+              >
+                <LogOut className="w-4 h-4" />
               </button>
             </FixedTooltip>
           </div>
@@ -170,6 +182,22 @@ export default function Sidebar() {
               <p className="text-sm font-medium text-[var(--text-primary)] truncate">{user?.username}</p>
               <p className="text-xs text-[var(--text-secondary)] capitalize">{user?.role}</p>
             </div>
+            {isAdmin() && (
+              <NavLink
+                to="/users"
+                title="用户管理"
+                className={({ isActive }) =>
+                  cn(
+                    'p-1.5 rounded-lg transition-colors shrink-0',
+                    isActive
+                      ? 'text-[var(--accent)]'
+                      : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)]',
+                  )
+                }
+              >
+                <Users className="w-3.5 h-3.5" />
+              </NavLink>
+            )}
             <button
               onClick={toggleTheme}
               title={isDark ? '切换到白天模式' : '切换到黑夜模式'}
