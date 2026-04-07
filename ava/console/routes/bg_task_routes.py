@@ -5,8 +5,10 @@ from __future__ import annotations
 import asyncio
 import json
 
-from fastapi import APIRouter, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, Depends, WebSocket, WebSocketDisconnect
 from loguru import logger
+from ava.console import auth
+from ava.console.models import UserInfo
 
 router = APIRouter(prefix="/api/bg-tasks", tags=["bg-tasks"])
 
@@ -19,7 +21,11 @@ def _get_bg_store():
 
 
 @router.get("")
-async def list_tasks(session_key: str | None = None, include_finished: bool = True):
+async def list_tasks(
+    session_key: str | None = None,
+    include_finished: bool = True,
+    user: UserInfo = Depends(auth.require_role("admin", "editor", "viewer")),
+):
     bg_store = _get_bg_store()
     if not bg_store:
         return {"running": 0, "total": 0, "tasks": []}
@@ -34,6 +40,7 @@ async def list_history(
     page: int = 1,
     page_size: int = 20,
     session_key: str | None = None,
+    user: UserInfo = Depends(auth.require_role("admin", "editor", "viewer")),
 ):
     bg_store = _get_bg_store()
     if not bg_store:
@@ -42,7 +49,7 @@ async def list_history(
 
 
 @router.get("/{task_id}")
-async def get_task(task_id: str):
+async def get_task(task_id: str, user: UserInfo = Depends(auth.require_role("admin", "editor", "viewer"))):
     bg_store = _get_bg_store()
     if not bg_store:
         return {"error": "BackgroundTaskStore not initialized"}
@@ -53,7 +60,7 @@ async def get_task(task_id: str):
 
 
 @router.get("/{task_id}/detail")
-async def get_task_detail(task_id: str):
+async def get_task_detail(task_id: str, user: UserInfo = Depends(auth.require_role("admin", "editor", "viewer"))):
     """获取任务的完整 prompt 和 result。"""
     bg_store = _get_bg_store()
     if not bg_store:
@@ -65,7 +72,7 @@ async def get_task_detail(task_id: str):
 
 
 @router.get("/{task_id}/timeline")
-async def get_timeline(task_id: str):
+async def get_timeline(task_id: str, user: UserInfo = Depends(auth.require_role("admin", "editor", "viewer"))):
     bg_store = _get_bg_store()
     if not bg_store:
         return {"events": []}
@@ -80,7 +87,7 @@ async def get_timeline(task_id: str):
 
 
 @router.post("/{task_id}/cancel")
-async def cancel_task(task_id: str):
+async def cancel_task(task_id: str, user: UserInfo = Depends(auth.require_role("admin", "editor", "viewer"))):
     bg_store = _get_bg_store()
     if not bg_store:
         return {"message": "BackgroundTaskStore not initialized"}
@@ -91,6 +98,10 @@ async def cancel_task(task_id: str):
 @router.websocket("/ws")
 async def bg_tasks_ws(websocket: WebSocket):
     """Push task status snapshots at 2 s intervals; skip if unchanged."""
+    user = await auth.get_ws_user(websocket)
+    if user.role == "mock_tester":
+        await websocket.close(code=1008)
+        return
     await websocket.accept()
     bg_store = _get_bg_store()
 

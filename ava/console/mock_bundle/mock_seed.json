@@ -1,0 +1,145 @@
+{
+  "media_assets": [
+    {
+      "name": "mock-sky.png",
+      "content_base64": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO7Z0ioAAAAASUVORK5CYII="
+    },
+    {
+      "name": "mock-grid.png",
+      "content_base64": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAusB9pQwP7cAAAAASUVORK5CYII="
+    }
+  ],
+  "media_records": [
+    {
+      "id": "mock-media-1",
+      "timestamp": "2026-04-07T09:00:00+08:00",
+      "prompt": "A bright editorial illustration with a clean sky gradient",
+      "reference_image": null,
+      "output_images": [
+        "workspace/media/generated/mock-sky.png"
+      ],
+      "output_text": "Generated successfully in mock mode.",
+      "model": "openai/gpt-image-1",
+      "status": "success",
+      "error": null
+    },
+    {
+      "id": "mock-media-2",
+      "timestamp": "2026-04-07T09:20:00+08:00",
+      "prompt": "Wireframe style dashboard blocks with soft neutral colors",
+      "reference_image": "workspace/assets/reference/mock-board.png",
+      "output_images": [
+        "workspace/media/generated/mock-grid.png"
+      ],
+      "output_text": "Second mock image record.",
+      "model": "google/gemini-image",
+      "status": "success",
+      "error": null
+    }
+  ],
+  "audit_entries": [
+    {
+      "timestamp": "2026-04-07T09:05:00+08:00",
+      "user": "mock_tester",
+      "role": "mock_tester",
+      "action": "mock.login",
+      "target": "console",
+      "detail": {
+        "source": "repo-mock-bundle"
+      },
+      "ip": "127.0.0.1"
+    }
+  ],
+  "sessions": [
+    {
+      "key": "console:mock-session-1",
+      "created_at": "2026-04-07T08:50:00+08:00",
+      "updated_at": "2026-04-07T09:00:00+08:00",
+      "metadata": {
+        "title": "Mock design pass"
+      },
+      "last_consolidated": 0,
+      "last_completed": null,
+      "token_stats": {}
+    }
+  ],
+  "session_messages": [
+    {
+      "session_key": "console:mock-session-1",
+      "seq": 0,
+      "conversation_id": "mock-conv-1",
+      "role": "user",
+      "content": "Please review the mock dashboard layout.",
+      "timestamp": "2026-04-07T08:50:00+08:00"
+    },
+    {
+      "session_key": "console:mock-session-1",
+      "seq": 1,
+      "conversation_id": "mock-conv-1",
+      "role": "assistant",
+      "content": "The layout is balanced but can use stronger contrast for status chips.",
+      "timestamp": "2026-04-07T08:50:06+08:00"
+    }
+  ],
+  "token_usage": [
+    {
+      "timestamp": "2026-04-07T08:50:01+08:00",
+      "model": "openai/gpt-4.1",
+      "provider": "openai",
+      "prompt_tokens": 420,
+      "completion_tokens": 180,
+      "total_tokens": 600,
+      "session_key": "console:mock-session-1",
+      "conversation_id": "mock-conv-1",
+      "turn_seq": 0,
+      "iteration": 0,
+      "user_message": "Please review the mock dashboard layout.",
+      "output_content": "The layout is balanced but can use stronger contrast for status chips.",
+      "system_prompt_preview": "You are reviewing a mock dashboard for UI coverage.",
+      "conversation_history": "[]",
+      "full_request_payload": "{\"messages\":[{\"role\":\"user\",\"content\":\"Please review the mock dashboard layout.\"}]}",
+      "finish_reason": "stop",
+      "model_role": "default",
+      "cached_tokens": 120,
+      "cache_creation_tokens": 0,
+      "cost_usd": 0.0123,
+      "current_turn_tokens": 600,
+      "tool_names": ""
+    },
+    {
+      "timestamp": "2026-04-07T08:50:03+08:00",
+      "model": "openai/gpt-4.1-mini",
+      "provider": "openai",
+      "prompt_tokens": 180,
+      "completion_tokens": 90,
+      "total_tokens": 270,
+      "session_key": "console:mock-session-1",
+      "conversation_id": "mock-conv-1",
+      "turn_seq": 0,
+      "iteration": 1,
+      "user_message": "",
+      "output_content": "Summarized mock UI notes.",
+      "system_prompt_preview": "You are a compact follow-up model.",
+      "conversation_history": "[]",
+      "full_request_payload": "{\"messages\":[{\"role\":\"assistant\",\"content\":\"Summarized mock UI notes.\"}]}",
+      "finish_reason": "stop",
+      "model_role": "mini",
+      "cached_tokens": 0,
+      "cache_creation_tokens": 50,
+      "cost_usd": 0.0021,
+      "current_turn_tokens": 870,
+      "tool_names": "style_review"
+    }
+  ],
+  "skill_config": [
+    {
+      "name": "memory_cleanup",
+      "source": "ava",
+      "enabled": 1,
+      "installed_at": "2026-04-07T08:00:00+08:00",
+      "install_method": "builtin",
+      "git_url": null,
+      "updated_at": "2026-04-07T08:00:00+08:00"
+    }
+  ]
+}

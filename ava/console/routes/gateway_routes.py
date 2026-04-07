@@ -37,9 +37,9 @@ async def console_rebuild(
 
 
 @router.get("/status")
-async def gateway_status(user: UserInfo = Depends(auth.require_role("admin", "editor", "viewer"))):
-    from ava.console.app import get_services
-    return get_services().gateway.get_status()
+async def gateway_status(user: UserInfo = Depends(auth.require_role("admin", "editor", "viewer", "mock_tester"))):
+    from ava.console.app import get_services_for_user
+    return get_services_for_user(user).gateway.get_status()
 
 
 @router.get("/health")

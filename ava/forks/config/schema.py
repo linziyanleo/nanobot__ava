@@ -390,9 +390,40 @@ class ConsoleConfig(Base):
     """Web Console 配置。"""
 
     enabled: bool = True
+    host: str = "127.0.0.1"
     port: int = 6688
     secret_key: str = "change-me-in-production-use-a-longer-key!"
     token_expire_minutes: int = 480
+    public_dev: bool = Field(
+        default=False,
+        validation_alias=AliasChoices("public_dev", "publicDev"),
+        serialization_alias="publicDev",
+    )
+    session_cookie_name: str = Field(
+        default="ava_console_session",
+        validation_alias=AliasChoices("session_cookie_name", "sessionCookieName"),
+        serialization_alias="sessionCookieName",
+    )
+    session_cookie_secure: bool = Field(
+        default=False,
+        validation_alias=AliasChoices("session_cookie_secure", "sessionCookieSecure"),
+        serialization_alias="sessionCookieSecure",
+    )
+    session_cookie_samesite: Literal["lax", "strict", "none"] = Field(
+        default="lax",
+        validation_alias=AliasChoices("session_cookie_samesite", "sessionCookieSameSite"),
+        serialization_alias="sessionCookieSameSite",
+    )
+    cloudflare_access_team_domain: str = Field(
+        default="",
+        validation_alias=AliasChoices("cloudflare_access_team_domain", "cloudflareAccessTeamDomain"),
+        serialization_alias="cloudflareAccessTeamDomain",
+    )
+    cloudflare_access_audience: str = Field(
+        default="",
+        validation_alias=AliasChoices("cloudflare_access_audience", "cloudflareAccessAudience"),
+        serialization_alias="cloudflareAccessAudience",
+    )
 
 
 class HeartbeatConfig(Base):

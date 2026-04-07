@@ -19,11 +19,11 @@ class FileDeleteRequest(BaseModel):
 @router.get("/tree")
 async def get_tree(
     root: str = Query("workspace", description="Root: 'workspace' or 'nanobot'"),
-    user: UserInfo = Depends(auth.require_role("admin", "editor", "viewer")),
+    user: UserInfo = Depends(auth.require_role("admin", "editor", "viewer", "mock_tester")),
 ):
-    from ava.console.app import get_services
+    from ava.console.app import get_services_for_user
     try:
-        return get_services().files.get_file_tree(root)
+        return get_services_for_user(user).files.get_file_tree(root)
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
 
@@ -31,11 +31,11 @@ async def get_tree(
 @router.get("/read")
 async def read_file(
     path: str = Query(..., description="File path"),
-    user: UserInfo = Depends(auth.require_role("admin", "editor", "viewer")),
+    user: UserInfo = Depends(auth.require_role("admin", "editor", "viewer", "mock_tester")),
 ):
-    from ava.console.app import get_services
+    from ava.console.app import get_services_for_user
     try:
-        return get_services().files.read_file(path)
+        return get_services_for_user(user).files.read_file(path)
     except (FileNotFoundError, PermissionError, ValueError) as e:
         raise HTTPException(status_code=404, detail=str(e))
 
@@ -44,11 +44,11 @@ async def read_file(
 async def write_file(
     body: FileWriteRequest,
     request: Request,
-    user: UserInfo = Depends(auth.require_role("admin", "editor")),
+    user: UserInfo = Depends(auth.require_role("admin", "editor", "mock_tester")),
 ):
-    from ava.console.app import get_services
+    from ava.console.app import get_services_for_user
 
-    svc = get_services()
+    svc = get_services_for_user(user)
     try:
         result = svc.files.write_file(body.path, body.content, body.expected_mtime)
     except (PermissionError, ValueError) as e:
@@ -65,11 +65,11 @@ async def write_file(
 async def delete_file(
     body: FileDeleteRequest,
     request: Request,
-    user: UserInfo = Depends(auth.require_role("admin", "editor")),
+    user: UserInfo = Depends(auth.require_role("admin", "editor", "mock_tester")),
 ):
-    from ava.console.app import get_services
+    from ava.console.app import get_services_for_user
 
-    svc = get_services()
+    svc = get_services_for_user(user)
     try:
         svc.files.delete_file(body.path)
     except (FileNotFoundError, PermissionError, ValueError) as e:

@@ -98,7 +98,3 @@ class UserService:
     def has_any_user(self) -> bool:
         return bool(self._load())
 
-    def ensure_default_admin(self) -> None:
-        """Create default admin if no users exist."""
-        if not self.has_any_user():
-            self.create_user("admin", "admin", "admin")

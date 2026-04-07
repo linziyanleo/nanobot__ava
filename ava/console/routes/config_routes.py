@@ -12,20 +12,20 @@ router = APIRouter(prefix="/api/config", tags=["config"])
 
 
 @router.get("/list")
-async def list_configs(user: UserInfo = Depends(auth.require_role("admin", "editor", "viewer"))):
-    from ava.console.app import get_services
-    return get_services().config.list_configs()
+async def list_configs(user: UserInfo = Depends(auth.require_role("admin", "editor", "viewer", "mock_tester"))):
+    from ava.console.app import get_services_for_user
+    return get_services_for_user(user).config.list_configs()
 
 
 @router.get("/{name:path}")
 async def read_config(
     name: str,
-    user: UserInfo = Depends(auth.require_role("admin", "editor", "viewer")),
+    user: UserInfo = Depends(auth.require_role("admin", "editor", "viewer", "mock_tester")),
 ):
-    from ava.console.app import get_services
+    from ava.console.app import get_services_for_user
 
     try:
-        return get_services().config.read_config(name, mask=(user.role != "admin"))
+        return get_services_for_user(user).config.read_config(name, mask=(user.role != "admin"))
     except (ValueError, FileNotFoundError) as e:
         raise HTTPException(status_code=404, detail=str(e))
 
@@ -35,11 +35,11 @@ async def update_config(
     name: str,
     body: ConfigUpdateRequest,
     request: Request,
-    user: UserInfo = Depends(auth.require_role("admin", "editor")),
+    user: UserInfo = Depends(auth.require_role("admin", "editor", "mock_tester")),
 ):
-    from ava.console.app import get_services
+    from ava.console.app import get_services_for_user
 
-    svc = get_services()
+    svc = get_services_for_user(user)
     try:
         result = svc.config.update_config(name, body.content, body.mtime)
     except ValueError as e:

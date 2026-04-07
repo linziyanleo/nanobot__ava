@@ -6,33 +6,36 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
+ConsoleRole = Literal["admin", "editor", "viewer", "mock_tester"]
+
 
 class LoginRequest(BaseModel):
     username: str
     password: str
 
 
-class LoginResponse(BaseModel):
-    access_token: str
-    token_type: str = "bearer"
-    user: UserInfo
-
-
 class UserInfo(BaseModel):
     username: str
-    role: Literal["admin", "editor", "viewer"]
+    role: ConsoleRole
     created_at: str
+
+
+class LoginResponse(BaseModel):
+    access_token: str | None = None
+    token_type: str = "bearer"
+    session_established: bool = True
+    user: UserInfo
 
 
 class UserCreateRequest(BaseModel):
     username: str
     password: str
-    role: Literal["admin", "editor", "viewer"] = "viewer"
+    role: ConsoleRole = "viewer"
 
 
 class UserUpdateRequest(BaseModel):
     password: str | None = None
-    role: Literal["admin", "editor", "viewer"] | None = None
+    role: ConsoleRole | None = None
 
 
 class FileNode(BaseModel):

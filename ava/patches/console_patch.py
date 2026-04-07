@@ -9,7 +9,7 @@ Strategy:
   reference (captured by loop_patch during __init__), enabling direct
   chat API without HTTP reverse-proxy.
 
-Console is served at: http://0.0.0.0:<port>
+Console is served at: http://127.0.0.1:<port>
 Port priority: config.gateway.console.port → CAFE_CONSOLE_PORT env → 6688
 """
 
@@ -19,6 +19,7 @@ import os
 
 from loguru import logger
 
+from ava.console.mock_bundle_runtime import validate_console_security
 from ava.launcher import register_patch
 
 
@@ -84,7 +85,11 @@ def apply_console_patch() -> str:
                         (console_cfg.port if console_cfg else None)
                         or int(os.environ.get("CAFE_CONSOLE_PORT", "6688"))
                     )
-                    console_host = os.environ.get("CAFE_CONSOLE_HOST", "0.0.0.0")
+                    console_host = (
+                        (console_cfg.host if console_cfg else None)
+                        or os.environ.get("CAFE_CONSOLE_HOST", "127.0.0.1")
+                    )
+                    validate_console_security(console_cfg, console_host)
 
                     # Get AgentLoop reference from loop_patch (set during __init__)
                     from ava.patches.loop_patch import get_agent_loop
@@ -121,6 +126,17 @@ def apply_console_patch() -> str:
                             console_port=console_port,
                             secret_key=secret_key,
                             expire_minutes=expire_minutes,
+                            session_cookie_name=(
+                                (console_cfg.session_cookie_name if console_cfg else None)
+                                or "ava_console_session"
+                            ),
+                            session_cookie_secure=bool(
+                                (console_cfg.session_cookie_secure if console_cfg else False)
+                            ),
+                            session_cookie_samesite=(
+                                (console_cfg.session_cookie_samesite if console_cfg else None)
+                                or "lax"
+                            ),
                             token_stats_dir=str(nanobot_dir),
                         )
                         logger.info("Console starting in standalone mode (HTTP proxy)")

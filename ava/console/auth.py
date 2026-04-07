@@ -3,26 +3,35 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
-from functools import wraps
 from typing import Callable
 
 import jwt
-from fastapi import Depends, HTTPException, status, WebSocket, WebSocketException
-from fastapi.security import OAuth2PasswordBearer
+from fastapi import Depends, HTTPException, Request, Response, status, WebSocket, WebSocketException
 
 from ava.console.models import UserInfo
-
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/login", auto_error=True)
 
 _secret_key: str = "change-me"
 _algorithm: str = "HS256"
 _expire_minutes: int = 480
+_cookie_name: str = "ava_console_session"
+_cookie_secure: bool = False
+_cookie_samesite: str = "lax"
 
 
-def configure(secret_key: str, expire_minutes: int = 480) -> None:
-    global _secret_key, _expire_minutes
+def configure(
+    secret_key: str,
+    expire_minutes: int = 480,
+    *,
+    cookie_name: str = "ava_console_session",
+    cookie_secure: bool = False,
+    cookie_samesite: str = "lax",
+) -> None:
+    global _secret_key, _expire_minutes, _cookie_name, _cookie_secure, _cookie_samesite
     _secret_key = secret_key
     _expire_minutes = expire_minutes
+    _cookie_name = cookie_name
+    _cookie_secure = cookie_secure
+    _cookie_samesite = cookie_samesite.lower()
 
 
 def create_access_token(data: dict, expires_delta: timedelta | None = None) -> str:
@@ -41,8 +50,27 @@ def verify_token(token: str) -> dict:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token")
 
 
-async def get_current_user(token: str = Depends(oauth2_scheme)) -> UserInfo:
-    payload = verify_token(token)
+def session_cookie_name() -> str:
+    return _cookie_name
+
+
+def set_session_cookie(response: Response, token: str) -> None:
+    response.set_cookie(
+        key=_cookie_name,
+        value=token,
+        httponly=True,
+        secure=_cookie_secure,
+        samesite=_cookie_samesite,
+        max_age=_expire_minutes * 60,
+        path="/",
+    )
+
+
+def clear_session_cookie(response: Response) -> None:
+    response.delete_cookie(key=_cookie_name, path="/")
+
+
+def _user_from_payload(payload: dict) -> UserInfo:
     username = payload.get("sub")
     role = payload.get("role")
     created_at = payload.get("created_at", "")
@@ -51,12 +79,42 @@ async def get_current_user(token: str = Depends(oauth2_scheme)) -> UserInfo:
     return UserInfo(username=username, role=role, created_at=created_at)
 
 
+def _request_token(request: Request) -> str | None:
+    auth_header = request.headers.get("authorization", "")
+    if auth_header.lower().startswith("bearer "):
+        token = auth_header[7:].strip()
+        if token:
+            return token
+    return request.cookies.get(_cookie_name)
+
+
+def _ws_token(websocket: WebSocket) -> str | None:
+    auth_header = websocket.headers.get("authorization", "")
+    if auth_header.lower().startswith("bearer "):
+        token = auth_header[7:].strip()
+        if token:
+            return token
+    return websocket.cookies.get(_cookie_name)
+
+
+async def get_current_user(request: Request) -> UserInfo:
+    token = _request_token(request)
+    if not token:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Authentication required")
+    payload = verify_token(token)
+    return _user_from_payload(payload)
+
+
 async def get_ws_user(websocket: WebSocket) -> UserInfo:
-    """Extract user from WebSocket query parameter `token`."""
-    token = websocket.query_params.get("token")
+    """Extract user from WebSocket cookie or Authorization header."""
+    token = _ws_token(websocket)
     if not token:
         raise WebSocketException(code=status.WS_1008_POLICY_VIOLATION)
-    payload = verify_token(token)
+    try:
+        payload = verify_token(token)
+    except HTTPException as exc:
+        raise WebSocketException(code=status.WS_1008_POLICY_VIOLATION) from exc
+
     username = payload.get("sub")
     role = payload.get("role")
     created_at = payload.get("created_at", "")
@@ -65,18 +123,14 @@ async def get_ws_user(websocket: WebSocket) -> UserInfo:
     return UserInfo(username=username, role=role, created_at=created_at)
 
 
-async def optional_user(token: str = Depends(OAuth2PasswordBearer(tokenUrl="/api/auth/login", auto_error=False))) -> UserInfo | None:
+async def optional_user(request: Request) -> UserInfo | None:
     """Return user if valid token is present, None otherwise."""
+    token = _request_token(request)
     if not token:
         return None
     try:
         payload = verify_token(token)
-        username = payload.get("sub")
-        role = payload.get("role")
-        created_at = payload.get("created_at", "")
-        if not username or not role:
-            return None
-        return UserInfo(username=username, role=role, created_at=created_at)
+        return _user_from_payload(payload)
     except HTTPException:
         return None
 

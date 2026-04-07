@@ -22,24 +22,23 @@ async def list_records(
     page: int = Query(1, ge=1),
     size: int = Query(20, ge=1, le=100),
     search: str | None = Query(None),
-    user: UserInfo = Depends(auth.require_role("admin", "editor", "viewer")),
+    user: UserInfo = Depends(auth.require_role("admin", "editor", "viewer", "mock_tester")),
 ):
-    return _get_media_service().query(page=page, size=size, search=search)
+    from ava.console.app import get_services_for_user
+    return get_services_for_user(user).media.query(page=page, size=size, search=search)
 
 
 @router.get("/images/{filename}")
 async def get_image(
     filename: str,
-    token: str | None = Query(None),
     user: UserInfo | None = Depends(auth.optional_user),
 ):
-    """Serve generated image files. Accepts auth via header or ?token= query param."""
-    if user is None and token:
-        auth.verify_token(token)
-    elif user is None:
+    """Serve generated image files to authenticated users."""
+    if user is None:
         raise HTTPException(status_code=401, detail="Authentication required")
 
-    path = _get_media_service().get_image_path(filename)
+    from ava.console.app import get_services_for_user
+    path = get_services_for_user(user).media.get_image_path(filename)
     if path is None:
         raise HTTPException(status_code=404, detail="Image not found")
     return FileResponse(str(path), media_type="image/png")
@@ -49,12 +48,12 @@ async def get_image(
 async def delete_record(
     record_id: str,
     request: Request,
-    user: UserInfo = Depends(auth.require_role("admin", "editor")),
+    user: UserInfo = Depends(auth.require_role("admin", "editor", "mock_tester")),
 ):
     """Delete a media record and its associated image files."""
-    from ava.console.app import get_services
-    
-    svc = get_services()
+    from ava.console.app import get_services_for_user
+
+    svc = get_services_for_user(user)
     try:
         svc.media.delete_record(record_id)
     except ValueError as e:

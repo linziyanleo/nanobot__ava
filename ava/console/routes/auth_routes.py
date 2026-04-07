@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi.responses import JSONResponse
 
 from ava.console import auth
 from ava.console.models import LoginRequest, LoginResponse, UserInfo
@@ -29,15 +30,26 @@ async def login(body: LoginRequest, request: Request):
         user=user.username, role=user.role, action="auth.login",
         target="", ip=get_client_ip(request),
     )
-    return LoginResponse(access_token=token, user=user)
+    response = JSONResponse(LoginResponse(user=user).model_dump())
+    auth.set_session_cookie(response, token)
+    return response
 
 
 @router.post("/refresh", response_model=LoginResponse)
 async def refresh(user: UserInfo = Depends(auth.get_current_user)):
     token = auth.create_access_token({"sub": user.username, "role": user.role, "created_at": user.created_at})
-    return LoginResponse(access_token=token, user=user)
+    response = JSONResponse(LoginResponse(user=user).model_dump())
+    auth.set_session_cookie(response, token)
+    return response
 
 
 @router.get("/me", response_model=UserInfo)
 async def me(user: UserInfo = Depends(auth.get_current_user)):
     return user
+
+
+@router.post("/logout")
+async def logout():
+    response = JSONResponse({"ok": True})
+    auth.clear_session_cookie(response)
+    return response

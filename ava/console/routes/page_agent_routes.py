@@ -6,9 +6,10 @@ import asyncio
 import json
 
 from loguru import logger
-from fastapi import APIRouter, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, Depends, WebSocket, WebSocketDisconnect
 
 from ava.console import auth
+from ava.console.models import UserInfo
 
 router = APIRouter(prefix="/api/page-agent", tags=["page-agent"])
 
@@ -27,7 +28,7 @@ def _get_page_agent_tool():
 
 
 @router.get("/sessions")
-async def list_sessions():
+async def list_sessions(user: UserInfo = Depends(auth.require_role("admin", "editor", "viewer"))):
     """返回当前活跃的 page-agent session 列表。"""
     tool = _get_page_agent_tool()
     if not tool:
@@ -36,7 +37,7 @@ async def list_sessions():
 
 
 @router.post("/restart-runner")
-async def restart_runner():
+async def restart_runner(user: UserInfo = Depends(auth.require_role("admin", "editor", "viewer"))):
     """停止 page-agent runner 进程，下次调用时自动重启。"""
     tool = _get_page_agent_tool()
     if not tool:
@@ -49,6 +50,9 @@ async def restart_runner():
 async def page_agent_ws(websocket: WebSocket, session_id: str):
     """WebSocket 端点：实时转发 screencast 帧和 activity 事件。"""
     user = await auth.get_ws_user(websocket)
+    if user.role == "mock_tester":
+        await websocket.close(code=1008)
+        return
     await websocket.accept()
 
     tool = _get_page_agent_tool()

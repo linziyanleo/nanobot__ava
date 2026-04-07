@@ -12,6 +12,12 @@ from fastapi.staticfiles import StaticFiles
 
 from ava.console import auth
 from ava.console.middleware import setup_cors
+from ava.console.mock_bundle_runtime import (
+    MockGatewayService,
+    ensure_local_accounts,
+    prepare_mock_runtime,
+)
+from ava.console.models import UserInfo
 from ava.console.ui_build import prepare_console_ui_dist
 from ava.console.services.audit_service import AuditService
 from ava.console.services.chat_service import ChatService
@@ -30,11 +36,12 @@ class Services:
     audit: AuditService
     config: ConfigService
     files: FileService
-    gateway: GatewayService
+    gateway: GatewayService | MockGatewayService
     media: MediaService
     skills: SkillsService
     chat: ChatService | None = None
     token_stats: TokenStatsCollector | None = None
+    mock: "Services | None" = None
 
 
 _services: Services | None = None
@@ -44,6 +51,13 @@ def get_services() -> Services:
     if _services is None:
         raise RuntimeError("Console services not initialized")
     return _services
+
+
+def get_services_for_user(user: UserInfo | None = None) -> Services:
+    services = get_services()
+    if user and user.role == "mock_tester" and services.mock is not None:
+        return services.mock
+    return services
 
 
 def _mount_console_spa(app: FastAPI) -> None:
@@ -89,6 +103,9 @@ def create_console_app(
     auth.configure(
         secret_key=console_cfg.secret_key,
         expire_minutes=console_cfg.token_expire_minutes,
+        cookie_name=getattr(console_cfg, "session_cookie_name", "ava_console_session"),
+        cookie_secure=bool(getattr(console_cfg, "session_cookie_secure", False)),
+        cookie_samesite=str(getattr(console_cfg, "session_cookie_samesite", "lax")),
     )
 
     skill_dir = Path(__file__).parent.parent / "skills"
@@ -96,9 +113,12 @@ def create_console_app(
     lifecycle_mgr = getattr(agent_loop, "lifecycle_manager", None) if agent_loop else None
 
     users = UserService(console_dir)
-    users.ensure_default_admin()
+    ensure_local_accounts(users, console_dir)
+    mock_runtime = prepare_mock_runtime(console_dir, console_cfg.port)
+    from ava.storage import Database
+    mock_db = Database(mock_runtime.db_path)
 
-    _services = Services(
+    real_services = Services(
         users=users,
         audit=AuditService(console_dir, db=db),
         config=ConfigService(nanobot_dir),
@@ -113,6 +133,18 @@ def create_console_app(
         chat=ChatService(agent_loop, workspace, db=db),
         token_stats=token_stats_collector,
     )
+    real_services.mock = Services(
+        users=users,
+        audit=AuditService(mock_runtime.root, db=mock_db),
+        config=ConfigService(mock_runtime.root),
+        files=FileService(mock_runtime.workspace, mock_runtime.root),
+        gateway=MockGatewayService(console_cfg.port),
+        media=MediaService(media_dir=mock_runtime.media_dir, db=mock_db),
+        skills=SkillsService(mock_runtime.workspace, skill_dir, mock_runtime.root, db=mock_db),
+        chat=None,
+        token_stats=TokenStatsCollector(data_dir=mock_runtime.root, db=mock_db) if mock_db is not None else None,
+    )
+    _services = real_services
 
     app = FastAPI(
         title="Nanobot Console",
@@ -164,6 +196,9 @@ def create_console_app_standalone(
     console_port: int = 6688,
     secret_key: str = "change-me-in-production",
     expire_minutes: int = 480,
+    session_cookie_name: str = "ava_console_session",
+    session_cookie_secure: bool = False,
+    session_cookie_samesite: str = "lax",
     token_stats_dir: str = "",
 ) -> FastAPI:
     """Create a console app that runs independently from the gateway process.
@@ -176,22 +211,30 @@ def create_console_app_standalone(
     console_dir = nanobot_dir / "console"
     console_dir.mkdir(parents=True, exist_ok=True)
 
-    auth.configure(secret_key=secret_key, expire_minutes=expire_minutes)
+    auth.configure(
+        secret_key=secret_key,
+        expire_minutes=expire_minutes,
+        cookie_name=session_cookie_name,
+        cookie_secure=session_cookie_secure,
+        cookie_samesite=session_cookie_samesite,
+    )
 
     skill_dir = Path(__file__).parent.parent / "skills"
 
     users = UserService(console_dir)
-    users.ensure_default_admin()
+    ensure_local_accounts(users, console_dir)
 
     db_path = nanobot_dir / "nanobot.db"
     from ava.storage import Database
     db = Database(db_path)
+    mock_runtime = prepare_mock_runtime(console_dir, console_port)
+    mock_db = Database(mock_runtime.db_path)
 
     token_stats = None
     if token_stats_dir:
         token_stats = TokenStatsCollector(data_dir=Path(token_stats_dir), db=db)
 
-    _services = Services(
+    real_services = Services(
         users=users,
         audit=AuditService(console_dir, db=db),
         config=ConfigService(nanobot_dir),
@@ -205,6 +248,18 @@ def create_console_app_standalone(
         chat=None,  # type: ignore[arg-type]
         token_stats=token_stats,
     )
+    real_services.mock = Services(
+        users=users,
+        audit=AuditService(mock_runtime.root, db=mock_db),
+        config=ConfigService(mock_runtime.root),
+        files=FileService(mock_runtime.workspace, mock_runtime.root),
+        gateway=MockGatewayService(console_port),
+        media=MediaService(media_dir=mock_runtime.media_dir, db=mock_db),
+        skills=SkillsService(mock_runtime.workspace, skill_dir, mock_runtime.root, db=mock_db),
+        chat=None,  # type: ignore[arg-type]
+        token_stats=TokenStatsCollector(data_dir=mock_runtime.root, db=mock_db),
+    )
+    _services = real_services
 
     app = FastAPI(
         title="Nanobot Console",
@@ -282,13 +337,16 @@ def create_console_app_standalone(
         import websockets.asyncio.client as ws_client
 
         await websocket.accept()
-        token = websocket.query_params.get("token", "")
-        gw_ws_url = (
-            f"ws://127.0.0.1:{gateway_port}"
-            f"/api/chat/ws/{session_id}?token={token}"
-        )
+        cookie_name = auth.session_cookie_name()
+        cookie_value = websocket.cookies.get(cookie_name, "")
+        gw_ws_url = f"ws://127.0.0.1:{gateway_port}/api/chat/ws/{session_id}"
         try:
-            async with ws_client.connect(gw_ws_url) as upstream:
+            connect_kwargs = {}
+            if cookie_value:
+                connect_kwargs["additional_headers"] = {
+                    "Cookie": f"{cookie_name}={cookie_value}",
+                }
+            async with ws_client.connect(gw_ws_url, **connect_kwargs) as upstream:
 
                 async def client_to_upstream():
                     try:
