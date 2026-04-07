@@ -61,15 +61,16 @@ AgentLoop._register_default_tools()
 
 | action | 必填参数 | 返回形态 | 说明 |
 |--------|----------|----------|------|
-| `execute` | `instruction` | 结构化文本 | `[PageAgent STATUS] session=... \| Steps \| Duration` + URL + Title + body |
-| `screenshot` | `session_id` | 文本 | 截图写入磁盘，并在可用时写入 `MediaService` |
-| `get_page_info` | `session_id` | 文本 | 返回页面 URL / Title / Viewport |
+| `execute` | `instruction` | 文本 / JSON 字符串 | 默认文本；`response_format="json"` 时返回 machine-friendly JSON |
+| `screenshot` | `session_id` | 文本 / JSON 字符串 | 截图写入磁盘，并在可用时写入 `MediaService` |
+| `get_page_info` | `session_id` | 文本 / JSON 字符串 | 返回页面 URL / Title / Viewport |
 | `close_session` | `session_id` | 文本 | 关闭对应 Playwright context/page |
 
 说明：
 
-- 对 agent 的最终返回是字符串，不是原始 JSON-RPC 字典
+- 对 agent 的最终返回仍是字符串；`response_format="json"` 时返回的是 JSON 字符串，不是原始 JSON-RPC 字典
 - `session_id` 缺省时由工具生成 `s_<8hex>`，用于后续会话复用
+- `response_format` 仅影响 `execute` / `screenshot` / `get_page_info`
 
 #### execute 返回格式
 
@@ -87,6 +88,46 @@ STATUS 三层判定：
 3. `SUCCESS`：RPC 成功且 page-agent 内层 `result.success == true`
 
 首行保留 `session=` 格式以兼容下游消费者（如 `ava/skills/console_ui_regression/SKILL.md`）。
+
+#### execute JSON 返回格式
+
+```json
+{
+  "status": "SUCCESS | ERROR | TIMEOUT",
+  "session_id": "s_xxx",
+  "steps": 3,
+  "duration_ms": 1200,
+  "page": {
+    "url": "http://127.0.0.1:6688/config",
+    "title": "Config"
+  },
+  "result": {
+    "success": true,
+    "data": "..."
+  },
+  "page_state": {},
+  "error": null
+}
+```
+
+#### screenshot / get_page_info JSON 返回格式
+
+- `screenshot(json)`：
+  - `status`
+  - `session_id`
+  - `result.success`
+  - `result.path`
+  - `result.size_bytes`
+  - `result.media_record_id`
+  - `error`
+- `get_page_info(json)`：
+  - `status`
+  - `session_id`
+  - `page.url`
+  - `page.title`
+  - `page.viewport`
+  - `result.success`
+  - `error`
 
 ### 3.2 Console 复用接口
 
@@ -125,6 +166,7 @@ STATUS 三层判定：
 | `duration` | 执行耗时（毫秒）|
 | `page_url` | 当前页面 URL |
 | `page_title` | 当前页面标题 |
+| `page_state` | 当前页面结构化状态（headings / alerts / forms / buttons） |
 
 **失败**（`success: false`）：
 
@@ -233,6 +275,8 @@ STATUS 三层判定：
 
 | 测试场景 | 验证内容 |
 |----------|----------|
-| `tests/tools/test_page_agent.py` | action 参数校验、`[PageAgent STATUS]` 结构化输出格式、`_format_error_result` TIMEOUT/ERROR 格式化、内层 success=false 判定、disabled 分支、订阅/反订阅、`list_sessions()` 过滤、`get_page_info()` 透传 |
+| `tests/tools/test_page_agent.py` | action 参数校验、`response_format=json` schema、`[PageAgent STATUS]` 文本输出格式、`execute/screenshot/get_page_info` JSON contract、`_format_error_result` TIMEOUT/ERROR 格式化、disabled 分支、订阅/反订阅、`list_sessions()` 过滤、`get_page_info()` 透传 |
 | `tests/patches/test_tools_patch.py` | `tools_patch` 成功替换注册函数并包含 PageAgent 相关注册逻辑 |
 | 手动运行 | 真实 `node + playwright + page-agent` 集成、截图写盘、Chromium screencast、空闲自动回收 |
+
+---

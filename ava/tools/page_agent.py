@@ -107,35 +107,58 @@ class PageAgentTool(Tool):
                     "type": "string",
                     "description": "Session ID for reusing browser context. Omit to auto-generate.",
                 },
+                "response_format": {
+                    "type": "string",
+                    "enum": ["text", "json"],
+                    "description": "Output format for execute/screenshot/get_page_info. Default is text.",
+                },
             },
             "required": ["action"],
         }
 
-    async def execute(self, action: str, **kwargs: Any) -> str:
+    async def execute(self, action: str, response_format: str = "text", **kwargs: Any) -> str:
         if not self._is_enabled():
             return "Error: page_agent is disabled in config"
 
+        fmt = self._normalize_response_format(response_format)
+        if not fmt:
+            return "Error: response_format must be 'text' or 'json'"
+
         if action == "execute":
-            return await self._do_execute(kwargs)
+            return await self._do_execute(kwargs, fmt)
         elif action == "screenshot":
-            return await self._do_screenshot(kwargs)
+            return await self._do_screenshot(kwargs, fmt)
         elif action == "get_page_info":
-            return await self._do_get_page_info(kwargs)
+            return await self._do_get_page_info(kwargs, fmt)
         elif action == "close_session":
             return await self._do_close_session(kwargs)
         elif action == "restart_runner":
             return await self._do_restart_runner()
         else:
+            if fmt == "json":
+                return self._json_dumps({
+                    "status": "ERROR",
+                    "session_id": kwargs.get("session_id"),
+                    "result": {"success": False},
+                    "error": {
+                        "code": "UNKNOWN_ACTION",
+                        "message": f"unknown action '{action}'",
+                    },
+                })
             return f"Error: unknown action '{action}'"
 
     # ------------------------------------------------------------------
     # Action 实现
     # ------------------------------------------------------------------
 
-    async def _do_execute(self, kwargs: dict) -> str:
+    async def _do_execute(self, kwargs: dict, response_format: str) -> str:
         instruction = kwargs.get("instruction")
         if not instruction:
-            return "Error: instruction is required for execute action"
+            return self._format_action_error(
+                "instruction is required for execute action",
+                response_format=response_format,
+                action="execute",
+            )
 
         session_id = kwargs.get("session_id") or f"s_{uuid.uuid4().hex[:8]}"
         url = kwargs.get("url")
@@ -147,6 +170,8 @@ class PageAgentTool(Tool):
         })
 
         if not result.get("success"):
+            if response_format == "json":
+                return self._json_dumps(self._build_execute_error_payload(result, session_id))
             return self._format_error_result(result, session_id)
 
         r = result.get("result", {})
@@ -170,6 +195,9 @@ class PageAgentTool(Tool):
             parts.extend(state_lines)
 
         self._record_llm_usage(r.get('llm_usage'), instruction, r)
+
+        if response_format == "json":
+            return self._json_dumps(self._build_execute_success_payload(r, session_id))
 
         return "\n".join(parts)
 
@@ -239,6 +267,104 @@ class PageAgentTool(Tool):
         return lines
 
     @staticmethod
+    def _normalize_response_format(response_format: str | None) -> str | None:
+        fmt = response_format or "text"
+        return fmt if fmt in {"text", "json"} else None
+
+    @staticmethod
+    def _json_dumps(payload: dict[str, Any]) -> str:
+        return json.dumps(payload, ensure_ascii=False, indent=2)
+
+    @staticmethod
+    def _build_page_payload(url: str, title: str, *, viewport: str | None = None) -> dict[str, Any]:
+        page = {
+            "url": url,
+            "title": title,
+        }
+        if viewport is not None:
+            page["viewport"] = viewport
+        return page
+
+    def _format_action_error(
+        self,
+        message: str,
+        *,
+        response_format: str,
+        action: str,
+        session_id: str | None = None,
+    ) -> str:
+        if response_format == "json":
+            return self._json_dumps({
+                "status": "ERROR",
+                "session_id": session_id,
+                "result": {"success": False},
+                "error": {
+                    "code": "INVALID_ARGUMENT",
+                    "message": message,
+                    "action": action,
+                },
+            })
+        return f"Error: {message}"
+
+    def _build_execute_success_payload(self, result: dict[str, Any], fallback_session_id: str) -> dict[str, Any]:
+        inner_success = result.get("success", True)
+        error = None
+        if not inner_success:
+            error = {
+                "code": "INNER_RESULT_FAILED",
+                "message": result.get("data") or "page-agent execution reported success=false",
+            }
+        return {
+            "status": "SUCCESS" if inner_success else "ERROR",
+            "session_id": result.get("session_id", fallback_session_id),
+            "steps": result.get("steps", 0),
+            "duration_ms": result.get("duration", 0),
+            "page": self._build_page_payload(
+                result.get("page_url", "unknown"),
+                result.get("page_title", "unknown"),
+            ),
+            "result": {
+                "success": inner_success,
+                "data": result.get("data", "(no output)"),
+            },
+            "page_state": result.get("page_state") or {},
+            "error": error,
+        }
+
+    def _build_execute_error_payload(self, rpc_result: dict[str, Any], fallback_session_id: str) -> dict[str, Any]:
+        err = rpc_result.get("error", {})
+        if isinstance(err, dict):
+            code = err.get("code") or "EXECUTION_FAILED"
+            message = err.get("message", str(err))
+            session_id = err.get("session_id", fallback_session_id)
+            duration = err.get("duration", 0)
+            page_url = err.get("page_url", "unknown")
+            page_title = err.get("page_title", "unknown")
+        else:
+            code = "EXECUTION_FAILED"
+            message = str(err)
+            session_id = fallback_session_id
+            duration = 0
+            page_url = "unknown"
+            page_title = "unknown"
+        return {
+            "status": "TIMEOUT" if code == "TIMEOUT" else "ERROR",
+            "session_id": session_id,
+            "steps": 0,
+            "duration_ms": duration,
+            "page": self._build_page_payload(page_url, page_title),
+            "result": {
+                "success": False,
+                "data": "",
+            },
+            "page_state": {},
+            "error": {
+                "code": code,
+                "message": message,
+            },
+        }
+
+    @staticmethod
     def _format_error_result(result: dict, fallback_session_id: str) -> str:
         """将 RPC error / timeout 响应格式化为结构化文本。"""
         err = result.get("error", {})
@@ -264,10 +390,14 @@ class PageAgentTool(Tool):
         ]
         return "\n".join(parts)
 
-    async def _do_screenshot(self, kwargs: dict) -> str:
+    async def _do_screenshot(self, kwargs: dict, response_format: str) -> str:
         session_id = kwargs.get("session_id")
         if not session_id:
-            return "Error: session_id is required for screenshot action"
+            return self._format_action_error(
+                "session_id is required for screenshot action",
+                response_format=response_format,
+                action="screenshot",
+            )
 
         # 生成截图路径
         ts = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
@@ -284,7 +414,22 @@ class PageAgentTool(Tool):
         if not result.get("success"):
             err = result.get("error", {})
             msg = err.get("message", str(err)) if isinstance(err, dict) else str(err)
+            if response_format == "json":
+                return self._json_dumps({
+                    "status": "ERROR",
+                    "session_id": session_id,
+                    "result": {
+                        "success": False,
+                        "path": save_path,
+                    },
+                    "error": {
+                        "code": err.get("code", "SCREENSHOT_FAILED") if isinstance(err, dict) else "SCREENSHOT_FAILED",
+                        "message": msg,
+                    },
+                })
             return f"Error: {msg}"
+
+        rpc_result = result.get("result", {})
 
         # 写入 MediaService
         record_id = f"page-agent-{ts}"
@@ -301,25 +446,64 @@ class PageAgentTool(Tool):
             except Exception as e:
                 logger.warning("page_agent: failed to write media record: {}", e)
 
+        if response_format == "json":
+            return self._json_dumps({
+                "status": "SUCCESS",
+                "session_id": session_id,
+                "result": {
+                    "success": True,
+                    "path": save_path,
+                    "size_bytes": rpc_result.get("size"),
+                    "media_record_id": record_id,
+                },
+                "error": None,
+            })
+
         return (
             f"[PageAgent Screenshot]\n"
             f"Path: {save_path}\n"
             f"Media record: {record_id}"
         )
 
-    async def _do_get_page_info(self, kwargs: dict) -> str:
+    async def _do_get_page_info(self, kwargs: dict, response_format: str) -> str:
         session_id = kwargs.get("session_id")
         if not session_id:
-            return "Error: session_id is required for get_page_info action"
+            return self._format_action_error(
+                "session_id is required for get_page_info action",
+                response_format=response_format,
+                action="get_page_info",
+            )
 
         result = await self._rpc("get_page_info", {"session_id": session_id})
 
         if not result.get("success"):
             err = result.get("error", {})
             msg = err.get("message", str(err)) if isinstance(err, dict) else str(err)
+            if response_format == "json":
+                return self._json_dumps({
+                    "status": "ERROR",
+                    "session_id": session_id,
+                    "result": {"success": False},
+                    "error": {
+                        "code": err.get("code", "GET_PAGE_INFO_FAILED") if isinstance(err, dict) else "GET_PAGE_INFO_FAILED",
+                        "message": msg,
+                    },
+                })
             return f"Error: {msg}"
 
         r = result.get("result", {})
+        if response_format == "json":
+            return self._json_dumps({
+                "status": "SUCCESS",
+                "session_id": session_id,
+                "page": self._build_page_payload(
+                    r.get("page_url", "unknown"),
+                    r.get("page_title", "unknown"),
+                    viewport=r.get("viewport", "unknown"),
+                ),
+                "result": {"success": True},
+                "error": None,
+            })
         return (
             f"URL: {r.get('page_url', 'unknown')}\n"
             f"Title: {r.get('page_title', 'unknown')}\n"

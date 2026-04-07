@@ -195,3 +195,19 @@ codex(prompt: str, project_path: str = None, mode: str = "standard") -> str
 - 不在 tool 层做自动路由（LLM 自主选择）
 - 不支持 sync 模式（codex 全异步）
 - 不支持 session 恢复（codex CLI 的 resume 能力不对标 claude_code 的 session_id）
+
+## 11. Future TODO（未实现）
+
+以下内容是 `console_ui_dev_loop` 的后续阶段规划，不代表当前 codex contract 已满足：
+
+- 作为 `console_ui_dev_loop` 的 Phase B 主路径进入条件：
+  - 补一个可调用的后台任务状态/等待工具面，而不是依赖 `/task`
+  - 明确 async continuation 如何续接 loop skill 所需上下文
+- 评估是否需要为 loop 层提供“伪阻塞”等待语义：
+  - tool 级 `wait`
+  - 或 orchestrator 级轮询/继续协议
+- 为 Codex 主路径补 benchmark：
+  - 与 `claude_code sync` 对比成功率
+  - 平均轮次 / 总耗时
+  - 在前端任务上的回归通过率
+- 若上述条件未满足，Codex 继续保留为可选异步 coding 工具，而不是 v1 默认路径

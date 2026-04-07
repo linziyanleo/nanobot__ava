@@ -433,7 +433,9 @@ export default function TokenStatsPage() {
     const convFilter = conversationId ? `&conversation_id=${encodeURIComponent(conversationId)}` : '';
     const [turnSummaryResult, turnIterationResult, sessionMessagesResult] = await Promise.allSettled([
       api<TurnSummaryRecord[]>(`/stats/tokens/by-session?session_key=${encodeURIComponent(sessionKey)}${convFilter}`),
-      api<TurnIterationRecord[]>(`/stats/tokens/by-session/detailed?session_key=${encodeURIComponent(sessionKey)}${convFilter}`),
+      api<TurnIterationRecord[]>(
+        `/stats/tokens/by-session/detailed?session_key=${encodeURIComponent(sessionKey)}${convFilter}`,
+      ),
       api(`/chat/messages?session_key=${encodeURIComponent(sessionKey)}`),
     ]);
 
@@ -444,7 +446,9 @@ export default function TokenStatsPage() {
     setSessionTurnSummaries(turnSummaryResult.status === 'fulfilled' ? turnSummaryResult.value : []);
     setSessionTurnIterations(turnIterationResult.status === 'fulfilled' ? turnIterationResult.value : []);
     setSessionChatTurns(
-      sessionMessagesResult.status === 'fulfilled' ? groupTurns(sessionMessagesResult.value as Parameters<typeof groupTurns>[0]) : [],
+      sessionMessagesResult.status === 'fulfilled'
+        ? groupTurns(sessionMessagesResult.value as Parameters<typeof groupTurns>[0])
+        : [],
     );
     setLoadingSessionTurns(false);
   }, []);
@@ -453,7 +457,7 @@ export default function TokenStatsPage() {
     async (sessionKey: string, turnSeq: number, force: boolean = false, conversationId: string = '') => {
       if (!force && (turnRecordsBySeq[turnSeq] || loadingTurnRecords[turnSeq])) return;
 
-      setLoadingTurnRecords((prev) => ({ ...prev, [turnSeq]: true }));
+      setLoadingTurnRecords(prev => ({ ...prev, [turnSeq]: true }));
       try {
         const convFilter = conversationId ? `&conversation_id=${encodeURIComponent(conversationId)}` : '';
         const result = await api<RecordsResponse>(
@@ -462,14 +466,14 @@ export default function TokenStatsPage() {
         if (sessionDebugScopeRef.current !== `${sessionKey}::${conversationId}`) {
           return;
         }
-        setTurnRecordsBySeq((prev) => ({ ...prev, [turnSeq]: sortTurnRecords(result.records) }));
+        setTurnRecordsBySeq(prev => ({ ...prev, [turnSeq]: sortTurnRecords(result.records) }));
       } catch {
         if (sessionDebugScopeRef.current === `${sessionKey}::${conversationId}`) {
-          setTurnRecordsBySeq((prev) => ({ ...prev, [turnSeq]: [] }));
+          setTurnRecordsBySeq(prev => ({ ...prev, [turnSeq]: [] }));
         }
       } finally {
         if (sessionDebugScopeRef.current === `${sessionKey}::${conversationId}`) {
-          setLoadingTurnRecords((prev) => ({ ...prev, [turnSeq]: false }));
+          setLoadingTurnRecords(prev => ({ ...prev, [turnSeq]: false }));
         }
       }
     },
@@ -487,8 +491,8 @@ export default function TokenStatsPage() {
   // Auto-refresh when pending records exist
   const AUTO_REFRESH_MS = 5_000;
   useEffect(() => {
-    const hasPendingRecords = records.some((r) => r.model_role === 'pending');
-    const hasPendingTurns = sessionTurnIterations.some((r) => r.model_role === 'pending');
+    const hasPendingRecords = records.some(r => r.model_role === 'pending');
+    const hasPendingTurns = sessionTurnIterations.some(r => r.model_role === 'pending');
     const shouldRefreshTurns = view === 'turns' && isSessionMode && hasPendingTurns;
     if (!hasPendingRecords && !shouldRefreshTurns) return;
 
@@ -573,7 +577,14 @@ export default function TokenStatsPage() {
     if (!appliedSessionKey || expandedTurnSeq == null) return;
     if (turnRecordsBySeq[expandedTurnSeq] || loadingTurnRecords[expandedTurnSeq]) return;
     void ensureTurnRecords(appliedSessionKey, expandedTurnSeq, false, appliedConversationId);
-  }, [appliedConversationId, appliedSessionKey, ensureTurnRecords, expandedTurnSeq, loadingTurnRecords, turnRecordsBySeq]);
+  }, [
+    appliedConversationId,
+    appliedSessionKey,
+    ensureTurnRecords,
+    expandedTurnSeq,
+    loadingTurnRecords,
+    turnRecordsBySeq,
+  ]);
 
   useEffect(() => {
     if (view !== 'turns' || appliedTurnSeq == null || loadingSessionTurns) return;
@@ -663,23 +674,30 @@ export default function TokenStatsPage() {
     }
   }
 
+  // When turn_seq is specified, filter turn summaries to only show matching turns
+  const filteredTurnSummaries =
+    appliedTurnSeq != null ? sessionTurnSummaries.filter(t => t.turn_seq === appliedTurnSeq) : sessionTurnSummaries;
+
   let sessionPromptTokens = 0;
   let sessionCompletionTokens = 0;
   let sessionTotalTokens = 0;
   let sessionLlmCalls = 0;
   const sessionModels = new Set<string>();
-  for (const turn of sessionTurnSummaries) {
+  for (const turn of filteredTurnSummaries) {
     sessionPromptTokens += turn.prompt_tokens;
     sessionCompletionTokens += turn.completion_tokens;
     sessionTotalTokens += turn.total_tokens;
     sessionLlmCalls += turn.llm_calls;
     turn.models
       .split(',')
-      .map((model) => model.trim())
+      .map(model => model.trim())
       .filter(Boolean)
-      .forEach((model) => sessionModels.add(model));
+      .forEach(model => sessionModels.add(model));
   }
-  const sessionTurnCount = sessionTurnSummaries.length || sessionChatTurns.filter((turn) => turn.turnSeq != null).length;
+  const sessionTurnCount =
+    filteredTurnSummaries.length ||
+    sessionChatTurns.filter(turn => turn.turnSeq != null && (appliedTurnSeq == null || turn.turnSeq === appliedTurnSeq))
+      .length;
   const activeTurnLabel = appliedTurnSeq != null ? `Turn #${appliedTurnSeq}` : '全部 Turn';
 
   return (
@@ -857,10 +875,20 @@ export default function TokenStatsPage() {
       {view === 'turns' && isSessionMode && (
         <div className="bg-[var(--bg-secondary)] border border-[var(--border)] rounded-xl p-4 mb-4 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
           <div className="min-w-0">
-            <div className="text-[10px] uppercase tracking-[0.18em] text-[var(--text-secondary)] mb-1">Session Debug Mode</div>
+            <div className="text-[10px] uppercase tracking-[0.18em] text-[var(--text-secondary)] mb-1">
+              Session Debug Mode
+            </div>
             <div className="font-mono text-sm text-[var(--text-primary)] truncate" title={appliedSessionKey}>
               {appliedSessionKey}
             </div>
+            {appliedConversationId && (
+              <div
+                className="font-mono text-xs text-[var(--text-secondary)] mt-0.5 truncate"
+                title={appliedConversationId}
+              >
+                conversation: {appliedConversationId}
+              </div>
+            )}
             <div className="flex flex-wrap gap-2 mt-2 text-xs text-[var(--text-secondary)]">
               <span className="px-2 py-1 rounded-full bg-[var(--bg-tertiary)]">{activeTurnLabel}</span>
               <span className="px-2 py-1 rounded-full bg-[var(--bg-tertiary)]">{sessionModels.size || 0} models</span>
@@ -870,6 +898,18 @@ export default function TokenStatsPage() {
             </div>
           </div>
           <div className="flex flex-wrap gap-2">
+            {appliedTurnSeq != null && (
+              <button
+                onClick={() => {
+                  const nextParams = new URLSearchParams(searchParams);
+                  nextParams.delete('turn_seq');
+                  setSearchParams(nextParams, { replace: true });
+                }}
+                className="px-3 py-2 rounded-lg bg-[var(--bg-tertiary)] text-xs text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
+              >
+                查看全部 Turn
+              </button>
+            )}
             <button
               onClick={() => setView('records')}
               className="px-3 py-2 rounded-lg bg-[var(--bg-tertiary)] text-xs text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
@@ -1133,10 +1173,10 @@ export default function TokenStatsPage() {
           sessionKey={appliedSessionKey}
           activeTurnSeq={appliedTurnSeq}
           expandedTurnSeq={expandedTurnSeq}
-          onToggleTurn={(turnSeq) => {
-            setExpandedTurnSeq((prev) => (prev === turnSeq ? null : turnSeq));
+          onToggleTurn={turnSeq => {
+            setExpandedTurnSeq(prev => (prev === turnSeq ? null : turnSeq));
           }}
-          turnSummaries={sessionTurnSummaries}
+          turnSummaries={filteredTurnSummaries}
           turnIterationsBySeq={turnIterationsBySeq}
           chatTurnsBySeq={chatTurnsBySeq}
           turnRecordsBySeq={turnRecordsBySeq}
@@ -1429,8 +1469,12 @@ function RecordRow({
           <ModelRoleIcon role={r.model_role || 'default'} />
         </td>
         <td className="px-4 py-2.5 text-xs">{r.provider}</td>
-        <td className="px-4 py-2.5 text-right text-cyan-400 text-xs">{r.model_role === 'pending' ? '—' : formatTokens(r.prompt_tokens)}</td>
-        <td className="px-4 py-2.5 text-right text-emerald-400 text-xs">{r.model_role === 'pending' ? '—' : formatTokens(r.completion_tokens)}</td>
+        <td className="px-4 py-2.5 text-right text-cyan-400 text-xs">
+          {r.model_role === 'pending' ? '—' : formatTokens(r.prompt_tokens)}
+        </td>
+        <td className="px-4 py-2.5 text-right text-emerald-400 text-xs">
+          {r.model_role === 'pending' ? '—' : formatTokens(r.completion_tokens)}
+        </td>
         <td className="px-4 py-2.5 text-center">
           {formatCacheStatus(r.cached_tokens || 0, r.cache_creation_tokens || 0)}
         </td>
@@ -1498,13 +1542,13 @@ function RecordRow({
                 </div>
               )}
               <div>
-                <p className="text-[var(--text-secondary)] mb-1">系统提示词:</p>
-                {r.system_prompt_preview ? (
-                  <CopyablePre className="bg-[var(--bg-primary)] rounded-lg p-3 text-xs whitespace-pre-wrap break-all max-h-32 overflow-y-auto text-[var(--text-secondary)]">
-                    {r.system_prompt_preview}
-                  </CopyablePre>
-                ) : (
-                  <p className="text-xs text-[var(--text-tertiary)] italic">（与上一条相同，已省略）</p>
+                {r.system_prompt_preview && (
+                  <>
+                    <p className="text-[var(--text-secondary)] mb-1">系统提示词:</p>
+                    <CopyablePre className="bg-[var(--bg-primary)] rounded-lg p-3 text-xs whitespace-pre-wrap break-all max-h-32 overflow-y-auto text-[var(--text-secondary)]">
+                      {r.system_prompt_preview}
+                    </CopyablePre>
+                  </>
                 )}
               </div>
               {r.conversation_history && (
@@ -1724,7 +1768,7 @@ function TurnCallEntry({ record }: { record: TokenRecord }) {
   return (
     <div className="rounded-xl border border-[var(--border)] bg-[var(--bg-primary)] overflow-hidden">
       <button
-        onClick={() => setExpanded((prev) => !prev)}
+        onClick={() => setExpanded(prev => !prev)}
         className="w-full px-3 py-3 text-left hover:bg-[var(--bg-tertiary)]/20 transition-colors"
       >
         <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
@@ -1736,13 +1780,16 @@ function TurnCallEntry({ record }: { record: TokenRecord }) {
             <span className="font-mono text-xs text-[var(--text-primary)] truncate" title={record.model}>
               {shortModel(record.model)}
             </span>
-            <span className="rounded-full bg-amber-500/15 px-2 py-0.5 text-[10px] font-medium text-amber-400" title={label}>
+            <span
+              className="rounded-full bg-amber-500/15 px-2 py-0.5 text-[10px] font-medium text-amber-400"
+              title={label}
+            >
               {label}
             </span>
           </div>
           <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-[11px] text-[var(--text-secondary)] md:flex md:items-center md:gap-4">
-            <span>P {formatTokens(record.prompt_tokens)}</span>
-            <span>C {formatTokens(record.completion_tokens)}</span>
+            <span>Prompt {formatTokens(record.prompt_tokens)}</span>
+            <span>Completion {formatTokens(record.completion_tokens)}</span>
             <span>Total {formatTokens(record.total_tokens)}</span>
             <span>{formatTime(record.timestamp)}</span>
           </div>

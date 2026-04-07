@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -45,9 +46,11 @@ class TestToolInterface:
         assert "url" in props
         assert "instruction" in props
         assert "session_id" in props
+        assert "response_format" in props
         assert props["action"]["enum"] == [
             "execute", "screenshot", "get_page_info", "close_session", "restart_runner"
         ]
+        assert props["response_format"]["enum"] == ["text", "json"]
 
     def test_required_fields(self, tool):
         assert tool.parameters["required"] == ["action"]
@@ -90,6 +93,11 @@ class TestExecuteValidation:
         result = await tool.execute(action="fly_to_moon")
         assert "unknown action" in result.lower()
 
+    @pytest.mark.asyncio
+    async def test_invalid_response_format(self, tool):
+        result = await tool.execute(action="execute", instruction="open page", response_format="yaml")
+        assert "response_format" in result
+
 
 class TestRpcExecute:
     @pytest.mark.asyncio
@@ -114,6 +122,38 @@ class TestRpcExecute:
             assert "Page loaded" in result
 
     @pytest.mark.asyncio
+    async def test_execute_success_json(self, tool):
+        mock_result = {
+            "success": True,
+            "result": {
+                "session_id": "s_abc",
+                "page_url": "https://example.com",
+                "page_title": "Example",
+                "data": "Page loaded",
+                "success": True,
+                "steps": 3,
+                "duration": 1200,
+                "page_state": {"headings": ["Example"]},
+            },
+        }
+        with patch.object(tool, "_rpc", new_callable=AsyncMock, return_value=mock_result):
+            result = await tool.execute(
+                action="execute",
+                url="https://example.com",
+                instruction="open this page",
+                response_format="json",
+            )
+        payload = json.loads(result)
+        assert payload["status"] == "SUCCESS"
+        assert payload["session_id"] == "s_abc"
+        assert payload["steps"] == 3
+        assert payload["duration_ms"] == 1200
+        assert payload["page"]["url"] == "https://example.com"
+        assert payload["result"]["success"] is True
+        assert payload["page_state"]["headings"] == ["Example"]
+        assert payload["error"] is None
+
+    @pytest.mark.asyncio
     async def test_execute_rpc_error(self, tool):
         mock_result = {
             "success": False,
@@ -127,6 +167,81 @@ class TestRpcExecute:
             )
             assert "error" in result.lower()
             assert "Browser crashed" in result
+
+    @pytest.mark.asyncio
+    async def test_execute_rpc_error_json(self, tool):
+        mock_result = {
+            "success": False,
+            "error": {
+                "code": "TIMEOUT",
+                "message": "RPC timeout after 120s",
+                "session_id": "s_test",
+                "duration": 120000,
+                "page_url": "https://example.com/slow",
+                "page_title": "Slow Page",
+            },
+        }
+        with patch.object(tool, "_rpc", new_callable=AsyncMock, return_value=mock_result):
+            result = await tool.execute(
+                action="execute",
+                instruction="click button",
+                session_id="s_test",
+                response_format="json",
+            )
+        payload = json.loads(result)
+        assert payload["status"] == "TIMEOUT"
+        assert payload["session_id"] == "s_test"
+        assert payload["page"]["url"] == "https://example.com/slow"
+        assert payload["result"]["success"] is False
+        assert payload["error"]["code"] == "TIMEOUT"
+        assert "timeout" in payload["error"]["message"].lower()
+
+    @pytest.mark.asyncio
+    async def test_screenshot_success_json(self, tool, tmp_path):
+        mock_result = {
+            "success": True,
+            "result": {
+                "path": str(tmp_path / "shot.png"),
+                "size": 2048,
+            },
+        }
+        with patch.object(tool, "_rpc", new_callable=AsyncMock, return_value=mock_result), \
+             patch.object(tool, "_get_screenshot_dir", return_value=tmp_path):
+            result = await tool.execute(
+                action="screenshot",
+                session_id="s_test",
+                response_format="json",
+            )
+        payload = json.loads(result)
+        assert payload["status"] == "SUCCESS"
+        assert payload["session_id"] == "s_test"
+        assert payload["result"]["success"] is True
+        assert payload["result"]["path"].endswith(".png")
+        assert payload["result"]["size_bytes"] == 2048
+        assert payload["error"] is None
+
+    @pytest.mark.asyncio
+    async def test_get_page_info_success_json(self, tool):
+        mock_result = {
+            "success": True,
+            "result": {
+                "page_url": "https://example.com",
+                "page_title": "Example",
+                "viewport": "1280x720",
+            },
+        }
+        with patch.object(tool, "_rpc", new_callable=AsyncMock, return_value=mock_result):
+            result = await tool.execute(
+                action="get_page_info",
+                session_id="s_test",
+                response_format="json",
+            )
+        payload = json.loads(result)
+        assert payload["status"] == "SUCCESS"
+        assert payload["session_id"] == "s_test"
+        assert payload["page"]["title"] == "Example"
+        assert payload["page"]["viewport"] == "1280x720"
+        assert payload["result"]["success"] is True
 
 
 class TestSubscription:

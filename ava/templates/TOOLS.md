@@ -169,7 +169,13 @@ web_fetch(url: str, extractMode: str = "markdown", maxChars: int = 50000) -> str
 通过自然语言指令操控网页。基于 page-agent（DOM 文本提取 + LLM 规划）和 Playwright，支持持久化会话。
 
 ```
-page_agent(action: str, url: str = None, instruction: str = None, session_id: str = None) -> str
+page_agent(
+  action: str,
+  url: str = None,
+  instruction: str = None,
+  session_id: str = None,
+  response_format: str = "text"
+) -> str
 ```
 
 **参数：**
@@ -180,6 +186,7 @@ page_agent(action: str, url: str = None, instruction: str = None, session_id: st
 | `url` | str | 否 | 目标页面 URL（仅 `execute` 时使用） |
 | `instruction` | str | `execute` 时必需 | 自然语言操作指令 |
 | `session_id` | str | 否 | 会话 ID，用于复用浏览器上下文 |
+| `response_format` | str | 否 | `text` / `json`，默认 `text` |
 
 **动作说明：**
 
@@ -219,18 +226,30 @@ page_agent(action: str, url: str = None, instruction: str = None, session_id: st
 
 **Contract Notes:**
 
-- 对普通 tool caller，`page_agent` 返回的是字符串，不是结构化 JSON
+- 默认返回字符串；当 `response_format="json"` 时，返回 JSON 字符串
+- `execute(json)` 提供：
+  - `status`
+  - `session_id`
+  - `steps`
+  - `duration_ms`
+  - `page.url` / `page.title`
+  - `result.success` / `result.data`
+  - `page_state`
+  - `error`
+- `screenshot(json)` / `get_page_info(json)` 只返回该动作的最小字段
 - richer 的 `frame` / `activity` / `status` 事件只给 console `/browser` 预览页复用，不是普通 tool 返回
 - **只需要读取网页文本时必须用 `web_fetch`，不要用 `page_agent`**
 - `page_agent` 的正确使用场景：需要点击、填表、登录、多步交互、或页面内容需要 JS 渲染
+- `console_ui_dev_loop` v1 内部固定使用 `response_format="json"`
 
 **示例：**
 
 ```
 page_agent(action="execute", url="https://example.com", instruction="找到搜索框并搜索 nanobot")
+page_agent(action="execute", session_id="s_abc12345", instruction="点击设置按钮", response_format="json")
 page_agent(action="execute", session_id="s_abc12345", instruction="点击设置按钮，修改用户名为 test")
-page_agent(action="screenshot", session_id="s_abc12345")
-page_agent(action="get_page_info", session_id="s_abc12345")
+page_agent(action="screenshot", session_id="s_abc12345", response_format="json")
+page_agent(action="get_page_info", session_id="s_abc12345", response_format="json")
 page_agent(action="close_session", session_id="s_abc12345")
 ```
 
@@ -339,6 +358,7 @@ Console UI 的 `/bg-tasks` 页面提供可视化监控，通过 WebSocket 实时
 - 异步任务完成后会自动将结果持久化到会话历史，并通过 IM 通知用户
 - 活跃任务的摘要会自动注入到 system prompt，让模型感知当前后台执行状态
 - 只在明确需要阻塞结果时使用 `mode="sync"`
+- `console_ui_dev_loop` v1 默认使用 `claude_code(mode="sync")`
 
 ## Codex
 
@@ -378,6 +398,7 @@ codex(prompt: str, project_path: str = None, mode: str = "standard") -> str
 - 依赖本机 `codex` CLI（`npm install -g @openai/codex`）
 - 认证：codex CLI 自带的 `~/.codex/` 认证或 `providers.openai_codex.api_key`
 - 异步任务完成后自动持久化结果到会话历史并通知用户
+- 当前不进入 `console_ui_dev_loop` v1 默认主路径
 
 ## Communication
 

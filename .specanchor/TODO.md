@@ -182,3 +182,24 @@
   - Phase 2 剩余：cron/subagent observer + Telegram 命令
   - Phase 2.5（可选）：streaming 增强
   - Phase 3：自改进闭环 Skill 设计与实现（依赖 §10 lifecycle backend）
+
+## 灵感 / 远期探索
+
+### 12. 借鉴 Karpathy "LLM Knowledge Base" 思路——从代码上下文自动编译 Spec
+
+- **来源**：Karpathy 2026-04 推文（https://x.com/karpathy/status/2039805659525644595）
+- **核心思路**：
+  - Karpathy 用 LLM 把原始资料（论文/文章/repo）"编译"成一个 wiki（.md 文件集合），LLM 负责写作和维护，人几乎不直接编辑；
+  - 每次查询的输出也反哺回 wiki，形成自增长知识库；
+  - 他还会跑 LLM "health check"（lint）来找不一致、补缺失、发现新文章候选。
+- **与 SpecAnchor 的对应关系**：
+  - SpecAnchor 的 freshness check / lint 与 Karpathy 的 "health check" 几乎同构，只是对象不同（工程 Spec vs 研究知识库）；
+  - 可以借鉴"编译"思路：把零散的代码注释、PR 描述、commit message、review comment 作为 `raw/` 输入，用 LLM 自动"编译"或增量更新对应的 Spec 文件；
+  - 每次 code review / deploy 的产出也可以反哺 Spec 新鲜度，打通飞轮。
+- **潜在方向**：
+  - `specanchor compile`：扫描 `raw/`（PR body、commit log、注释）→ LLM 增量更新相关 Spec 章节；
+  - `specanchor lint`：LLM health check，找 Spec 间不一致、补缺失章节、推荐新 Spec 候选；
+  - 查询结果自动"归档"回 Spec，而不是只存在对话历史里。
+- **后续动作**：
+  - 先验证 lint 场景（最小可行，复用现有 specanchor-check.sh 扩展）；
+  - 再探索 compile 场景（需要定义 `raw/` 目录约定和增量更新策略）。
