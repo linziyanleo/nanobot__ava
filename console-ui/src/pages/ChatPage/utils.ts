@@ -240,10 +240,8 @@ export function formatTokenCount(n: number): string {
 }
 
 export function imageUrl(path: string): string {
-  const token = localStorage.getItem('token')
   const filename = path.split('/').pop() || path
-  const base = `/api/media/images/${filename}`
-  return token ? `${base}?token=${token}` : base
+  return `/api/media/images/${filename}`
 }
 
 const GENERATED_RE = /Generated image\(s\):\s*(.+)/

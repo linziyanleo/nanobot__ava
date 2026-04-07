@@ -1,6 +1,7 @@
 import { useEffect } from 'react'
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { useAuth } from './stores/auth'
+import type { UserRole } from './stores/auth'
 import Layout from './components/layout/Layout'
 import LoginPage from './pages/LoginPage'
 import DashboardPage from './pages/DashboardPage'
@@ -16,11 +17,17 @@ import ScheduledTasksPage from './pages/ScheduledTasksPage'
 import BgTasksPage from './pages/BgTasksPage'
 import BrowserPage from './pages/BrowserPage'
 
-function ProtectedRoute({ children, adminOnly = false }: { children: React.ReactNode; adminOnly?: boolean }) {
+function ProtectedRoute({
+  children,
+  allowedRoles,
+}: {
+  children: React.ReactNode
+  allowedRoles?: UserRole[]
+}) {
   const { user, loading } = useAuth()
   if (loading) return <div className="min-h-screen flex items-center justify-center text-[var(--text-secondary)]">Loading...</div>
   if (!user) return <Navigate to="/login" replace />
-  if (adminOnly && user.role !== 'admin') return <Navigate to="/" replace />
+  if (allowedRoles && !allowedRoles.includes(user.role)) return <Navigate to="/" replace />
   return <>{children}</>
 }
 
@@ -29,7 +36,7 @@ export default function App() {
 
   useEffect(() => {
     checkAuth()
-  }, [])
+  }, [checkAuth])
 
   return (
     <BrowserRouter>
@@ -47,16 +54,15 @@ export default function App() {
           <Route path="config" element={<ConfigPage />} />
           <Route path="memory" element={<MemoryPage />} />
           <Route path="media" element={<MediaPage />} />
-          <Route path="persona" element={<PersonaPage />} />
-          <Route path="skills" element={<SkillsPage />} />
-          <Route path="chat" element={<ChatPage />} />
+          <Route path="persona" element={<ProtectedRoute allowedRoles={['admin', 'editor', 'viewer']}><PersonaPage /></ProtectedRoute>} />
+          <Route path="skills" element={<ProtectedRoute allowedRoles={['admin', 'editor', 'viewer']}><SkillsPage /></ProtectedRoute>} />
+          <Route path="chat" element={<ProtectedRoute allowedRoles={['admin', 'editor', 'viewer']}><ChatPage /></ProtectedRoute>} />
           <Route path="gateway" element={<Navigate to="/" replace />} />
           <Route path="tasks" element={<ScheduledTasksPage />} />
-          <Route path="bg-tasks" element={<BgTasksPage />} />
+          <Route path="bg-tasks" element={<ProtectedRoute allowedRoles={['admin', 'editor', 'viewer']}><BgTasksPage /></ProtectedRoute>} />
           <Route path="tokens" element={<TokenStatsPage />} />
-          <Route path="browser" element={<BrowserPage />} />
-          <Route path="users" element={<ProtectedRoute adminOnly><UsersPage /></ProtectedRoute>} />
-          {/* Legacy routes redirect */}
+          <Route path="browser" element={<ProtectedRoute allowedRoles={['admin', 'editor', 'viewer']}><BrowserPage /></ProtectedRoute>} />
+          <Route path="users" element={<ProtectedRoute allowedRoles={['admin']}><UsersPage /></ProtectedRoute>} />
           <Route path="files" element={<Navigate to="/memory" replace />} />
           <Route path="audit" element={<Navigate to="/users" replace />} />
         </Route>

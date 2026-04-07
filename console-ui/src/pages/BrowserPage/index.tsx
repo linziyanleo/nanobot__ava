@@ -46,9 +46,8 @@ export default function BrowserPage() {
       return
     }
 
-    const token = localStorage.getItem('token') || ''
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
-    const wsUrl = `${protocol}//${window.location.host}/api/page-agent/ws/${activeSession}?token=${token}`
+    const wsUrl = `${protocol}//${window.location.host}/api/page-agent/ws/${activeSession}`
 
     const ws = new WebSocket(wsUrl)
     wsRef.current = ws

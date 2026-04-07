@@ -1,28 +1,29 @@
-import { useEffect, useState, useCallback } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import {
+  Activity,
+  AlertTriangle,
+  ArrowUpCircle,
+  BarChart3,
+  Brain,
+  ChevronRight,
+  Clock,
+  Cpu,
+  Hammer,
+  Image,
+  Loader2,
+  MessageSquare,
+  Power,
+  RefreshCw,
   Server,
   Settings,
-  Brain,
-  UserCog,
-  MessageSquare,
-  Activity,
-  RefreshCw,
-  Power,
-  AlertTriangle,
-  Cpu,
-  Loader2,
-  Clock,
-  ChevronRight,
-  Hammer,
   Shield,
-  ArrowUpCircle,
-  X,
-} from 'lucide-react';
-import { api } from '../api/client'
-import { useAuth } from '../stores/auth'
+  UserCog,
+} from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
+import { api } from '../api/client'
 import { useResponsiveMode } from '../hooks/useResponsiveMode'
 import { useVersionCheck } from '../hooks/useVersionCheck'
+import { useAuth } from '../stores/auth'
 
 interface GatewayStatusData {
   running: boolean
@@ -38,430 +39,489 @@ interface GatewayStatusData {
 }
 
 interface ActiveTask {
-  task_id: string;
-  task_type: string;
-  status: 'queued' | 'running' | 'succeeded' | 'failed' | 'cancelled';
-  prompt_preview: string;
-  started_at: number | null;
-  elapsed_ms: number;
+  task_id: string
+  task_type: string
+  status: 'queued' | 'running' | 'succeeded' | 'failed' | 'cancelled'
+  prompt_preview: string
+  started_at: number | null
+  elapsed_ms: number
 }
 
 interface ActiveTasksResponse {
-  running: number;
-  total: number;
-  tasks: ActiveTask[];
+  running: number
+  total: number
+  tasks: ActiveTask[]
+}
+
+interface QuickCard {
+  icon: typeof Settings
+  label: string
+  value: string
+  sub: string
+  color: string
+  onClick: () => void
+}
+
+function formatUptime(seconds: number | null): string {
+  if (seconds == null) return 'N/A'
+  const days = Math.floor(seconds / 86400)
+  const hours = Math.floor((seconds % 86400) / 3600)
+  const minutes = Math.floor((seconds % 3600) / 60)
+  const parts: string[] = []
+  if (days > 0) parts.push(`${days}d`)
+  if (hours > 0) parts.push(`${hours}h`)
+  parts.push(`${minutes}m`)
+  return parts.join(' ')
+}
+
+function shortUptime(seconds: number | null): string {
+  if (seconds == null) return 'N/A'
+  const hours = Math.floor(seconds / 3600)
+  const minutes = Math.floor((seconds % 3600) / 60)
+  return hours > 0 ? `${hours}h ${minutes}m` : `${minutes}m`
 }
 
 export default function DashboardPage() {
   const [status, setStatus] = useState<GatewayStatusData | null>(null)
-  const [restarting, setRestarting] = useState(false);
-  const [rebuilding, setRebuilding] = useState(false);
-  const [countdown, setCountdown] = useState(0);
-  const [gwMessage, setGwMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
-  const { user, isAdmin } = useAuth();
+  const [restarting, setRestarting] = useState(false)
+  const [rebuilding, setRebuilding] = useState(false)
+  const [countdown, setCountdown] = useState(0)
+  const [gwMessage, setGwMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
+  const [activeTasks, setActiveTasks] = useState<ActiveTasksResponse | null>(null)
   const navigate = useNavigate()
   const { isMobile } = useResponsiveMode()
   const { currentVersion, updateAvailable, dismiss, refresh } = useVersionCheck()
-
-  const [activeTasks, setActiveTasks] = useState<ActiveTasksResponse | null>(null);
+  const { user, isAdmin, isMockTester } = useAuth()
+  const mockMode = isMockTester()
 
   const loadStatus = useCallback(() => {
     api<GatewayStatusData>('/gateway/status').then(setStatus).catch(() => {})
   }, [])
 
   const loadActiveTasks = useCallback(() => {
+    if (mockMode) {
+      setActiveTasks(null)
+      return
+    }
     api<ActiveTasksResponse>('/bg-tasks?include_finished=false')
       .then(setActiveTasks)
-      .catch(() => {});
-  }, []);
+      .catch(() => {})
+  }, [mockMode])
 
   useEffect(() => {
-    loadStatus();
-    loadActiveTasks();
-    const interval = setInterval(loadStatus, 10000);
-    const taskInterval = setInterval(loadActiveTasks, 3000);
+    loadStatus()
+    loadActiveTasks()
+    const statusTimer = window.setInterval(loadStatus, 10000)
+    const taskTimer = mockMode ? null : window.setInterval(loadActiveTasks, 3000)
     return () => {
-      clearInterval(interval);
-      clearInterval(taskInterval);
-    };
-  }, [loadStatus, loadActiveTasks]);
-
-  useEffect(() => {
-    if (activeTasks && activeTasks.running > 0) {
-      const timer = setInterval(() => setActiveTasks(d => (d ? { ...d } : d)), 1000);
-      return () => clearInterval(timer);
+      window.clearInterval(statusTimer)
+      if (taskTimer != null) window.clearInterval(taskTimer)
     }
-  }, [activeTasks?.running]);
+  }, [loadActiveTasks, loadStatus, mockMode])
 
   useEffect(() => {
-    if (countdown <= 0) return;
-    const timer = setTimeout(() => setCountdown(countdown - 1), 1000);
-    return () => clearTimeout(timer);
-  }, [countdown]);
+    if (!activeTasks || activeTasks.running <= 0) return
+    const timer = window.setInterval(() => setActiveTasks(data => (data ? { ...data } : data)), 1000)
+    return () => window.clearInterval(timer)
+  }, [activeTasks])
 
-  const handleRestart = async (force: boolean = false) => {
-    if (!confirm(`重启网关${force ? ' (强制)' : ''}? 控制台将短暂断开连接。`)) return;
-    setRestarting(true);
-    setGwMessage(null);
+  useEffect(() => {
+    if (countdown <= 0) return
+    const timer = window.setTimeout(() => setCountdown(countdown - 1), 1000)
+    return () => window.clearTimeout(timer)
+  }, [countdown])
+
+  const handleRestart = async (force = false) => {
+    if (!window.confirm(`Restart gateway${force ? ' (force)' : ''}?`)) return
+    setRestarting(true)
+    setGwMessage(null)
     try {
-      const delayMs = 5000;
+      const delayMs = 5000
       await api('/gateway/restart', {
         method: 'POST',
         body: JSON.stringify({ delay_ms: delayMs, force }),
-      });
-      setCountdown(Math.ceil(delayMs / 1000) + 5);
-      setGwMessage({ type: 'success', text: `网关重启将在 ${delayMs / 1000}s 后执行` });
+      })
+      setCountdown(Math.ceil(delayMs / 1000) + 5)
+      setGwMessage({ type: 'success', text: `Gateway restart scheduled in ${delayMs / 1000}s.` })
     } catch (err: unknown) {
-      setGwMessage({ type: 'error', text: err instanceof Error ? err.message : '重启失败' });
+      setGwMessage({ type: 'error', text: err instanceof Error ? err.message : 'Restart failed' })
     } finally {
-      setRestarting(false);
+      setRestarting(false)
     }
-  };
+  }
 
   const handleRebuild = async () => {
-    if (!confirm('重建前端？不会影响后端进程和连接。')) return;
-    setRebuilding(true);
-    setGwMessage(null);
+    if (!window.confirm('Rebuild console UI now?')) return
+    setRebuilding(true)
+    setGwMessage(null)
     try {
-      const res = await api<{ success: boolean; duration_ms: number; version_hash: string; error: string }>('/gateway/console/rebuild', {
+      const res = await api<{ success: boolean; duration_ms: number; error: string }>('/gateway/console/rebuild', {
         method: 'POST',
-      });
+      })
       if (res.success) {
-        setGwMessage({ type: 'success', text: `前端重建完成 (${res.duration_ms}ms)，刷新页面即可加载新版本` });
+        setGwMessage({ type: 'success', text: `Console UI rebuilt in ${res.duration_ms}ms.` })
       } else {
-        setGwMessage({ type: 'error', text: `重建失败: ${res.error}` });
+        setGwMessage({ type: 'error', text: `Rebuild failed: ${res.error}` })
       }
     } catch (err: unknown) {
-      setGwMessage({ type: 'error', text: err instanceof Error ? err.message : '重建失败' });
+      setGwMessage({ type: 'error', text: err instanceof Error ? err.message : 'Rebuild failed' })
     } finally {
-      setRebuilding(false);
+      setRebuilding(false)
     }
-  };
+  }
 
-  const formatUptime = (s: number | null) => {
-    if (s == null) return 'N/A';
-    const d = Math.floor(s / 86400);
-    const h = Math.floor((s % 86400) / 3600);
-    const m = Math.floor((s % 3600) / 60);
-    const parts: string[] = [];
-    if (d > 0) parts.push(`${d}天`);
-    if (h > 0) parts.push(`${h}小时`);
-    parts.push(`${m}分钟`);
-    return parts.join(' ');
-  };
-
-  const shortUptime = (s: number | null) => {
-    if (s == null) return 'N/A';
-    const h = Math.floor(s / 3600);
-    const m = Math.floor((s % 3600) / 60);
-    return h > 0 ? `${h}h ${m}m` : `${m}m`;
-  };
-
-  const cards = [
-    {
-      icon: Settings,
-      label: 'Config.json',
-      value: '配置',
-      sub: '编辑配置',
-      color: 'text-[var(--accent)]',
-      onClick: () => navigate('/config'),
-    },
-    {
-      icon: Brain,
-      label: 'MEMORY.md',
-      value: '记忆',
-      sub: '全局记忆 & 个人记忆',
-      color: 'text-[var(--warning)]',
-      onClick: () => navigate('/memory'),
-    },
-    {
-      icon: UserCog,
-      label: 'SOUL.md',
-      value: '人设',
-      sub: 'Agent 核心配置文件',
-      color: 'text-green-400',
-      onClick: () => navigate('/persona'),
-    },
-    {
-      icon: MessageSquare,
-      label: 'Sessions',
-      value: '聊天',
-      sub: '测试 Agent 对话',
-      color: 'text-purple-400',
-      onClick: () => navigate('/chat'),
-    },
-  ];
+  const cards: QuickCard[] = mockMode
+    ? [
+        {
+          icon: Settings,
+          label: 'Config',
+          value: 'Mock Config',
+          sub: 'Edit only mock config files',
+          color: 'text-[var(--accent)]',
+          onClick: () => navigate('/config'),
+        },
+        {
+          icon: Brain,
+          label: 'Memory',
+          value: 'Mock Memory',
+          sub: 'Preview persona and memory documents',
+          color: 'text-amber-400',
+          onClick: () => navigate('/memory'),
+        },
+        {
+          icon: Image,
+          label: 'Media',
+          value: 'Mock Media',
+          sub: 'Gallery stays inside mock_data',
+          color: 'text-emerald-400',
+          onClick: () => navigate('/media'),
+        },
+        {
+          icon: BarChart3,
+          label: 'Tokens',
+          value: 'Mock Stats',
+          sub: 'Token charts come from mock.nanobot.db',
+          color: 'text-sky-400',
+          onClick: () => navigate('/tokens'),
+        },
+      ]
+    : [
+        {
+          icon: Settings,
+          label: 'Config',
+          value: 'Config',
+          sub: 'Edit gateway and console configuration',
+          color: 'text-[var(--accent)]',
+          onClick: () => navigate('/config'),
+        },
+        {
+          icon: Brain,
+          label: 'Memory',
+          value: 'Memory',
+          sub: 'Browse global and personal memory files',
+          color: 'text-amber-400',
+          onClick: () => navigate('/memory'),
+        },
+        {
+          icon: UserCog,
+          label: 'Persona',
+          value: 'Persona',
+          sub: 'Inspect core agent identity files',
+          color: 'text-emerald-400',
+          onClick: () => navigate('/persona'),
+        },
+        {
+          icon: MessageSquare,
+          label: 'Chat',
+          value: 'Chat',
+          sub: 'Open live agent sessions and debugging flows',
+          color: 'text-fuchsia-400',
+          onClick: () => navigate('/chat'),
+        },
+      ]
 
   return (
     <div>
       <div className="mb-6">
         <h1 className="text-2xl font-bold">控制台</h1>
-        <p className="text-[var(--text-secondary)] text-sm mt-1">欢迎回来, {user?.username}</p>
+        <p className="mt-1 text-sm text-[var(--text-secondary)]">当前登录用户：{user?.username}</p>
       </div>
 
-      {isMobile ? (
-        <div className="grid grid-cols-4 gap-2 mb-4">
-          {cards.map(card => (
-            <button
-              key={card.label}
-              onClick={card.onClick}
-              className="flex flex-col items-center gap-1.5 py-3 bg-[var(--bg-secondary)] border border-[var(--border)] rounded-xl hover:border-[var(--accent)]/50 transition-all"
-            >
-              <div className={`p-2 rounded-lg bg-[var(--bg-tertiary)] ${card.color}`}>
-                <card.icon className="w-4 h-4" />
-              </div>
-              <span className="text-xs font-medium">{card.value}</span>
-            </button>
-          ))}
-        </div>
-      ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4 mb-6">
-          {cards.map(card => (
-            <button
-              key={card.label}
-              onClick={card.onClick}
-              className="bg-[var(--bg-secondary)] border border-[var(--border)] rounded-xl p-5 text-left hover:border-[var(--accent)]/50 transition-all group"
-            >
-              <div className="flex items-center gap-3 mb-3">
-                <div className={`p-2 rounded-lg bg-[var(--bg-tertiary)] ${card.color}`}>
-                  <card.icon className="w-5 h-5" />
-                </div>
-                <span className="text-sm text-[var(--text-secondary)]">{card.label}</span>
-              </div>
-              <p className={`text-xl font-semibold ${card.color}`}>{card.value}</p>
-              {card.sub && <p className="text-xs text-[var(--text-secondary)] mt-1">{card.sub}</p>}
-            </button>
-          ))}
+      {mockMode && (
+        <div className="mb-4 rounded-2xl border border-amber-500/30 bg-amber-500/10 p-4">
+          <div className="flex items-start gap-3">
+            <Shield className="mt-0.5 h-5 w-5 text-amber-400" />
+            <div>
+              <p className="text-sm font-semibold text-amber-300">MOCK SANDBOX</p>
+              <p className="mt-1 text-sm text-amber-100/80">
+                当前账号只能读取和编辑 `~/.nanobot/console/mock_data/`。真实 workspace、真实 `~/.nanobot`、
+                live chat 和 gateway 控制都不会暴露给这个账号。
+              </p>
+            </div>
+          </div>
         </div>
       )}
 
-      {/* Version update banner */}
       {updateAvailable && (
-        <div className="mb-4 p-3 rounded-xl bg-[var(--accent)]/10 border border-[var(--accent)]/20 flex items-center justify-between">
+        <div className="mb-4 flex items-center justify-between rounded-xl border border-[var(--accent)]/20 bg-[var(--accent)]/10 p-3">
           <div className="flex items-center gap-2">
-            <ArrowUpCircle className="w-4 h-4 text-[var(--accent)]" />
-            <span className="text-sm text-[var(--accent)] font-medium">前端新版本可用</span>
+            <ArrowUpCircle className="h-4 w-4 text-[var(--accent)]" />
+            <span className="text-sm font-medium text-[var(--accent)]">检测到新的 console-ui 构建版本</span>
           </div>
           <div className="flex items-center gap-2">
             <button
               onClick={refresh}
-              className="px-3 py-1 rounded-lg bg-[var(--accent)] text-white text-xs font-medium hover:bg-[var(--accent)]/80"
+              className="rounded-lg bg-[var(--accent)] px-3 py-1 text-xs font-medium text-white hover:bg-[var(--accent)]/80"
             >
               刷新加载
             </button>
-            <button onClick={dismiss} className="p-1 rounded text-[var(--text-secondary)] hover:text-[var(--text-primary)]">
-              <X className="w-3.5 h-3.5" />
+            <button
+              onClick={dismiss}
+              className="rounded-lg px-2 py-1 text-xs text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
+            >
+              忽略
             </button>
           </div>
         </div>
       )}
 
-      {/* Gateway Section */}
       {gwMessage && (
         <div
-          className={`mb-4 p-3 rounded-lg text-sm ${gwMessage.type === 'success' ? 'bg-[var(--success)]/10 text-[var(--success)]' : 'bg-[var(--danger)]/10 text-[var(--danger)]'}`}
+          className={`mb-4 rounded-lg p-3 text-sm ${
+            gwMessage.type === 'success'
+              ? 'bg-[var(--success)]/10 text-[var(--success)]'
+              : 'bg-[var(--danger)]/10 text-[var(--danger)]'
+          }`}
         >
           {gwMessage.text}
         </div>
       )}
 
       {countdown > 0 && (
-        <div className="mb-4 p-4 rounded-xl bg-[var(--warning)]/10 border border-[var(--warning)]/20 flex items-center gap-3">
-          <AlertTriangle className="w-5 h-5 text-[var(--warning)]" />
+        <div className="mb-4 flex items-center gap-3 rounded-xl border border-[var(--warning)]/20 bg-[var(--warning)]/10 p-4">
+          <AlertTriangle className="h-5 w-5 text-[var(--warning)]" />
           <div>
-            <p className="text-sm font-medium text-[var(--warning)]">网关重启中</p>
-            <p className="text-xs text-[var(--text-secondary)]">预计将在 ~{countdown}s 后恢复。页面将自动重新连接。</p>
+            <p className="text-sm font-medium text-[var(--warning)]">Gateway restart pending</p>
+            <p className="text-xs text-[var(--text-secondary)]">预计约 {countdown}s 后重新连接。</p>
           </div>
         </div>
       )}
 
-      <div
-        className={`bg-[var(--bg-secondary)] border border-[var(--border)] rounded-xl ${isMobile ? 'p-3' : 'p-5'} mb-6`}
-      >
-        <div className="flex items-center justify-between mb-3">
-          <div className="flex items-center gap-2">
-            <div className={`p-2 rounded-lg ${status?.running ? 'bg-[var(--success)]/10' : 'bg-[var(--danger)]/10'}`}>
-              <Server className={`w-5 h-5 ${status?.running ? 'text-[var(--success)]' : 'text-[var(--danger)]'}`} />
+      {isMobile ? (
+        <div className="mb-4 grid grid-cols-2 gap-3">
+          {cards.map(card => (
+            <button
+              key={card.label}
+              onClick={card.onClick}
+              className="rounded-xl border border-[var(--border)] bg-[var(--bg-secondary)] p-4 text-left transition-all hover:border-[var(--accent)]/50"
+            >
+              <div className={`mb-3 inline-flex rounded-lg bg-[var(--bg-tertiary)] p-2 ${card.color}`}>
+                <card.icon className="h-4 w-4" />
+              </div>
+              <p className="text-sm font-semibold">{card.value}</p>
+              <p className="mt-1 text-xs text-[var(--text-secondary)]">{card.sub}</p>
+            </button>
+          ))}
+        </div>
+      ) : (
+        <div className="mb-6 grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
+          {cards.map(card => (
+            <button
+              key={card.label}
+              onClick={card.onClick}
+              className="group rounded-xl border border-[var(--border)] bg-[var(--bg-secondary)] p-5 text-left transition-all hover:border-[var(--accent)]/50"
+            >
+              <div className="mb-3 flex items-center gap-3">
+                <div className={`rounded-lg bg-[var(--bg-tertiary)] p-2 ${card.color}`}>
+                  <card.icon className="h-5 w-5" />
+                </div>
+                <span className="text-sm text-[var(--text-secondary)]">{card.label}</span>
+              </div>
+              <p className={`text-xl font-semibold ${card.color}`}>{card.value}</p>
+              <p className="mt-1 text-xs text-[var(--text-secondary)]">{card.sub}</p>
+            </button>
+          ))}
+        </div>
+      )}
+
+      <div className={`mb-6 rounded-xl border border-[var(--border)] bg-[var(--bg-secondary)] ${isMobile ? 'p-4' : 'p-5'}`}>
+        <div className="mb-3 flex items-center justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <div className={`rounded-lg p-2 ${status?.running ? 'bg-[var(--success)]/10' : 'bg-[var(--danger)]/10'}`}>
+              <Server className={`h-5 w-5 ${status?.running ? 'text-[var(--success)]' : 'text-[var(--danger)]'}`} />
             </div>
             <div>
-              <h2 className="text-sm font-semibold flex items-center gap-1.5">
-                {status?.running ? '网关运行中' : '网关未运行'}
+              <h2 className="flex items-center gap-2 text-sm font-semibold">
+                {status?.running ? 'Gateway online' : 'Gateway offline'}
                 <button
                   onClick={loadStatus}
-                  className="p-1 rounded text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)] transition-colors"
-                  title="刷新状态"
+                  className="rounded p-1 text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)]"
+                  title="Refresh status"
                 >
-                  <RefreshCw className="w-3.5 h-3.5" />
+                  <RefreshCw className="h-3.5 w-3.5" />
                 </button>
               </h2>
               <p className="text-[10px] text-[var(--text-secondary)]">
                 {status?.running
-                  ? `PID: ${status.pid} · ${shortUptime(status.uptime_seconds)} · 端口: ${status.gateway_port}`
-                  : '未检测到'}
+                  ? `PID ${status.pid ?? '-'} · uptime ${shortUptime(status.uptime_seconds)} · port ${status.gateway_port ?? '-'}`
+                  : 'No running gateway detected'}
               </p>
             </div>
           </div>
-          {isAdmin() && (
+
+          {isAdmin() && !mockMode && (
             <div className="flex gap-1.5">
               <button
                 onClick={handleRebuild}
                 disabled={rebuilding}
-                className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-[var(--accent)] hover:bg-[var(--accent)]/80 text-white text-[11px] font-medium disabled:opacity-50"
+                className="flex items-center gap-1 rounded-lg bg-[var(--accent)] px-2.5 py-1.5 text-[11px] font-medium text-white disabled:opacity-50 hover:bg-[var(--accent)]/80"
               >
-                {rebuilding ? <Loader2 className="w-3 h-3 animate-spin" /> : <Hammer className="w-3 h-3" />}
+                {rebuilding ? <Loader2 className="h-3 w-3 animate-spin" /> : <Hammer className="h-3 w-3" />}
                 {isMobile ? '' : rebuilding ? 'Building...' : 'Rebuild UI'}
               </button>
               <button
                 onClick={() => handleRestart(false)}
                 disabled={restarting}
-                className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-[var(--warning)] hover:bg-[var(--warning)]/80 text-black text-[11px] font-medium disabled:opacity-50"
+                className="flex items-center gap-1 rounded-lg bg-[var(--warning)] px-2.5 py-1.5 text-[11px] font-medium text-black disabled:opacity-50 hover:bg-[var(--warning)]/80"
               >
-                <RefreshCw className="w-3 h-3" />
+                <RefreshCw className="h-3 w-3" />
                 {isMobile ? '' : restarting ? 'Scheduling...' : 'Restart'}
               </button>
               <button
                 onClick={() => handleRestart(true)}
                 disabled={restarting}
-                className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-[var(--danger)] hover:bg-[var(--danger)]/80 text-white text-[11px] font-medium disabled:opacity-50"
+                className="flex items-center gap-1 rounded-lg bg-[var(--danger)] px-2.5 py-1.5 text-[11px] font-medium text-white disabled:opacity-50 hover:bg-[var(--danger)]/80"
               >
-                <Power className="w-3 h-3" />
+                <Power className="h-3 w-3" />
                 {isMobile ? '' : 'Force'}
               </button>
             </div>
           )}
         </div>
 
-        {!isMobile && (
-          <div className="grid grid-cols-4 gap-3 mb-3">
-            <div className="bg-[var(--bg-primary)] rounded-lg p-3">
-              <p className="text-[10px] text-[var(--text-secondary)] mb-0.5">状态</p>
-              <p
-                className={`text-sm font-semibold ${status?.running ? 'text-[var(--success)]' : 'text-[var(--danger)]'}`}
-              >
-                {status?.running ? '在线' : '离线'}
-              </p>
-            </div>
-            <div className="bg-[var(--bg-primary)] rounded-lg p-3">
-              <p className="text-[10px] text-[var(--text-secondary)] mb-0.5">PID</p>
-              <p className="text-sm font-semibold">{status?.pid ?? '-'}</p>
-            </div>
-            <div className="bg-[var(--bg-primary)] rounded-lg p-3">
-              <p className="text-[10px] text-[var(--text-secondary)] mb-0.5">端口</p>
-              <p className="text-sm font-semibold">{status?.gateway_port ?? '-'}</p>
-            </div>
-            <div className="bg-[var(--bg-primary)] rounded-lg p-3">
-              <p className="text-[10px] text-[var(--text-secondary)] mb-0.5">运行时间</p>
-              <p className="text-sm font-semibold">{formatUptime(status?.uptime_seconds ?? null)}</p>
-            </div>
+        <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+          <div className="rounded-lg bg-[var(--bg-primary)] p-3">
+            <p className="mb-0.5 text-[10px] text-[var(--text-secondary)]">Status</p>
+            <p className={`text-sm font-semibold ${status?.running ? 'text-[var(--success)]' : 'text-[var(--danger)]'}`}>
+              {status?.running ? 'Online' : 'Offline'}
+            </p>
           </div>
-        )}
+          <div className="rounded-lg bg-[var(--bg-primary)] p-3">
+            <p className="mb-0.5 text-[10px] text-[var(--text-secondary)]">Gateway Port</p>
+            <p className="text-sm font-semibold">{status?.gateway_port ?? '-'}</p>
+          </div>
+          <div className="rounded-lg bg-[var(--bg-primary)] p-3">
+            <p className="mb-0.5 text-[10px] text-[var(--text-secondary)]">Console Port</p>
+            <p className="text-sm font-semibold">{status?.console_port ?? '-'}</p>
+          </div>
+          <div className="rounded-lg bg-[var(--bg-primary)] p-3">
+            <p className="mb-0.5 text-[10px] text-[var(--text-secondary)]">Uptime</p>
+            <p className="text-sm font-semibold">{formatUptime(status?.uptime_seconds ?? null)}</p>
+          </div>
+        </div>
 
-        {!isMobile && status && (
-          <div className="grid grid-cols-4 gap-3">
-            <div className="bg-[var(--bg-primary)] rounded-lg p-3">
-              <p className="text-[10px] text-[var(--text-secondary)] mb-0.5">Supervisor</p>
-              <p className="text-sm font-semibold flex items-center gap-1">
-                <Shield className={`w-3 h-3 ${status.supervised ? 'text-[var(--success)]' : 'text-[var(--text-secondary)]'}`} />
-                {status.supervised ? (status.supervisor ?? 'yes') : 'none'}
+        {status && (
+          <div className="mt-3 grid grid-cols-2 gap-3 md:grid-cols-4">
+            <div className="rounded-lg bg-[var(--bg-primary)] p-3">
+              <p className="mb-0.5 text-[10px] text-[var(--text-secondary)]">Supervisor</p>
+              <p className="flex items-center gap-1 text-sm font-semibold">
+                <Shield className={`h-3 w-3 ${status.supervised ? 'text-[var(--success)]' : 'text-[var(--text-secondary)]'}`} />
+                {status.supervised ? status.supervisor ?? 'enabled' : 'none'}
               </p>
             </div>
-            <div className="bg-[var(--bg-primary)] rounded-lg p-3">
-              <p className="text-[10px] text-[var(--text-secondary)] mb-0.5">Boot Generation</p>
+            <div className="rounded-lg bg-[var(--bg-primary)] p-3">
+              <p className="mb-0.5 text-[10px] text-[var(--text-secondary)]">Boot Generation</p>
               <p className="text-sm font-semibold">#{status.boot_generation}</p>
             </div>
-            <div className="bg-[var(--bg-primary)] rounded-lg p-3">
-              <p className="text-[10px] text-[var(--text-secondary)] mb-0.5">前端版本</p>
-              <p className="text-sm font-semibold font-mono">{currentVersion?.hash?.slice(0, 8) ?? '-'}</p>
+            <div className="rounded-lg bg-[var(--bg-primary)] p-3">
+              <p className="mb-0.5 text-[10px] text-[var(--text-secondary)]">UI Version</p>
+              <p className="font-mono text-sm font-semibold">{currentVersion?.hash?.slice(0, 8) ?? '-'}</p>
             </div>
-            <div className="bg-[var(--bg-primary)] rounded-lg p-3">
-              <p className="text-[10px] text-[var(--text-secondary)] mb-0.5">重启状态</p>
+            <div className="rounded-lg bg-[var(--bg-primary)] p-3">
+              <p className="mb-0.5 text-[10px] text-[var(--text-secondary)]">Restart State</p>
               <p className={`text-sm font-semibold ${status.restart_pending ? 'text-[var(--warning)]' : 'text-[var(--text-secondary)]'}`}>
-                {status.restart_pending ? '等待重启' : '正常'}
+                {status.restart_pending ? 'Pending' : 'Stable'}
               </p>
             </div>
           </div>
         )}
       </div>
 
-      {/* Active Background Tasks */}
-      {activeTasks && activeTasks.running > 0 && (
-        <div className="bg-[var(--bg-secondary)] border border-blue-500/30 rounded-xl p-5 mb-6">
-          <div className="flex items-center justify-between mb-3">
+      {!mockMode && activeTasks && activeTasks.running > 0 && (
+        <div className="mb-6 rounded-xl border border-blue-500/30 bg-[var(--bg-secondary)] p-5">
+          <div className="mb-3 flex items-center justify-between">
             <div className="flex items-center gap-2">
-              <div className="p-2 rounded-lg bg-blue-500/10">
-                <Cpu className="w-4 h-4 text-blue-400" />
+              <div className="rounded-lg bg-blue-500/10 p-2">
+                <Cpu className="h-4 w-4 text-blue-400" />
               </div>
               <h2 className="text-sm font-semibold">后台任务</h2>
-              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-blue-500/10 text-blue-400">
-                <Loader2 className="w-3 h-3 animate-spin" />
-                {activeTasks.running} 运行中
+              <span className="inline-flex items-center gap-1 rounded-full bg-blue-500/10 px-2 py-0.5 text-xs font-medium text-blue-400">
+                <Loader2 className="h-3 w-3 animate-spin" />
+                {activeTasks.running} running
               </span>
             </div>
             <button
               onClick={() => navigate('/bg-tasks')}
-              className="flex items-center gap-1 text-xs text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors"
+              className="flex items-center gap-1 text-xs text-[var(--text-secondary)] transition-colors hover:text-[var(--text-primary)]"
             >
-              查看全部 <ChevronRight className="w-3 h-3" />
+              查看全部 <ChevronRight className="h-3 w-3" />
             </button>
           </div>
+
           <div className="space-y-2">
             {activeTasks.tasks
-              .filter(t => t.status === 'queued' || t.status === 'running')
+              .filter(task => task.status === 'queued' || task.status === 'running')
               .slice(0, 3)
               .map(task => {
-                const elapsed = task.started_at ? Math.floor(Date.now() / 1000 - task.started_at) : 0;
-                const elapsedStr = elapsed >= 60 ? `${Math.floor(elapsed / 60)}m ${elapsed % 60}s` : `${elapsed}s`;
-                const StatusIcon = task.status === 'running' ? Loader2 : Clock;
+                const elapsed = task.started_at ? Math.floor(Date.now() / 1000 - task.started_at) : 0
+                const elapsedText = elapsed >= 60 ? `${Math.floor(elapsed / 60)}m ${elapsed % 60}s` : `${elapsed}s`
+                const StatusIcon = task.status === 'running' ? Loader2 : Clock
                 return (
-                  <div
+                  <button
                     key={task.task_id}
                     onClick={() => navigate('/bg-tasks')}
-                    className="flex items-center gap-3 p-3 rounded-lg bg-[var(--bg-primary)] cursor-pointer hover:bg-[var(--bg-tertiary)] transition-colors"
+                    className="flex w-full items-center gap-3 rounded-lg bg-[var(--bg-primary)] p-3 text-left transition-colors hover:bg-[var(--bg-tertiary)]"
                   >
-                    <StatusIcon
-                      className={`w-4 h-4 ${task.status === 'running' ? 'text-blue-400 animate-spin' : 'text-yellow-500'}`}
-                    />
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm truncate">{task.prompt_preview || '(no prompt)'}</p>
+                    <StatusIcon className={`h-4 w-4 ${task.status === 'running' ? 'animate-spin text-blue-400' : 'text-yellow-500'}`} />
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-sm">{task.prompt_preview || '(no prompt)'}</p>
                       <p className="text-xs text-[var(--text-secondary)]">
-                        {task.task_type} · {task.task_id} · {elapsedStr}
+                        {task.task_type} · {task.task_id} · {elapsedText}
                       </p>
                     </div>
-                  </div>
-                );
+                  </button>
+                )
               })}
           </div>
         </div>
       )}
 
-      <div className="bg-[var(--bg-secondary)] border border-[var(--border)] rounded-xl p-5">
-        <div className="flex items-center gap-2 mb-3">
-          <Activity className="w-4 h-4 text-[var(--accent)]" />
-          <h2 className="text-sm font-semibold">快速信息</h2>
+      <div className="rounded-xl border border-[var(--border)] bg-[var(--bg-secondary)] p-5">
+        <div className="mb-3 flex items-center gap-2">
+          <Activity className="h-4 w-4 text-[var(--accent)]" />
+          <h2 className="text-sm font-semibold">Quick Info</h2>
         </div>
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+        <div className="grid grid-cols-2 gap-4 text-sm md:grid-cols-4">
           <div>
-            <p className="text-[var(--text-secondary)]">角色</p>
+            <p className="text-[var(--text-secondary)]">Role</p>
             <p className="font-medium capitalize">{user?.role}</p>
           </div>
           <div>
-            <p className="text-[var(--text-secondary)]">网关端口</p>
-            <p className="font-medium">{status?.gateway_port ?? '—'}</p>
+            <p className="text-[var(--text-secondary)]">Mode</p>
+            <p className="font-medium">{mockMode ? 'mock sandbox' : 'live runtime'}</p>
           </div>
           <div>
-            <p className="text-[var(--text-secondary)]">控制台端口</p>
-            <p className="font-medium">{status?.console_port ?? '—'}</p>
+            <p className="text-[var(--text-secondary)]">Gateway</p>
+            <p className="font-medium">{status?.gateway_port ?? 'N/A'}</p>
           </div>
           <div>
-            <p className="text-[var(--text-secondary)]">状态</p>
-            <p className={`font-medium ${status?.running ? 'text-[var(--success)]' : 'text-[var(--danger)]'}`}>
-              {status?.running ? '在线' : '离线'}
-            </p>
+            <p className="text-[var(--text-secondary)]">Console</p>
+            <p className="font-medium">{status?.console_port ?? 'N/A'}</p>
           </div>
         </div>
       </div>
 
-      <p className="text-[10px] text-[var(--text-secondary)] font-mono opacity-60 text-right mt-4">
+      <p className="mt-4 text-right font-mono text-[10px] text-[var(--text-secondary)] opacity-60">
         v{__BUILD_VERSION__} · Built{' '}
         {new Date(__BUILD_TIME__).toLocaleString('zh-CN', {
           timeZone: 'Asia/Shanghai',
@@ -474,5 +534,5 @@ export default function DashboardPage() {
         })}
       </p>
     </div>
-  );
+  )
 }

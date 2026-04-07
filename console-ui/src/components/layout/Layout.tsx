@@ -2,15 +2,17 @@ import { useRef, useEffect } from 'react'
 import { Outlet, NavLink, useLocation } from 'react-router-dom'
 import { cn } from '../../lib/utils'
 import { useResponsiveMode } from '../../hooks/useResponsiveMode'
-import { navItems } from './navItems'
+import { useAuth } from '../../stores/auth'
+import { filterNavItems } from './navItems'
 import Sidebar from './Sidebar'
 
 function MobileBottomNav() {
   const location = useLocation()
   const scrollRef = useRef<HTMLDivElement>(null)
   const activeRef = useRef<HTMLAnchorElement>(null)
+  const { user } = useAuth()
+  const navItems = filterNavItems(user?.role ?? null)
 
-  // Auto-scroll to active item
   useEffect(() => {
     if (activeRef.current && scrollRef.current) {
       const container = scrollRef.current
@@ -54,11 +56,17 @@ function MobileBottomNav() {
 
 export default function Layout() {
   const { isMobile } = useResponsiveMode()
+  const { user } = useAuth()
 
   if (isMobile) {
     return (
       <div className="flex flex-col h-dvh">
         <main className="flex-1 min-h-0 overflow-y-auto p-4 pb-20">
+          {user?.role === 'mock_tester' && (
+            <div className="mb-4 inline-flex items-center gap-2 rounded-full border border-amber-500/30 bg-amber-500/10 px-3 py-1 text-xs font-medium text-amber-400">
+              MOCK SANDBOX
+            </div>
+          )}
           <Outlet />
         </main>
         <MobileBottomNav />
@@ -70,6 +78,11 @@ export default function Layout() {
     <div className="flex min-h-screen">
       <Sidebar />
       <main className="flex-1 min-w-0 p-6">
+        {user?.role === 'mock_tester' && (
+          <div className="mb-4 inline-flex items-center gap-2 rounded-full border border-amber-500/30 bg-amber-500/10 px-3 py-1 text-xs font-medium text-amber-400">
+            MOCK SANDBOX
+          </div>
+        )}
         <Outlet />
       </main>
     </div>

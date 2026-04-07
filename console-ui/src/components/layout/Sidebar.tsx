@@ -1,5 +1,5 @@
-import { useState, useCallback, type ReactNode } from 'react';
-import { NavLink } from 'react-router-dom';
+import { useState, useCallback, type ReactNode } from 'react'
+import { NavLink } from 'react-router-dom'
 import {
   Bot,
   PanelLeftClose,
@@ -8,23 +8,23 @@ import {
   LogOut,
   Sun,
   Moon,
-} from 'lucide-react';
-import { useAuth } from '../../stores/auth';
-import { useTheme } from '../../stores/theme';
-import { cn } from '../../lib/utils';
-import { navItems } from './navItems';
+} from 'lucide-react'
+import { useAuth } from '../../stores/auth'
+import { useTheme } from '../../stores/theme'
+import { cn } from '../../lib/utils'
+import { filterNavItems } from './navItems'
 
-const STORAGE_KEY = 'nanobot-sidebar-collapsed';
+const STORAGE_KEY = 'nanobot-sidebar-collapsed'
 
 function FixedTooltip({ label, children }: { label: string; children: ReactNode }) {
-  const [pos, setPos] = useState<{ top: number; left: number } | null>(null);
+  const [pos, setPos] = useState<{ top: number; left: number } | null>(null)
 
   const handleEnter = useCallback((e: React.MouseEvent) => {
-    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
-    setPos({ top: rect.top + rect.height / 2, left: rect.right + 8 });
-  }, []);
+    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect()
+    setPos({ top: rect.top + rect.height / 2, left: rect.right + 8 })
+  }, [])
 
-  const handleLeave = useCallback(() => setPos(null), []);
+  const handleLeave = useCallback(() => setPos(null), [])
 
   return (
     <div onMouseEnter={handleEnter} onMouseLeave={handleLeave}>
@@ -38,27 +38,30 @@ function FixedTooltip({ label, children }: { label: string; children: ReactNode 
         </div>
       )}
     </div>
-  );
+  )
 }
 
 export default function Sidebar() {
-  const { user, logout, isAdmin } = useAuth();
-  const { isDark, toggleTheme } = useTheme();
+  const { user, logout, isAdmin } = useAuth()
+  const { isDark, toggleTheme } = useTheme()
+  const navItems = filterNavItems(user?.role ?? null)
   const [collapsed, setCollapsed] = useState(() => {
     try {
-      return localStorage.getItem(STORAGE_KEY) === '1';
+      return localStorage.getItem(STORAGE_KEY) === '1'
     } catch {
-      return false;
+      return false
     }
-  });
+  })
 
   const toggle = () => {
-    const next = !collapsed;
-    setCollapsed(next);
+    const next = !collapsed
+    setCollapsed(next)
     try {
-      localStorage.setItem(STORAGE_KEY, next ? '1' : '0');
-    } catch { /* localStorage unavailable */ }
-  };
+      localStorage.setItem(STORAGE_KEY, next ? '1' : '0')
+    } catch {
+      /* localStorage unavailable */
+    }
+  }
 
   return (
     <aside
@@ -67,7 +70,6 @@ export default function Sidebar() {
         collapsed ? 'w-16' : 'w-60',
       )}
     >
-      {/* Header */}
       <div
         className={cn(
           'border-b border-[var(--border)] flex items-center group/header',
@@ -86,6 +88,11 @@ export default function Sidebar() {
             <div className="min-w-0 flex-1">
               <h1 className="text-base font-bold text-[var(--text-primary)] truncate">Nanobot 控制台</h1>
               <p className="text-xs text-[var(--text-secondary)]">管理面板</p>
+              {user?.role === 'mock_tester' && (
+                <span className="inline-flex mt-1 rounded-full bg-amber-500/15 px-2 py-0.5 text-[10px] font-medium text-amber-400">
+                  MOCK SANDBOX
+                </span>
+              )}
             </div>
             <button
               onClick={toggle}
@@ -98,7 +105,6 @@ export default function Sidebar() {
         )}
       </div>
 
-      {/* Navigation */}
       <nav className="flex-1 py-3 px-2 space-y-0.5 overflow-y-auto">
         {navItems.map(item => {
           const link = (
@@ -119,18 +125,17 @@ export default function Sidebar() {
               <item.icon className="w-4.5 h-4.5 shrink-0" />
               {!collapsed && <span>{item.label}</span>}
             </NavLink>
-          );
+          )
           return collapsed ? (
             <FixedTooltip key={item.to} label={item.label}>
               {link}
             </FixedTooltip>
           ) : (
             <div key={item.to}>{link}</div>
-          );
+          )
         })}
       </nav>
 
-      {/* Footer */}
       <div className={cn('border-t border-[var(--border)]', collapsed ? 'p-2' : 'p-4')}>
         {collapsed ? (
           <div className="space-y-1">
@@ -216,5 +221,5 @@ export default function Sidebar() {
         )}
       </div>
     </aside>
-  );
+  )
 }

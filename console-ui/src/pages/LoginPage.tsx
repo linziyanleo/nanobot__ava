@@ -87,8 +87,6 @@ export default function LoginPage() {
             {loading ? 'Signing in...' : 'Sign In'}
           </button>
         </form>
-
-        <p className="text-center text-xs text-[var(--text-secondary)] mt-4">Default credentials: diana / diana</p>
       </div>
     </div>
   );
