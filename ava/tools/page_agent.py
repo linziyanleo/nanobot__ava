@@ -32,6 +32,41 @@ _LIVE_PAGE_AGENT_TOOLS: weakref.WeakSet[PageAgentTool] | None = None
 _PROCESS_CLEANUP_REGISTERED = False
 
 
+def _find_node() -> str | None:
+    """查找 node 可执行文件，支持 nvm/fnm/homebrew 等非标准 PATH 场景。"""
+    # 1. 标准 PATH 查找
+    found = shutil.which("node")
+    if found:
+        return found
+
+    # 2. 常见安装路径探测
+    home = Path.home()
+    candidates: list[Path] = []
+
+    # nvm：取最新版本
+    nvm_dir = home / ".nvm" / "versions" / "node"
+    if nvm_dir.is_dir():
+        versions = sorted(nvm_dir.iterdir(), reverse=True)
+        candidates.extend(v / "bin" / "node" for v in versions)
+
+    # fnm
+    fnm_dir = home / ".local" / "share" / "fnm" / "node-versions"
+    if fnm_dir.is_dir():
+        versions = sorted(fnm_dir.iterdir(), reverse=True)
+        candidates.extend(v / "installation" / "bin" / "node" for v in versions)
+
+    # homebrew (macOS)
+    for prefix in ("/opt/homebrew/bin/node", "/usr/local/bin/node"):
+        candidates.append(Path(prefix))
+
+    for c in candidates:
+        if c.is_file() and os.access(c, os.X_OK):
+            logger.info("page_agent: node found at {}", c)
+            return str(c)
+
+    return None
+
+
 class PageAgentTool(Tool):
     """Control web pages using natural language via page-agent + Playwright."""
 
@@ -680,19 +715,27 @@ class PageAgentTool(Tool):
             if self._process and self._process.returncode is None:
                 return
 
-            node_bin = shutil.which("node")
+            node_bin = _find_node()
             if not node_bin:
-                raise RuntimeError("node not found in PATH")
+                raise RuntimeError(
+                    "node not found in PATH or common install locations "
+                    "(nvm/fnm/homebrew). Please ensure Node.js is installed."
+                )
 
             if not _RUNNER_SCRIPT.exists():
                 raise RuntimeError(f"runner script not found: {_RUNNER_SCRIPT}")
+
+            env = os.environ.copy()
+            node_dir = str(Path(node_bin).parent)
+            if node_dir not in env.get("PATH", "").split(os.pathsep):
+                env["PATH"] = node_dir + os.pathsep + env.get("PATH", "")
 
             self._process = await asyncio.create_subprocess_exec(
                 node_bin, str(_RUNNER_SCRIPT),
                 stdin=asyncio.subprocess.PIPE,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
-                env=os.environ.copy(),
+                env=env,
             )
             self._bind_process_finalizer(self._process)
             logger.info("page_agent: runner started (pid={})", self._process.pid)
