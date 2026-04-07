@@ -530,9 +530,9 @@ export function ToolCallBlock({ tc, isLoading, tokenStats, iterationStats }: Too
         {!expanded && resultPreview && (
           <span className="text-[var(--text-secondary)] truncate ml-2">{resultPreview}</span>
         )}
-        {tokenStats && (
-          <span className="text-[10px] text-[var(--text-secondary)] font-mono px-1.5 py-0.5 rounded bg-[var(--bg-tertiary)] ml-auto shrink-0">
-            ⚡ {formatTokenCount(tokenStats.total_tokens)}
+        {(iterationStats || tokenStats) && (
+          <span className="text-[10px] text-[var(--text-secondary)] font-mono px-1.5 py-0.5 rounded bg-[var(--bg-tertiary)] ml-auto shrink-0" title={iterationStats ? `In: ${formatTokenCount(iterationStats.prompt_tokens)} / Out: ${formatTokenCount(iterationStats.completion_tokens)}${iterationStats.cached_tokens ? ` / Cache: ${formatTokenCount(iterationStats.cached_tokens)}` : ''}` : undefined}>
+            ⚡ {formatTokenCount(iterationStats?.total_tokens ?? tokenStats!.total_tokens)}
           </span>
         )}
       </button>

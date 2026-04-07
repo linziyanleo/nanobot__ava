@@ -206,7 +206,7 @@ function TaskCard({
             {resultText && (
               <div>
                 <h4 className="text-xs font-medium text-[var(--text-secondary)] mb-1">结果</h4>
-                <pre className="text-xs bg-[var(--bg-primary)] rounded-lg p-3 overflow-x-auto text-[var(--text-primary)] whitespace-pre-wrap break-all max-h-[400px] overflow-y-auto">
+                <pre className="text-xs bg-[var(--bg-primary)] rounded-lg p-3 overflow-x-auto text-[var(--text-primary)] whitespace-pre-wrap break-all">
                   {resultText}
                 </pre>
               </div>
@@ -214,7 +214,7 @@ function TaskCard({
             {task.error_message && (
               <div>
                 <h4 className="text-xs font-medium text-red-400 mb-1">错误</h4>
-                <pre className="text-xs bg-red-500/5 border border-red-500/20 rounded-lg p-3 overflow-x-auto text-red-300 whitespace-pre-wrap break-all max-h-[300px] overflow-y-auto">
+                <pre className="text-xs bg-red-500/5 border border-red-500/20 rounded-lg p-3 overflow-x-auto text-red-300 whitespace-pre-wrap break-all">
                   {task.error_message}
                 </pre>
               </div>

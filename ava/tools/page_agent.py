@@ -77,9 +77,9 @@ class PageAgentTool(Tool):
     @property
     def description(self) -> str:
         return (
-            "Control web pages using natural language instructions. "
-            "Can navigate to URLs, fill forms, click buttons, extract information, "
-            "and take screenshots. Supports persistent browser sessions across calls."
+            "Interact with web pages: click buttons, fill forms, scroll, navigate multi-step flows, "
+            "and take screenshots. Use ONLY when the page requires interaction or JS-rendered dynamic content. "
+            "For simply reading/summarizing a URL, use web_fetch instead (lighter and more reliable)."
         )
 
     @property

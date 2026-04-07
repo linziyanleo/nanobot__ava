@@ -521,6 +521,7 @@ def apply_loop_patch() -> str:
                     session_key=sk_inner,
                     conversation_id=conversation_id,
                     turn_seq=turn_seq,
+                    iteration=iteration,
                     user_message="",
                     output_content="",
                     system_prompt=system_prompt_to_store,
