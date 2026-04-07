@@ -9,7 +9,7 @@
  *   stdin  → 每行一个 JSON（RPC 请求，带 id + method + params）
  *   stdout → 每行一个 JSON
  *            - RPC 响应：{ id, success, result/error }
- *            - 推送事件：{ type: "frame"/"activity"/"status", session_id, ... }（无 id）
+ *            - 推送事件：{ type: "frame"/"activity"/"status"/"session_closed", session_id, ... }（无 id）
  *   stderr → 心跳和日志（不影响 RPC）
  */
 
@@ -35,7 +35,7 @@ let browser = null;
 /** 持久化 context 模式时为 true（此时 browser 实际是 BrowserContext） */
 let persistentMode = false;
 
-/** @type {Map<string, { page: import('playwright').Page, cdp: any | null, screencastActive: boolean, activityBridgeExposed: boolean }>} */
+/** @type {Map<string, { page: import('playwright').Page, cdp: any | null, screencastActive: boolean, activityBridgeExposed: boolean, createdAt: number, lastTouched: number, inFlight: number, llmUsage: { requests: number, promptTokens: number, completionTokens: number, totalTokens: number } }>} */
 const sessions = new Map();
 
 /** 启动时从 init 命令接收的配置 */
@@ -55,6 +55,8 @@ let config = {
 };
 
 const MAX_SESSIONS = 5;
+const SESSION_IDLE_TTL_MS = 10 * 60 * 1000;
+const SESSION_SWEEP_INTERVAL_MS = 60 * 1000;
 
 const DEFAULT_USER_DATA_DIR = join(homedir(), ".nanobot", "page-agent", "chrome-data");
 
@@ -80,6 +82,62 @@ function reply(id, success, data) {
 
 function pushEvent(type, sessionId, payload) {
   send({ type, session_id: sessionId, ...payload });
+}
+
+function touchSession(session) {
+  session.lastTouched = Date.now();
+}
+
+function canEvictSession(session) {
+  return !session.screencastActive && (session.inFlight || 0) === 0;
+}
+
+async function disposeSession(sessionId, reason = "closed") {
+  if (!sessions.has(sessionId)) return false;
+
+  const session = sessions.get(sessionId);
+  await stopScreencast(session, sessionId);
+
+  try {
+    if (persistentMode) {
+      await session.page.close();
+    } else {
+      await session.page.context().close();
+    }
+  } catch { /* ignore */ }
+
+  sessions.delete(sessionId);
+  pushEvent("session_closed", sessionId, { reason });
+  log(`session closed: ${sessionId} (${reason})`);
+  return true;
+}
+
+async function evictIdleSessions() {
+  const now = Date.now();
+  for (const [sessionId, session] of Array.from(sessions.entries())) {
+    if (!canEvictSession(session)) continue;
+    if ((now - session.lastTouched) < SESSION_IDLE_TTL_MS) continue;
+    await disposeSession(sessionId, "idle_timeout");
+  }
+}
+
+async function ensureSessionCapacity() {
+  await evictIdleSessions();
+  while (sessions.size >= MAX_SESSIONS) {
+    let oldestEntry = null;
+    for (const entry of sessions.entries()) {
+      const [, session] = entry;
+      if (!canEvictSession(session)) continue;
+      if (!oldestEntry || session.lastTouched < oldestEntry[1].lastTouched) {
+        oldestEntry = entry;
+      }
+    }
+    if (!oldestEntry) break;
+    await disposeSession(oldestEntry[0], "capacity_eviction");
+  }
+  if (sessions.size >= MAX_SESSIONS) {
+    throw new Error(`session limit reached (max ${MAX_SESSIONS})`);
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -124,11 +182,13 @@ async function ensureBrowser() {
 }
 
 async function getOrCreateSession(sessionId) {
-  if (sessions.has(sessionId)) return sessions.get(sessionId);
-
-  if (sessions.size >= MAX_SESSIONS) {
-    throw new Error(`session limit reached (max ${MAX_SESSIONS})`);
+  if (sessions.has(sessionId)) {
+    const existing = sessions.get(sessionId);
+    touchSession(existing);
+    return existing;
   }
+
+  await ensureSessionCapacity();
 
   const b = await ensureBrowser();
   let page;
@@ -146,6 +206,9 @@ async function getOrCreateSession(sessionId) {
     cdp: null,
     screencastActive: false,
     activityBridgeExposed: false,
+    createdAt: Date.now(),
+    lastTouched: Date.now(),
+    inFlight: 0,
     llmUsage: { requests: 0, promptTokens: 0, completionTokens: 0, totalTokens: 0 },
   };
 
@@ -385,6 +448,7 @@ async function setupActivityBridge(sessionId, session) {
 // ---------------------------------------------------------------------------
 
 async function startScreencast(session, sessionId, params) {
+  touchSession(session);
   if (session.screencastActive) return;
 
   // CDP 只在 Chromium 上可用
@@ -430,6 +494,7 @@ async function stopScreencast(session, sessionId) {
 
   session.cdp = null;
   session.screencastActive = false;
+  touchSession(session);
   log(`screencast stopped for ${sessionId}`);
 }
 
@@ -456,9 +521,12 @@ const handlers = {
 
     try {
       session = await getOrCreateSession(sessionId);
+      session.inFlight += 1;
+      touchSession(session);
 
       if (url) {
         await session.page.goto(url, { waitUntil: "domcontentloaded", timeout: 30000 });
+        touchSession(session);
       }
 
       await setupActivityBridge(sessionId, session);
@@ -471,6 +539,7 @@ const handlers = {
       const llmUsage = session ? { ...session.llmUsage } : {};
       if (session) {
         session.llmUsage = { requests: 0, promptTokens: 0, completionTokens: 0, totalTokens: 0 };
+        touchSession(session);
       }
       reply(id, true, {
         session_id: sessionId,
@@ -500,6 +569,11 @@ const handlers = {
         page_url: pageUrl,
         page_title: pageTitle,
       });
+    } finally {
+      if (session) {
+        session.inFlight = Math.max(0, session.inFlight - 1);
+        touchSession(session);
+      }
     }
   },
 
@@ -511,6 +585,7 @@ const handlers = {
 
     try {
       const session = sessions.get(sid);
+      touchSession(session);
 
       // 截图前隐藏 page-agent 注入的 UI 面板，避免遮挡页面内容
       await session.page.evaluate(() => {
@@ -568,6 +643,7 @@ const handlers = {
     }
 
     const session = sessions.get(sid);
+    touchSession(session);
     const pageUrl = session.page.url();
     const pageTitle = await session.page.title();
     const viewport = session.page.viewportSize();
@@ -580,6 +656,7 @@ const handlers = {
   },
 
   async list_sessions(id) {
+    await evictIdleSessions();
     reply(id, true, {
       sessions: Array.from(sessions.keys()),
     });
@@ -591,19 +668,7 @@ const handlers = {
       return reply(id, true, { message: `session ${sid} already closed` });
     }
 
-    const session = sessions.get(sid);
-    await stopScreencast(session, sid);
-
-    try {
-      if (persistentMode) {
-        await session.page.close();
-      } else {
-        await session.page.context().close();
-      }
-    } catch { /* ignore */ }
-
-    sessions.delete(sid);
-    log(`session closed: ${sid}`);
+    await disposeSession(sid, "close_session");
     reply(id, true, { message: `session ${sid} closed` });
   },
 
@@ -614,7 +679,9 @@ const handlers = {
     }
 
     try {
-      await startScreencast(sessions.get(sid), sid, params);
+      const session = sessions.get(sid);
+      touchSession(session);
+      await startScreencast(session, sid, params);
       reply(id, true, { message: "screencast started" });
     } catch (err) {
       reply(id, false, { code: "SCREENCAST_FAILED", message: err.message });
@@ -627,24 +694,18 @@ const handlers = {
       return reply(id, true, { message: "no active screencast" });
     }
 
-    await stopScreencast(sessions.get(sid), sid);
+    const session = sessions.get(sid);
+    touchSession(session);
+    await stopScreencast(session, sid);
     reply(id, true, { message: "screencast stopped" });
   },
 
   async shutdown(id) {
     log("shutdown requested");
 
-    for (const [sid, session] of sessions) {
-      await stopScreencast(session, sid);
-      try {
-        if (persistentMode) {
-          await session.page.close();
-        } else {
-          await session.page.context().close();
-        }
-      } catch { /* ignore */ }
+    for (const sid of Array.from(sessions.keys())) {
+      await disposeSession(sid, "runner_shutdown");
     }
-    sessions.clear();
 
     if (browser) {
       try { await browser.close(); } catch { /* ignore */ }
@@ -716,5 +777,9 @@ rl.on("close", () => {
 setInterval(() => {
   log(`heartbeat sessions=${sessions.size} browser=${browser?.isConnected() ?? false}`);
 }, 30000);
+
+setInterval(() => {
+  evictIdleSessions().catch((err) => log(`idle session sweep failed: ${err.message}`));
+}, SESSION_SWEEP_INTERVAL_MS);
 
 log("runner started, waiting for commands...");

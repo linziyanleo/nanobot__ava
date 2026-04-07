@@ -1,8 +1,10 @@
 """Tests for loop_patch — AgentLoop attribute injection + token stats."""
 
+import gc
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 from pathlib import Path
+import weakref
 
 import pytest
 
@@ -89,6 +91,27 @@ class TestLoopPatch:
         apply_loop_patch()
         result = apply_loop_patch()
         assert "skipped" in result.lower()
+
+    def test_get_agent_loop_uses_weakref(self):
+        import ava.patches.loop_patch as loop_patch_module
+
+        class DummyLoop:
+            pass
+
+        original_ref = loop_patch_module._agent_loop_ref
+        try:
+            loop = DummyLoop()
+            loop_patch_module._agent_loop_ref = weakref.ref(loop)
+            assert loop_patch_module.get_agent_loop() is loop
+
+            loop_ref = weakref.ref(loop)
+            del loop
+            gc.collect()
+
+            assert loop_ref() is None
+            assert loop_patch_module.get_agent_loop() is None
+        finally:
+            loop_patch_module._agent_loop_ref = original_ref
 
 
 class TestTokenStatsRecordId:

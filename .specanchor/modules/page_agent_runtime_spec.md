@@ -1,7 +1,7 @@
 # Module Spec: page_agent_runtime — PageAgent Tool 与 Node Runner 调用链
 
 > 相关文件：`ava/tools/page_agent.py`、`ava/tools/__init__.py`、`ava/patches/tools_patch.py`、`ava/forks/config/schema.py`、`console-ui/e2e/page-agent-runner.mjs`
-> 状态：✅ 已实现（2026-04-03）
+> 状态：✅ 已实现（2026-04-07，补内存硬化）
 
 ---
 
@@ -14,8 +14,9 @@
 - agent 可见的 `page_agent` tool 接口
 - Python ↔ Node 的 stdin/stdout JSON-RPC
 - 浏览器会话复用与 runner 生命周期管理
+- runner session bounded retention（idle 回收 + capacity eviction）
 - 截图落盘与 `MediaService` 记录
-- 向 console 订阅者转发最近一帧与最近事件缓存
+- 向 console 订阅者转发最近一帧与最近事件缓存，并在 session 消失时清扫 Python 侧残留状态
 
 ---
 
@@ -139,7 +140,7 @@ STATUS 三层判定：
 | `get_page_info(session_id)` | 给 WS 初始状态提供页面信息 |
 | `start_screencast(session_id, **params)` | 启动 Chromium CDP 帧流 |
 | `stop_screencast(session_id)` | 停止帧流 |
-| `subscribe(session_id, callback)` | 订阅 frame/activity/status 推送，并回放缓存 |
+| `subscribe(session_id, callback)` | 订阅 frame/activity/status/session_closed 推送，并回放缓存 |
 | `unsubscribe(session_id, callback)` | 移除订阅 |
 
 ---
@@ -196,6 +197,7 @@ STATUS 三层判定：
 - `frame`
 - `activity`
 - `status`
+- `session_closed`
 
 `types.ts` 里预留了 `step` 类型，但当前 runner 尚未实际下发。
 
@@ -206,19 +208,23 @@ STATUS 三层判定：
 | 懒启动 runner | `PageAgentTool._ensure_runner()` | 首次 RPC 才启动 Node 子进程 |
 | 初始化配置 | `_send_init_direct()` | 启动后立即下发 browser / model / timeout 配置 |
 | 空闲回收 | `_idle_watchdog()` | 5 分钟无活动自动发送 `shutdown` |
-| 进程退出清理 | `_read_stdout()` / `_sync_cleanup()` | runner 退出时清空 pending futures；进程退出时 `atexit` kill |
-| 最大会话数 | runner `MAX_SESSIONS = 5` | 超限直接报错，不做 LRU 淘汰 |
+| 进程退出清理 | `_read_stdout()` / `_cleanup_live_tools()` / `weakref.finalize()` | runner 退出时清空 pending futures 和 Python 侧缓存；进程退出时按 live tool 集合清理，不再实例级注册 `atexit` |
+| session retention | runner `SESSION_IDLE_TTL_MS = 10min` + `ensureSessionCapacity()` | 空闲且非 screencast/non-inflight 的 session 会被 idle sweep 或 oldest-inactive eviction 回收 |
+| 最大会话数 | runner `MAX_SESSIONS = 5` | 达上限时先回收 idle/oldest inactive session；若全都在用才报错 |
 
 #### runner 内部状态补充
 
 - 注入使用的 bundle 是 `page-agent.demo.js`，其真实导出形状是 `window.PageAgent = PageAgent`，不是 `window.PageAgent.PageAgentCore`
 - `page.exposeFunction("__paOnActivity")` / `__paOnStatus` 的注册状态保存在 runner session 侧；页面内 `window.__paActivityBridged` 只用于 document 级 listener 重建，避免导航后重复注册同名函数
+- runner session 额外持有 `createdAt` / `lastTouched` / `inFlight` 元数据；`screencastActive` 或 `inFlight > 0` 的 session 不参与 eviction
+- session 被回收或显式关闭时，runner 会发 `session_closed` 事件；Python 侧据此清掉 `_event_buffer` / `_last_frame` / `_subscribers`
 
 ### 4.3 事件缓存
 
 - 每个 session 缓存最近 50 条 `activity/status`
 - 额外缓存最后一帧 `frame`
 - 新订阅者连接后立即回放缓存，避免 `/browser` 页面连接后全空白
+- `close_session`、runner `shutdown` / exit、`session_closed` 推送、`NO_SESSION` 响应、以及 `list_sessions()` sweep 都会触发 Python 侧缓存清扫，避免旧 frame/activity 残留
 
 ---
 

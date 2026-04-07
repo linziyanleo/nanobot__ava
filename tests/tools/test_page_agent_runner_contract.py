@@ -40,3 +40,12 @@ def test_runner_tracks_bridge_registration_on_session_side():
     assert 'page.exposeFunction("__paOnActivity"' in source
     assert 'page.exposeFunction("__paOnStatus"' in source
 
+
+def test_runner_tracks_bounded_session_retention_and_close_events():
+    source = _read(RUNNER)
+
+    assert "SESSION_IDLE_TTL_MS" in source
+    assert "lastTouched" in source
+    assert "capacity_eviction" in source
+    assert "idle_timeout" in source
+    assert 'pushEvent("session_closed"' in source

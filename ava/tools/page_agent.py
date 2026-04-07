@@ -4,7 +4,7 @@
 在页面内注入 page-agent 实现自然语言操控网页。
 
 通信协议：stdin/stdout JSON-RPC（每行一个 JSON）。
-推送事件（frame/activity/status）无 id 字段，RPC 响应有 id 字段。
+推送事件（frame/activity/status/session_closed）无 id 字段，RPC 响应有 id 字段。
 """
 
 from __future__ import annotations
@@ -16,6 +16,7 @@ import os
 import shutil
 import time
 import uuid
+import weakref
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable
@@ -27,6 +28,8 @@ from nanobot.agent.tools.base import Tool
 _RUNNER_SCRIPT = Path(__file__).resolve().parents[2] / "console-ui" / "e2e" / "page-agent-runner.mjs"
 
 _IDLE_TIMEOUT = 300  # 空闲 5 分钟自动回收 runner
+_LIVE_PAGE_AGENT_TOOLS: weakref.WeakSet[PageAgentTool] | None = None
+_PROCESS_CLEANUP_REGISTERED = False
 
 
 class PageAgentTool(Tool):
@@ -43,6 +46,7 @@ class PageAgentTool(Tool):
         self._token_stats = token_stats
         # Runner 进程
         self._process: asyncio.subprocess.Process | None = None
+        self._process_finalizer: weakref.finalize | None = None
         self._reader_task: asyncio.Task | None = None
         self._last_activity: float = time.monotonic()
         self._idle_task: asyncio.Task | None = None
@@ -59,12 +63,82 @@ class PageAgentTool(Tool):
         # Context
         self._channel = "cli"
         self._chat_id = "direct"
-        # atexit 清理
-        atexit.register(self._sync_cleanup)
+        self._get_live_tools().add(self)
+        self._register_process_cleanup()
 
     def set_context(self, channel: str, chat_id: str) -> None:
         self._channel = channel
         self._chat_id = chat_id
+
+    @staticmethod
+    def _get_live_tools() -> weakref.WeakSet[PageAgentTool]:
+        global _LIVE_PAGE_AGENT_TOOLS
+        if _LIVE_PAGE_AGENT_TOOLS is None:
+            _LIVE_PAGE_AGENT_TOOLS = weakref.WeakSet()
+        return _LIVE_PAGE_AGENT_TOOLS
+
+    @classmethod
+    def _register_process_cleanup(cls) -> None:
+        global _PROCESS_CLEANUP_REGISTERED
+        if _PROCESS_CLEANUP_REGISTERED:
+            return
+        atexit.register(cls._cleanup_live_tools)
+        _PROCESS_CLEANUP_REGISTERED = True
+
+    @classmethod
+    def _cleanup_live_tools(cls) -> None:
+        for tool in list(cls._get_live_tools()):
+            try:
+                tool._sync_cleanup()
+            except Exception:
+                pass
+
+    @staticmethod
+    def _kill_process_sync(process: asyncio.subprocess.Process | None) -> None:
+        if process and process.returncode is None:
+            try:
+                process.kill()
+            except Exception:
+                pass
+
+    def _bind_process_finalizer(self, process: asyncio.subprocess.Process) -> None:
+        self._clear_process_finalizer()
+        self._process_finalizer = weakref.finalize(
+            self,
+            type(self)._kill_process_sync,
+            process,
+        )
+
+    def _clear_process_finalizer(self) -> None:
+        if self._process_finalizer and self._process_finalizer.alive:
+            self._process_finalizer.detach()
+        self._process_finalizer = None
+
+    def _clear_session_state(self, session_id: str | None = None) -> None:
+        if session_id is None:
+            self._subscribers.clear()
+            self._event_buffer.clear()
+            self._last_frame.clear()
+            return
+        self._subscribers.pop(session_id, None)
+        self._event_buffer.pop(session_id, None)
+        self._last_frame.pop(session_id, None)
+
+    def _sweep_stale_sessions(self, active_session_ids: set[str] | None = None) -> None:
+        for session_id, callbacks in list(self._subscribers.items()):
+            if not callbacks:
+                self._subscribers.pop(session_id, None)
+
+        if active_session_ids is None:
+            return
+
+        stale_session_ids = (
+            set(self._subscribers)
+            | set(self._event_buffer)
+            | set(self._last_frame)
+        ) - set(active_session_ids)
+        for stale_session_id in stale_session_ids:
+            self._clear_session_state(stale_session_id)
 
     # ------------------------------------------------------------------
     # Tool 接口
@@ -522,9 +596,7 @@ class PageAgentTool(Tool):
             msg = err.get("message", str(err)) if isinstance(err, dict) else str(err)
             return f"Error: {msg}"
 
-        # 清理事件缓存
-        self._event_buffer.pop(session_id, None)
-        self._last_frame.pop(session_id, None)
+        self._clear_session_state(session_id)
 
         return f"Session {session_id} closed."
 
@@ -562,7 +634,9 @@ class PageAgentTool(Tool):
             return []
 
         sessions = result.get("result", {}).get("sessions", [])
-        return [session_id for session_id in sessions if isinstance(session_id, str)]
+        active_sessions = [session_id for session_id in sessions if isinstance(session_id, str)]
+        self._sweep_stale_sessions(set(active_sessions))
+        return active_sessions
 
     def subscribe(self, session_id: str, callback: Callable) -> None:
         """注册推送事件回调（frame/activity/status）。同时回放缓存事件。"""
@@ -620,6 +694,7 @@ class PageAgentTool(Tool):
                 stderr=asyncio.subprocess.PIPE,
                 env=os.environ.copy(),
             )
+            self._bind_process_finalizer(self._process)
             logger.info("page_agent: runner started (pid={})", self._process.pid)
 
             # 后台读取 stdout
@@ -700,6 +775,15 @@ class PageAgentTool(Tool):
 
                 # 缓存事件（无论是否有订阅者）
                 msg_type = msg.get("type")
+                if msg_type == "session_closed":
+                    if session_id in self._subscribers:
+                        for cb in list(self._subscribers[session_id]):
+                            try:
+                                cb(msg)
+                            except Exception:
+                                pass
+                    self._clear_session_state(session_id)
+                    continue
                 if msg_type == "frame":
                     self._last_frame[session_id] = msg
                 elif msg_type in ("activity", "status"):
@@ -725,9 +809,13 @@ class PageAgentTool(Tool):
                 if not fut.done():
                     fut.set_result({
                         "success": False,
-                        "error": {"code": "RUNNER_EXIT", "message": "runner process exited"},
+                            "error": {"code": "RUNNER_EXIT", "message": "runner process exited"},
                     })
             self._pending.clear()
+            self._clear_session_state()
+            self._clear_process_finalizer()
+            if self._process and self._process.returncode is not None:
+                self._process = None
 
     async def _read_stderr(self) -> None:
         """读取 runner stderr（日志/心跳）。"""
@@ -756,6 +844,9 @@ class PageAgentTool(Tool):
     async def _shutdown_runner(self) -> None:
         """优雅关闭 runner 进程。"""
         if not self._process or self._process.returncode is not None:
+            self._process = None
+            self._clear_session_state()
+            self._clear_process_finalizer()
             return
 
         try:
@@ -768,6 +859,8 @@ class PageAgentTool(Tool):
                 pass
 
         self._process = None
+        self._clear_session_state()
+        self._clear_process_finalizer()
         if self._reader_task:
             self._reader_task.cancel()
             self._reader_task = None
@@ -804,6 +897,18 @@ class PageAgentTool(Tool):
         timeout = getattr(self._config, "timeout", 120) if self._config else 120
         try:
             result = await asyncio.wait_for(fut, timeout=timeout)
+            if method == "list_sessions" and result.get("success"):
+                sessions = result.get("result", {}).get("sessions", [])
+                self._sweep_stale_sessions({sid for sid in sessions if isinstance(sid, str)})
+            elif not result.get("success"):
+                error = result.get("error", {})
+                error_code = error.get("code") if isinstance(error, dict) else None
+                if error_code == "NO_SESSION":
+                    session_id = params.get("session_id")
+                    if isinstance(error, dict):
+                        session_id = error.get("session_id", session_id)
+                    if session_id:
+                        self._clear_session_state(session_id)
             return result
         except asyncio.TimeoutError:
             self._pending.pop(req_id, None)

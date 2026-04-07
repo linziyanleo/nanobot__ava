@@ -1,7 +1,7 @@
 # Module Spec: loop_patch — AgentLoop 属性注入、Token 统计与实时广播
 
 > 文件：`ava/patches/loop_patch.py`
-> 状态：✅ 已实现
+> 状态：✅ 已实现（2026-04-07，补 weakref 生命周期约束）
 > 执行顺序：字母序第 7 位（`l`），在 `context_patch` 之后、`storage_patch` 之前
 
 ---
@@ -17,6 +17,7 @@
 - **Phase 0 预记录**：在 `patched_run_agent_loop` 开头（LLM 调用前）写入 pending 状态的 token_usage 记录，首次 LLM 调用完成后 UPDATE 填入真实数值
 - **实时广播**：通过 `bus.dispatch_observe_event()` 广播 `message_arrived` / `processing_started` / `token_recorded` / `turn_completed` 四类生命周期事件
 - **Database 共享**：通过 `set_shared_db()` 接收 storage_patch 的共享 Database 实例
+- **弱引用回指**：模块级 `_agent_loop_ref` 仅保存最近 loop 的 `weakref.ref`，供 console_patch “尽量获取当前 loop”，但不延长 `AgentLoop` 生命周期
 
 > `2026-04-03` 之后的注意点：upstream `AgentLoop` 已新增 `context_block_limit`、`max_tool_result_chars`、`provider_retry_mode` 以及 runtime checkpoint 相关状态面。
 > 当前 patch 之所以未被打断，依赖的是 `patched_init(*args, **kwargs)` / `patched_run_agent_loop(..., **kwargs)` 的透传包装；后续若 patch 改成显式签名，必须同步这些字段。
@@ -89,6 +90,19 @@ def _get_or_create_db(workspace_path):
 
 执行顺序：`loop_patch`（l）先于 `storage_patch`（s），首次用 fallback db，storage_patch 运行后通过 `set_shared_db()` 替换为共享 db。
 
+### 3.1 Console 回指语义
+
+```python
+_agent_loop_ref = weakref.ref(self)
+
+def get_agent_loop():
+    return _agent_loop_ref() if _agent_loop_ref is not None else None
+```
+
+- `console_patch` 仍可拿到“最近一个还活着的 loop”
+- 若旧 `AgentLoop` 已被 GC，`get_agent_loop()` 返回 `None`
+- 该回指只用于观测/桥接，不承担生命周期管理职责
+
 ---
 
 ## 4. 依赖关系
@@ -129,4 +143,5 @@ def _get_or_create_db(workspace_path):
 | 同序号 turn 不串线 | 同一 `session_key` 下旧 `conversation_id` 的 Turn #0 与 `/new` 后新 `conversation_id` 的 Turn #0 分开聚合 |
 | 实时广播时序 | message_arrived → token_recorded(pending) → processing_started → turn_completed |
 | shared_db | set_shared_db() 后新 AgentLoop 获得共享 db |
+| weakref 回指 | `get_agent_loop()` 在 loop 存活时返回实例，被 GC 后返回 `None` |
 | 幂等性 | 多次 apply 不重复包装 |

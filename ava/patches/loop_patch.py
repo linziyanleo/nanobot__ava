@@ -22,6 +22,7 @@ Execution order note:
 
 from __future__ import annotations
 
+import weakref
 from uuid import uuid4
 
 from loguru import logger
@@ -32,7 +33,7 @@ from ava.launcher import register_patch
 # Module-level shared db reference (set by storage_patch after us)
 _shared_db = None
 # Module-level reference to the most recently created AgentLoop (for console_patch)
-_agent_loop_ref = None
+_agent_loop_ref: weakref.ReferenceType | None = None
 
 
 def set_shared_db(db) -> None:
@@ -43,7 +44,7 @@ def set_shared_db(db) -> None:
 
 def get_agent_loop():
     """Return the most recently created AgentLoop instance (or None)."""
-    return _agent_loop_ref
+    return _agent_loop_ref() if _agent_loop_ref is not None else None
 
 
 def _get_or_create_db(workspace_path) -> object | None:
@@ -191,7 +192,7 @@ def apply_loop_patch() -> str:
 
         # Save ref for console_patch to access the AgentLoop instance
         global _agent_loop_ref
-        _agent_loop_ref = self
+        _agent_loop_ref = weakref.ref(self)
 
         db = _get_or_create_db(self.workspace)
         self.db = db

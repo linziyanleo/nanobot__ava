@@ -1,6 +1,6 @@
 # Module Spec: claude_code_tool — Claude Code CLI 工具、后台任务上下文与完成回调
 
-> 相关文件：`ava/tools/claude_code.py`、`ava/tools/__init__.py`、`ava/patches/tools_patch.py`、`ava/patches/loop_patch.py`、`ava/patches/context_patch.py`、`ava/agent/bg_tasks.py`（待新建）、`ava/agent/commands.py`、`ava/console/routes/chat_routes.py`、`ava/console/services/chat_service.py`、`ava/forks/config/schema.py`
+> 相关文件：`ava/tools/claude_code.py`、`ava/tools/__init__.py`、`ava/patches/tools_patch.py`、`ava/patches/loop_patch.py`、`ava/patches/context_patch.py`、`ava/agent/bg_tasks.py`、`ava/agent/commands.py`、`ava/console/routes/chat_routes.py`、`ava/console/services/chat_service.py`、`ava/forks/config/schema.py`
 > 状态：🟡 部分实现（sync 可用；async / 任务上下文 / 完成回调未闭环）（2026-04-04 v3）
 > 架构决策：BackgroundTaskStore 模式（替代 v2 CodingTaskRegistry，替代 v1 subagent_patch）
 
@@ -196,6 +196,14 @@ Digest 格式（注入 system prompt 尾部）：
 ```
 
 无活跃任务时不注入（空字符串）。
+
+### 5.5 内存保留策略（2026-04-07）
+
+- `_active` / `_tasks` 继续持有 live task
+- `_finished` 只保留内存热窗口：默认最多 20 条、最多 30 分钟
+- 被 prune 的完成任务不再占用常驻内存；完整历史继续以 SQLite 为真相源
+- `get_status(task_id=...)` 在内存中找不到时会回退 DB，避免 prune 后 console 单任务详情直接丢失
+- `get_timeline()` / `get_task_detail()` 继续可从 DB 读取完整事件和全文结果
 
 ---
 

@@ -179,6 +179,34 @@ class TestGetStatus:
         status_other = store.get_status(session_key="console:s2")
         assert status_other["total"] == 0
 
+    @pytest.mark.asyncio
+    async def test_status_by_task_id_falls_back_to_db_after_prune(self, tmp_path):
+        from ava.storage import Database
+
+        db = Database(tmp_path / "bg-tasks.db")
+        store = BackgroundTaskStore(db=db)
+
+        async def quick(**kw):
+            return {"result": "ok-from-db"}
+
+        task_id = store.submit_coding_task(
+            executor=quick,
+            origin_session_key="console:s1",
+            prompt="Persist me",
+            project_path="/tmp",
+            timeout=10,
+        )
+        await asyncio.sleep(0.1)
+
+        with patch("ava.agent.bg_tasks._FINISHED_RETENTION_MAX_ITEMS", 0):
+            store._prune_finished()
+            status = store.get_status(task_id=task_id)
+
+        assert task_id not in store._finished
+        assert status["total"] == 1
+        assert status["tasks"][0]["task_id"] == task_id
+        assert status["tasks"][0]["result_preview"] == "ok-from-db"
+
 
 class TestDigest:
     @pytest.mark.asyncio
@@ -309,6 +337,45 @@ class TestRecordEvent:
         store.record_event("t1", "checkpoint", "halfway")
         assert len(snap.timeline) == 1
         assert snap.timeline[0].event == "checkpoint"
+
+
+class TestFinishedRetention:
+    def test_prune_finished_respects_limit_and_age(self):
+        store = BackgroundTaskStore()
+        now = 1_000_000.0
+        store._finished = {
+            "newest": TaskSnapshot(
+                task_id="newest",
+                task_type="coding",
+                origin_session_key="console:s1",
+                status="succeeded",
+                prompt_preview="newest",
+                finished_at=now,
+            ),
+            "recent": TaskSnapshot(
+                task_id="recent",
+                task_type="coding",
+                origin_session_key="console:s1",
+                status="succeeded",
+                prompt_preview="recent",
+                finished_at=now - 10,
+            ),
+            "old": TaskSnapshot(
+                task_id="old",
+                task_type="coding",
+                origin_session_key="console:s1",
+                status="succeeded",
+                prompt_preview="old",
+                finished_at=now - 10_000,
+            ),
+        }
+
+        with patch("ava.agent.bg_tasks.time.time", return_value=now), \
+             patch("ava.agent.bg_tasks._FINISHED_RETENTION_MAX_ITEMS", 2), \
+             patch("ava.agent.bg_tasks._FINISHED_RETENTION_MAX_AGE_S", 100):
+            store._prune_finished()
+
+        assert set(store._finished) == {"newest", "recent"}
 
 
 class TestAutoContineField:

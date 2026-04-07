@@ -8,6 +8,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+import ava.tools.page_agent as page_agent_module
 from ava.tools.page_agent import PageAgentTool
 
 
@@ -252,12 +253,18 @@ class TestSubscription:
     @pytest.mark.asyncio
     async def test_list_sessions_filters_non_strings(self, tool):
         tool._process = MagicMock(returncode=None)
+        tool._event_buffer = {"s1": [{"type": "activity"}], "stale": [{"type": "activity"}]}
+        tool._last_frame = {"s2": {"type": "frame"}, "stale": {"type": "frame"}}
+        tool._subscribers = {"s1": [MagicMock()], "stale": [MagicMock()]}
         mock_result = {
             "success": True,
             "result": {"sessions": ["s1", 123, "s2", None]},
         }
         with patch.object(tool, "_rpc", new_callable=AsyncMock, return_value=mock_result):
             assert await tool.list_sessions() == ["s1", "s2"]
+        assert "stale" not in tool._event_buffer
+        assert "stale" not in tool._last_frame
+        assert "stale" not in tool._subscribers
 
     def test_subscribe_and_unsubscribe(self, tool):
         cb = MagicMock()
@@ -279,6 +286,63 @@ class TestSubscription:
         cb = MagicMock()
         # Should not raise
         tool.unsubscribe("nonexistent", cb)
+
+    def test_clear_session_state_removes_cached_state_and_subscribers(self, tool):
+        cb = MagicMock()
+        tool.subscribe("sess1", cb)
+        tool._event_buffer["sess1"] = [{"type": "activity"}]
+        tool._last_frame["sess1"] = {"type": "frame"}
+
+        tool._clear_session_state("sess1")
+
+        assert "sess1" not in tool._subscribers
+        assert "sess1" not in tool._event_buffer
+        assert "sess1" not in tool._last_frame
+
+    @pytest.mark.asyncio
+    async def test_shutdown_runner_clears_cached_state(self, tool):
+        process = MagicMock()
+        process.returncode = None
+        process.wait = AsyncMock(return_value=0)
+        tool._process = process
+        tool._reader_task = MagicMock()
+        tool._idle_task = MagicMock()
+        tool._event_buffer["sess1"] = [{"type": "activity"}]
+        tool._last_frame["sess1"] = {"type": "frame"}
+        tool._subscribers["sess1"] = [MagicMock()]
+
+        with patch.object(tool, "_write_stdin", new_callable=AsyncMock):
+            await tool._shutdown_runner()
+
+        assert tool._process is None
+        assert tool._event_buffer == {}
+        assert tool._last_frame == {}
+        assert tool._subscribers == {}
+
+
+class TestLifecycleHardening:
+    def test_registers_process_cleanup_only_once(self):
+        cfg = MagicMock()
+        cfg.enabled = True
+
+        original_registered = page_agent_module._PROCESS_CLEANUP_REGISTERED
+        original_live_tools = page_agent_module._LIVE_PAGE_AGENT_TOOLS
+        try:
+            page_agent_module._PROCESS_CLEANUP_REGISTERED = False
+            page_agent_module._LIVE_PAGE_AGENT_TOOLS = None
+            with patch.object(page_agent_module.atexit, "register") as mock_register:
+                first = PageAgentTool(config=cfg)
+                second = PageAgentTool(config=cfg)
+
+            assert mock_register.call_count == 1
+            registered_callback = mock_register.call_args.args[0]
+            assert getattr(registered_callback, "__self__", None) is PageAgentTool
+            assert registered_callback.__name__ == "_cleanup_live_tools"
+            assert len(list(PageAgentTool._get_live_tools())) == 2
+            assert first is not second
+        finally:
+            page_agent_module._PROCESS_CLEANUP_REGISTERED = original_registered
+            page_agent_module._LIVE_PAGE_AGENT_TOOLS = original_live_tools
 
 
 class TestSetContext:

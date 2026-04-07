@@ -22,6 +22,8 @@ if TYPE_CHECKING:
 TaskStatus = Literal["queued", "running", "succeeded", "failed", "cancelled", "interrupted"]
 
 _MAX_CONTINUATION_BUDGET = 5
+_FINISHED_RETENTION_MAX_ITEMS = 20
+_FINISHED_RETENTION_MAX_AGE_S = 30 * 60
 
 
 @dataclass
@@ -197,6 +199,7 @@ class BackgroundTaskStore:
             finally:
                 self._finished[task_id] = self._active.pop(task_id, snapshot)
                 self._tasks.pop(task_id, None)
+                self._prune_finished()
 
         task = asyncio.create_task(_run())
         self._tasks[task_id] = task
@@ -255,12 +258,17 @@ class BackgroundTaskStore:
         include_finished: bool = True,
         verbose: bool = False,
     ) -> dict[str, Any]:
+        self._prune_finished()
         tasks: list[TaskSnapshot] = []
 
         if task_id:
             snap = self._active.get(task_id) or self._finished.get(task_id)
             if snap:
                 tasks.append(snap)
+            else:
+                db_snapshot = self._load_snapshot_from_db(task_id)
+                if db_snapshot:
+                    tasks.append(db_snapshot)
         else:
             tasks.extend(self._active.values())
             if include_finished:
@@ -282,6 +290,7 @@ class BackgroundTaskStore:
 
     def get_active_digest(self, session_key: str | None = None) -> str:
         """返回适合注入 system prompt 的极短任务摘要。无活跃任务时返回空字符串。"""
+        self._prune_finished()
         tasks = list(self._active.values())
         recent_finished = [
             s for s in self._finished.values()
@@ -318,6 +327,7 @@ class BackgroundTaskStore:
         return self._load_timeline_from_db(task_id)
 
     def list_tasks(self, *, include_finished: bool = False) -> list[TaskSnapshot]:
+        self._prune_finished()
         tasks = list(self._active.values())
         if include_finished:
             tasks.extend(self._finished.values())
@@ -607,6 +617,75 @@ class BackgroundTaskStore:
         except (KeyError, IndexError):
             return default
 
+    def _prune_finished(self) -> None:
+        if not self._finished:
+            return
+
+        now = time.time()
+        retained: dict[str, TaskSnapshot] = {}
+        for idx, (task_id, snapshot) in enumerate(
+            sorted(
+                self._finished.items(),
+                key=lambda item: item[1].finished_at or 0,
+                reverse=True,
+            )
+        ):
+            finished_at = snapshot.finished_at
+            if idx >= _FINISHED_RETENTION_MAX_ITEMS:
+                continue
+            if finished_at and (now - finished_at) > _FINISHED_RETENTION_MAX_AGE_S:
+                continue
+            retained[task_id] = snapshot
+        self._finished = retained
+
+    def _load_snapshot_from_db(self, task_id: str) -> TaskSnapshot | None:
+        if not self._db:
+            return None
+        try:
+            row = self._db.fetchone(
+                """SELECT task_id, task_type, origin_session_key, status,
+                          prompt_preview, project_path, started_at, finished_at,
+                          result_preview, error_message, extra
+                   FROM bg_tasks
+                   WHERE task_id=?""",
+                (task_id,),
+            )
+            if not row:
+                return None
+            return self._snapshot_from_db_row(row)
+        except Exception as exc:
+            logger.warning("BackgroundTaskStore: load snapshot failed: {}", exc)
+            return None
+
+    def _snapshot_from_db_row(self, row: Any) -> TaskSnapshot:
+        started = self._row_val(row, "started_at", None)
+        finished = self._row_val(row, "finished_at", None)
+        elapsed = int((finished - started) * 1000) if started and finished else 0
+        extra = self._load_extra_json(self._row_val(row, "extra", "{}"))
+        return TaskSnapshot(
+            task_id=row["task_id"],
+            task_type=row["task_type"],
+            origin_session_key=row["origin_session_key"],
+            status=row["status"],
+            prompt_preview=self._row_val(row, "prompt_preview"),
+            started_at=started,
+            finished_at=finished,
+            elapsed_ms=elapsed,
+            result_preview=self._row_val(row, "result_preview"),
+            error_message=self._row_val(row, "error_message"),
+            project_path=self._row_val(row, "project_path"),
+            cli_session_id=extra.get("cli_session_id", ""),
+        )
+
+    @staticmethod
+    def _load_extra_json(raw: str) -> dict[str, Any]:
+        import json as _json
+
+        try:
+            return _json.loads(raw or "{}")
+        except Exception:
+            return {}
+
     def query_history(
         self,
         *,
@@ -643,12 +722,7 @@ class BackgroundTaskStore:
             rv = self._row_val
             tasks = []
             for r in rows:
-                import json as _json
-                extra = {}
-                try:
-                    extra = _json.loads(rv(r, "extra", "{}") or "{}")
-                except Exception:
-                    pass
+                extra = self._load_extra_json(rv(r, "extra", "{}"))
                 started = rv(r, "started_at", None)
                 finished = rv(r, "finished_at", None)
                 elapsed = int((finished - started) * 1000) if started and finished else 0
