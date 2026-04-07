@@ -144,15 +144,12 @@ function TaskCard({
   const resultText = detail?.full_result || task.result_preview || ''
 
   return (
-    <div className={`rounded-xl border transition-all ${
-      isActive
-        ? 'border-blue-500/30 bg-blue-500/5 shadow-sm'
-        : 'border-[var(--border)] bg-[var(--bg-secondary)]'
-    }`}>
-      <div
-        className="flex items-start gap-3 p-4 cursor-pointer select-none"
-        onClick={handleToggle}
-      >
+    <div
+      className={`rounded-xl border transition-all ${
+        isActive ? 'border-blue-500/30 bg-blue-500/5 shadow-sm' : 'border-[var(--border)] bg-[var(--bg-secondary)]'
+      }`}
+    >
+      <div className="flex items-start gap-3 p-4 cursor-pointer select-none" onClick={handleToggle}>
         <div className="pt-0.5 text-[var(--text-secondary)]">
           {expanded ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
         </div>
@@ -166,8 +163,11 @@ function TaskCard({
             </span>
           </div>
 
-          <p className={`text-sm text-[var(--text-primary)] mb-1 ${expanded ? 'whitespace-pre-wrap break-words' : 'truncate'}`} title={task.prompt_preview}>
-            {expanded ? promptText : (task.prompt_preview || '(no prompt)')}
+          <p
+            className={`text-sm text-[var(--text-primary)] mb-1 ${expanded ? 'whitespace-pre-wrap break-words' : 'truncate'}`}
+            title={task.prompt_preview}
+          >
+            {expanded ? promptText : task.prompt_preview || '(no prompt)'}
           </p>
 
           <div className="flex items-center gap-4 text-xs text-[var(--text-secondary)]">
@@ -178,7 +178,7 @@ function TaskCard({
               <span>{formatDuration(task.elapsed_ms)}</span>
             ) : null}
             {task.project_path && (
-              <span className="font-mono truncate max-w-[200px]" title={task.project_path}>
+              <span className="font-mono truncate max-w-[360px]" title={task.project_path}>
                 {task.project_path}
               </span>
             )}
@@ -188,8 +188,8 @@ function TaskCard({
         {isActive && (
           <button
             onClick={e => {
-              e.stopPropagation()
-              onCancel(task.task_id)
+              e.stopPropagation();
+              onCancel(task.task_id);
             }}
             className="flex items-center gap-1 px-2 py-1 text-xs rounded-lg text-red-400 hover:bg-red-500/10 transition-colors"
             title="取消任务"
@@ -223,10 +223,22 @@ function TaskCard({
             <div>
               <h4 className="text-xs font-medium text-[var(--text-secondary)] mb-1">详情</h4>
               <div className="grid grid-cols-2 gap-x-6 gap-y-1 text-xs">
-                <div><span className="text-[var(--text-secondary)]">Session: </span><span className="font-mono">{task.origin_session_key}</span></div>
-                <div><span className="text-[var(--text-secondary)]">CLI Session: </span><span className="font-mono">{task.cli_session_id || '-'}</span></div>
-                <div><span className="text-[var(--text-secondary)]">Phase: </span>{task.phase || '-'}</div>
-                <div><span className="text-[var(--text-secondary)]">Last Tool: </span>{task.last_tool_name || '-'}</div>
+                <div>
+                  <span className="text-[var(--text-secondary)]">Session: </span>
+                  <span className="font-mono">{task.origin_session_key}</span>
+                </div>
+                <div>
+                  <span className="text-[var(--text-secondary)]">CLI Session: </span>
+                  <span className="font-mono">{task.cli_session_id || '-'}</span>
+                </div>
+                <div>
+                  <span className="text-[var(--text-secondary)]">Phase: </span>
+                  {task.phase || '-'}
+                </div>
+                <div>
+                  <span className="text-[var(--text-secondary)]">Last Tool: </span>
+                  {task.last_tool_name || '-'}
+                </div>
               </div>
             </div>
 
@@ -244,7 +256,9 @@ function TaskCard({
                           <span className="text-[10px] text-[var(--text-secondary)]">{formatTime(ev.timestamp)}</span>
                         </div>
                         {ev.detail && (
-                          <p className="text-[11px] text-[var(--text-secondary)] whitespace-pre-wrap break-words">{ev.detail}</p>
+                          <p className="text-[11px] text-[var(--text-secondary)] whitespace-pre-wrap break-words">
+                            {ev.detail}
+                          </p>
                         )}
                       </div>
                     </div>
@@ -262,7 +276,7 @@ function TaskCard({
         </div>
       )}
     </div>
-  )
+  );
 }
 
 function Pagination({

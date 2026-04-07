@@ -37,7 +37,10 @@ export default function LoginPage() {
           <p className="text-sm text-[var(--text-secondary)] mt-1">Sign in to manage your bot</p>
         </div>
 
-        <form onSubmit={handleSubmit} className="bg-[var(--bg-secondary)] rounded-xl p-6 border border-[var(--border)] space-y-4">
+        <form
+          onSubmit={handleSubmit}
+          className="bg-[var(--bg-secondary)] rounded-xl p-6 border border-[var(--border)] space-y-4"
+        >
           {error && (
             <div className="p-3 rounded-lg bg-[var(--danger)]/10 border border-[var(--danger)]/20 text-[var(--danger)] text-sm">
               {error}
@@ -49,7 +52,7 @@ export default function LoginPage() {
             <input
               type="text"
               value={username}
-              onChange={(e) => setUsername(e.target.value)}
+              onChange={e => setUsername(e.target.value)}
               className="w-full px-3 py-2.5 rounded-lg bg-[var(--bg-primary)] border border-[var(--border)] text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent)] transition-colors"
               autoFocus
               required
@@ -62,7 +65,7 @@ export default function LoginPage() {
               <input
                 type={showPw ? 'text' : 'password'}
                 value={password}
-                onChange={(e) => setPassword(e.target.value)}
+                onChange={e => setPassword(e.target.value)}
                 className="w-full px-3 py-2.5 rounded-lg bg-[var(--bg-primary)] border border-[var(--border)] text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent)] transition-colors pr-10"
                 required
               />
@@ -85,10 +88,8 @@ export default function LoginPage() {
           </button>
         </form>
 
-        <p className="text-center text-xs text-[var(--text-secondary)] mt-4">
-          Default credentials: admin / admin
-        </p>
+        <p className="text-center text-xs text-[var(--text-secondary)] mt-4">Default credentials: diana / diana</p>
       </div>
     </div>
-  )
+  );
 }

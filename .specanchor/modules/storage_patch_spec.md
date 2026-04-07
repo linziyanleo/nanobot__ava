@@ -23,6 +23,7 @@
 
 - **原始行为**：将 session 序列化为 JSON 并追加到 JSONL 文件
 - **修改后行为**：将 session 写入 SQLite 的 `sessions` 表和 `session_messages` 表
+- **2026-04-07 更新**：写入范围从“整 session”收窄为“当前 active conversation”；`/new` 后只清理当前 `conversation_id` 的消息，不再删除同一 `session_key` 下其他 conversation 历史
 - **数据库路径**：`{workspace}/data/nanobot.db`
 
 ### 2.2 Load 拦截
@@ -30,6 +31,7 @@
 - **原始行为**：从 JSONL 文件读取并反序列化 session
 - **修改后行为**：从 SQLite 查询 session 数据，重建 `Session` 对象
 - **消息还原**：从 `session_messages` 表按 `seq` 顺序还原消息列表
+- **2026-04-07 更新**：只装载 `sessions.metadata["conversation_id"]` 对应的 active conversation，避免旧历史重新进入 live 上下文
 
 ### 2.3 List 拦截
 
@@ -58,6 +60,7 @@
 | id | INTEGER PK | 自增主键 |
 | session_id | INTEGER FK | 关联 sessions.id |
 | seq | INTEGER | 消息序号 |
+| conversation_id | TEXT | 同一 session_key 下的逻辑会话分段 |
 | role | TEXT | 消息角色 |
 | content | TEXT | 消息内容 |
 | tool_calls | TEXT | 工具调用（JSON） |
@@ -91,8 +94,9 @@
 
 ### 5.2 Save 策略
 - 使用 `INSERT OR REPLACE` 实现 upsert
-- 先写 session 主记录，再删除旧消息，最后批量插入新消息
+- 先写 session 主记录，再按 active `conversation_id` 做 scoped rewrite / append
 - 事务提交后更新内存缓存 `self._cache`
+- `mem_count < db_count` 或首条消息时间戳不一致时，只删除当前 active conversation 的历史，不触碰其他 conversation
 
 ### 5.3 消息序列化
 - `content` 字段：字符串直接存储，非字符串序列化为 JSON
@@ -114,6 +118,11 @@
 - Backfill 逻辑从 `channel_patch` 移入 `storage_patch`，解决了两者对 `SessionManager._load` 的冲突
 - Backfill 失败时仅 warning，不影响 session 返回
 
+### 5.7 session_messages conversation 兼容升级
+- `Database._create_schema()` 会为 legacy `session_messages` 表补 `conversation_id TEXT DEFAULT ''`
+- 同步补索引 `idx_msg_session_conv_seq(session_id, conversation_id, seq)`，让 active conversation load / save 与 conversation 列表聚合都能按分段读取
+- 对旧历史，空字符串 `conversation_id=''` 继续作为 legacy conversation 保留
+
 ---
 
 ## 6. 注意事项
@@ -134,6 +143,8 @@
 | List 排序 | 返回结果按更新时间倒序 |
 | 空数据库 | Load 不存在的 key 返回 None |
 | Upsert | 同 key 多次 save 只保留最新版本 |
+| conversation scoped rewrite | `/new` 后新 conversation 不删除旧 conversation 消息 |
+| active-only load | `_load()` 只恢复 active conversation，不把旧 conversation 一起装回内存 |
 | 缓存同步 | Save 后 `_cache` 正确更新 |
 | db 共享 | `set_shared_db()` 成功调用 |
 | db 共享失败 | `loop_patch` 不可用时仅 warning |

@@ -5,7 +5,7 @@ export interface SessionMeta {
   scene: SceneType
   created_at: string
   updated_at: string
-  conversation_id?: string
+  conversation_id: string
   token_stats: {
     total_prompt_tokens: number
     total_completion_tokens: number
@@ -15,6 +15,16 @@ export interface SessionMeta {
   message_count: number
   filename?: string
   filepath?: string
+}
+
+export interface ConversationMeta {
+  conversation_id: string
+  first_message_preview: string
+  message_count: number
+  created_at: string
+  updated_at: string
+  is_active: boolean
+  is_legacy?: boolean
 }
 
 export interface ToolCall {

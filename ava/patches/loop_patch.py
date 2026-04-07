@@ -23,6 +23,7 @@ Execution order note:
 from __future__ import annotations
 
 import weakref
+from datetime import datetime, timezone
 from uuid import uuid4
 
 from loguru import logger
@@ -629,13 +630,23 @@ def apply_loop_patch() -> str:
         self._current_turn_seq = None
         self._turn_record_ids = []
         self._turn_iteration = 0
+        pending_rotation_event: dict[str, str] | None = None
 
         if sk:
             try:
                 session = self.sessions.get_or_create(sk)
                 if is_new_command:
+                    previous_conversation_id = ""
+                    metadata = getattr(session, "metadata", None)
+                    if isinstance(metadata, dict):
+                        previous_conversation_id = metadata.get("conversation_id") or ""
                     conversation_id, changed = _ensure_session_conversation_id(session, rotate=True)
                     self._current_conversation_id = conversation_id
+                    if changed:
+                        pending_rotation_event = {
+                            "old_conversation_id": previous_conversation_id,
+                            "new_conversation_id": conversation_id,
+                        }
                 elif not raw.startswith("/"):
                     conversation_id, changed = _ensure_session_conversation_id(session)
                     self._current_conversation_id = conversation_id
@@ -720,6 +731,20 @@ def apply_loop_patch() -> str:
                 token_stats._db.commit()
             except Exception as exc:
                 logger.warning("Failed to backfill token stats: {}", exc)
+
+        if sk and pending_rotation_event:
+            bus = getattr(self, "bus", None)
+            if bus and hasattr(bus, "dispatch_observe_event"):
+                try:
+                    bus.dispatch_observe_event(sk, {
+                        "type": "conversation_rotated",
+                        "session_key": sk,
+                        "old_conversation_id": pending_rotation_event["old_conversation_id"],
+                        "new_conversation_id": pending_rotation_event["new_conversation_id"],
+                        "timestamp": datetime.now(timezone.utc).isoformat(),
+                    })
+                except Exception:
+                    pass
 
         # 广播 turn_completed（此时 _save_turn + sessions.save 已完成，DB 中消息已持久化）
         if sk:

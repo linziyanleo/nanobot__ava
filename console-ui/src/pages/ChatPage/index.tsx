@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, useCallback } from 'react'
 import { api, wsUrl } from '../../api/client'
 import { useAuth } from '../../stores/auth'
 import { useResponsiveMode } from '../../hooks/useResponsiveMode'
-import type { SceneType, SessionMeta, RawMessage, TurnGroup } from './types'
+import type { SceneType, SessionMeta, ConversationMeta, RawMessage, TurnGroup } from './types'
 import { SCENE_ORDER } from './types'
 import { getNextTurnSeq, groupTurns } from './utils'
 import { SceneTabs } from './SceneTabs'
@@ -13,8 +13,10 @@ const SESSION_LIST_POLL_MS = 30_000
 
 export default function ChatPage() {
   const [sessions, setSessions] = useState<SessionMeta[]>([])
+  const [conversationLists, setConversationLists] = useState<Record<string, ConversationMeta[]>>({})
   const [activeScene, setActiveScene] = useState<SceneType>('console')
   const [activeSession, setActiveSession] = useState('')
+  const [activeConversationId, setActiveConversationId] = useState<string | null>(null)
   const [currentMeta, setCurrentMeta] = useState<SessionMeta | null>(null)
   const [turns, setTurns] = useState<TurnGroup[]>([])
   const [loadingMessages, setLoadingMessages] = useState(false)
@@ -33,11 +35,51 @@ export default function ChatPage() {
   const { isMobile } = useResponsiveMode()
   useAuth()
 
-  const loadSessionMessagesWithMeta = useCallback(async (sessionKey: string, meta: SessionMeta | null, silent = false) => {
+  const loadConversations = useCallback(async (sessionKey: string) => {
+    try {
+      const conversations = await api<ConversationMeta[]>(`/chat/conversations?session_key=${encodeURIComponent(sessionKey)}`)
+      setConversationLists((prev) => ({ ...prev, [sessionKey]: conversations }))
+      return conversations
+    } catch (err) {
+      console.error('Failed to load conversations:', err)
+      setConversationLists((prev) => ({ ...prev, [sessionKey]: [] }))
+      return [] as ConversationMeta[]
+    }
+  }, [])
+
+  const pickConversationId = useCallback((
+    meta: SessionMeta | null,
+    conversations: ConversationMeta[],
+    preferredConversationId?: string | null,
+  ) => {
+    if (preferredConversationId !== undefined && preferredConversationId !== null) {
+      if (conversations.some((item) => item.conversation_id === preferredConversationId)) {
+        return preferredConversationId
+      }
+    }
+    if (meta && conversations.some((item) => item.conversation_id === meta.conversation_id)) {
+      return meta.conversation_id
+    }
+    if (conversations.length > 0) {
+      return conversations[0].conversation_id
+    }
+    return meta?.conversation_id ?? null
+  }, [])
+
+  const loadSessionMessagesWithMeta = useCallback(async (
+    sessionKey: string,
+    meta: SessionMeta | null,
+    conversationId: string | null,
+    silent = false,
+  ) => {
     if (!silent) setLoadingMessages(true)
     try {
-      const messages = await api<RawMessage[]>(`/chat/messages?session_key=${encodeURIComponent(sessionKey)}`)
+      const conversationQuery = conversationId !== null
+        ? `&conversation_id=${encodeURIComponent(conversationId)}`
+        : ''
+      const messages = await api<RawMessage[]>(`/chat/messages?session_key=${encodeURIComponent(sessionKey)}${conversationQuery}`)
       setCurrentMeta(meta)
+      setActiveConversationId(conversationId)
       setTurns(groupTurns(messages))
     } catch (err) {
       console.error('Failed to load messages:', err)
@@ -47,10 +89,43 @@ export default function ChatPage() {
     }
   }, [])
 
-  const loadSessionMessages = useCallback(async (sessionKey: string, silent = false) => {
+  const loadSessionMessages = useCallback(async (
+    sessionKey: string,
+    conversationId: string | null = null,
+    silent = false,
+  ) => {
     const meta = sessions.find((s) => s.key === sessionKey) || null
-    return loadSessionMessagesWithMeta(sessionKey, meta, silent)
+    return loadSessionMessagesWithMeta(sessionKey, meta, conversationId, silent)
   }, [sessions, loadSessionMessagesWithMeta])
+
+  const currentMetaRef = useRef<SessionMeta | null>(currentMeta)
+  currentMetaRef.current = currentMeta
+
+  const activeConversationIdRef = useRef<string | null>(activeConversationId)
+  activeConversationIdRef.current = activeConversationId
+
+  const refreshSessionView = useCallback(async (
+    sessionKey: string,
+    opts?: {
+      preferredConversationId?: string | null
+      forceActiveConversation?: boolean
+      silent?: boolean
+    },
+  ) => {
+    const metas = await loadSessionListRef.current()
+    const meta = metas.find((m) => m.key === sessionKey) || null
+    const conversations = await loadConversationsRef.current(sessionKey)
+    const preferredConversationId = opts?.forceActiveConversation
+      ? meta?.conversation_id ?? null
+      : opts?.preferredConversationId
+    const nextConversationId = pickConversationId(meta, conversations, preferredConversationId)
+    await loadSessionMessagesWithMetaRef.current(
+      sessionKey,
+      meta,
+      nextConversationId,
+      opts?.silent ?? false,
+    )
+  }, [pickConversationId])
 
   const connectWs = useCallback((sid: string, isReconnect = false) => {
     if (wsReconnectTimer.current) {
@@ -71,24 +146,20 @@ export default function ChatPage() {
         setStreaming('')
         setThinkingStreaming('')
         setSending(false)
-        void (async () => {
-          const metas = await loadSessionListRef.current()
-          const meta = metas.find((m) => m.key === sessionKey) || null
-          await loadSessionMessagesWithMetaRef.current(sessionKey, meta)
-        })()
+        void refreshSessionViewRef.current(sessionKey, {
+          forceActiveConversation: true,
+        })
       } else if (data.type === 'async_result') {
-        void (async () => {
-          const metas = await loadSessionListRef.current()
-          const meta = metas.find((m) => m.key === sessionKey) || null
-          await loadSessionMessagesWithMetaRef.current(sessionKey, meta)
-        })()
+        void refreshSessionViewRef.current(sessionKey, {
+          preferredConversationId: activeConversationIdRef.current,
+        })
       }
     }
     ws.onerror = () => setSending(false)
     ws.onclose = () => {
       setSending(false)
       // Reload messages on disconnect — the LLM may have finished while ws was down.
-      loadSessionMessagesRef.current(sessionKey, true)
+      loadSessionMessagesRef.current(sessionKey, activeConversationIdRef.current, true)
       // Auto-reconnect if this is still the active session
       if (wsSessionId.current === sid) {
         wsReconnectTimer.current = setTimeout(() => connectWs(sid, true), 2000)
@@ -97,7 +168,7 @@ export default function ChatPage() {
     wsRef.current = ws
     // If reconnecting after a drop, reload messages to catch anything missed.
     if (isReconnect) {
-      loadSessionMessagesRef.current(sessionKey, true)
+      loadSessionMessagesRef.current(sessionKey, activeConversationIdRef.current, true)
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
@@ -119,12 +190,15 @@ export default function ChatPage() {
     const ws = new WebSocket(wsUrl(`/chat/ws/observe/${encodeURIComponent(sessionKey)}`))
 
     ws.onopen = () => {
-      loadSessionMessagesRef.current(sessionKey, true)
+      loadSessionMessagesRef.current(sessionKey, activeConversationIdRef.current, true)
     }
 
     ws.onmessage = (e) => {
       const data = JSON.parse(e.data)
       if (data.type === 'message_arrived') {
+        if (activeConversationIdRef.current !== currentMetaRef.current?.conversation_id) {
+          return
+        }
         const pendingMsg: RawMessage = {
           role: 'user',
           content: data.content,
@@ -140,14 +214,21 @@ export default function ChatPage() {
         }])
         setProcessing(true)
       } else if (data.type === 'processing_started') {
-        setProcessing(true)
+        if (activeConversationIdRef.current === currentMetaRef.current?.conversation_id) {
+          setProcessing(true)
+        }
+      } else if (data.type === 'conversation_rotated') {
+        setProcessing(false)
+        void refreshSessionViewRef.current(sessionKey, {
+          preferredConversationId: data.new_conversation_id ?? null,
+          silent: true,
+        })
       } else if (data.type === 'turn_completed') {
         setProcessing(false)
-        void (async () => {
-          const metas = await loadSessionListRef.current()
-          const meta = metas.find((m) => m.key === sessionKey) || null
-          await loadSessionMessagesWithMetaRef.current(sessionKey, meta, true)
-        })()
+        void refreshSessionViewRef.current(sessionKey, {
+          preferredConversationId: activeConversationIdRef.current,
+          silent: true,
+        })
       }
     }
 
@@ -191,7 +272,11 @@ export default function ChatPage() {
         const firstSessionInScene = metas.find((m) => m.scene === firstScene)
         if (firstSessionInScene) {
           setActiveSession(firstSessionInScene.key)
-          loadSessionMessagesWithMeta(firstSessionInScene.key, firstSessionInScene)
+          void (async () => {
+            const conversations = await loadConversationsRef.current(firstSessionInScene.key)
+            const conversationId = pickConversationId(firstSessionInScene, conversations, firstSessionInScene.conversation_id)
+            await loadSessionMessagesWithMetaRef.current(firstSessionInScene.key, firstSessionInScene, conversationId)
+          })()
           if (firstScene === 'console') {
             const sid = firstSessionInScene.key.replace(/^console:/, '')
             connectWs(sid)
@@ -203,7 +288,7 @@ export default function ChatPage() {
       console.error('Failed to load sessions:', err)
       return []
     }
-  }, [activeSession, loadSessionMessagesWithMeta, connectWs])
+  }, [activeSession, connectWs, pickConversationId])
 
   useEffect(() => {
     loadSessionList()
@@ -228,6 +313,7 @@ export default function ChatPage() {
 
   const handleSessionSelect = (key: string) => {
     setActiveSession(key)
+    setActiveConversationId(null)
     setStreaming('')
     setThinkingStreaming('')
     setProcessing(false)
@@ -237,13 +323,27 @@ export default function ChatPage() {
     disconnectObserveWs()
     setMobileSessionOpen(false)
 
-    loadSessionMessages(key)
-
     const meta = sessions.find((s) => s.key === key)
+    void (async () => {
+      const conversations = await loadConversationsRef.current(key)
+      const conversationId = pickConversationId(meta || null, conversations, meta?.conversation_id ?? null)
+      await loadSessionMessagesWithMetaRef.current(key, meta || null, conversationId)
+    })()
+
     if (meta?.scene === 'console') {
       const sid = key.replace(/^console:/, '')
       connectWs(sid)
     }
+  }
+
+  const handleConversationSelect = (sessionKey: string, conversationId: string) => {
+    const meta = sessions.find((s) => s.key === sessionKey) || null
+    setActiveSession(sessionKey)
+    setMobileSessionOpen(false)
+    setStreaming('')
+    setThinkingStreaming('')
+    setProcessing(false)
+    void loadSessionMessagesWithMeta(sessionKey, meta, conversationId)
   }
 
   const handleSceneChange = (scene: SceneType) => {
@@ -260,13 +360,19 @@ export default function ChatPage() {
     if (sceneSessions.length > 0) {
       const first = sceneSessions[0]
       setActiveSession(first.key)
-      loadSessionMessages(first.key)
+      setActiveConversationId(null)
+      void (async () => {
+        const conversations = await loadConversationsRef.current(first.key)
+        const conversationId = pickConversationId(first, conversations, first.conversation_id)
+        await loadSessionMessagesWithMetaRef.current(first.key, first, conversationId)
+      })()
       if (scene === 'console') {
         const sid = first.key.replace(/^console:/, '')
         connectWs(sid)
       }
     } else {
       setActiveSession('')
+      setActiveConversationId(null)
       setCurrentMeta(null)
       setTurns([])
     }
@@ -297,6 +403,18 @@ export default function ChatPage() {
         token_stats: { total_prompt_tokens: 0, total_completion_tokens: 0, total_tokens: 0, llm_calls: 0 },
         message_count: 0,
       })
+      setConversationLists((prev) => ({
+        ...prev,
+        [newKey]: [{
+          conversation_id: res.conversation_id,
+          first_message_preview: '',
+          message_count: 0,
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+          is_active: true,
+        }],
+      }))
+      setActiveConversationId(res.conversation_id)
       setTurns([])
       connectWs(sid)
 
@@ -346,17 +464,23 @@ export default function ChatPage() {
   }
 
   const handleRefresh = useCallback(() => {
-    loadSessionList()
     if (activeSession) {
-      loadSessionMessages(activeSession)
+      void refreshSessionViewRef.current(activeSession, {
+        preferredConversationId: activeConversationIdRef.current,
+      })
+    } else {
+      loadSessionList()
     }
-  }, [activeSession, loadSessionList, loadSessionMessages])
+  }, [activeSession, loadSessionList])
 
   const activeSessionRef = useRef(activeSession)
   activeSessionRef.current = activeSession
 
   const loadSessionListRef = useRef(loadSessionList)
   loadSessionListRef.current = loadSessionList
+
+  const loadConversationsRef = useRef(loadConversations)
+  loadConversationsRef.current = loadConversations
 
   const loadSessionMessagesWithMetaRef = useRef(loadSessionMessagesWithMeta)
   loadSessionMessagesWithMetaRef.current = loadSessionMessagesWithMeta
@@ -366,8 +490,11 @@ export default function ChatPage() {
   const loadSessionMessagesRef = useRef(loadSessionMessages)
   loadSessionMessagesRef.current = loadSessionMessages
 
+  const refreshSessionViewRef = useRef(refreshSessionView)
+  refreshSessionViewRef.current = refreshSessionView
+
   const handleSend = (message: string) => {
-    if (!wsRef.current || sending) return
+    if (!wsRef.current || sending || !currentMeta || activeConversationId !== currentMeta.conversation_id) return
     setStreaming('')
     setThinkingStreaming('')
     setSending(true)
@@ -391,6 +518,10 @@ export default function ChatPage() {
 
   const isConsole = activeScene === 'console'
   const filteredSessions = sessions.filter((s) => s.scene === activeScene)
+  const selectedConversation = activeSession
+    ? (conversationLists[activeSession] || []).find((item) => item.conversation_id === activeConversationId) || null
+    : null
+  const isReadOnlyConversation = !currentMeta || activeConversationId !== currentMeta.conversation_id
 
   return (
     <div className={isMobile ? '-m-4 -mb-20 h-[calc(100dvh-4rem-env(safe-area-inset-bottom,0px))] flex flex-col overflow-hidden' : '-m-6 h-[calc(100vh)] flex flex-col overflow-hidden'}>
@@ -425,8 +556,11 @@ export default function ChatPage() {
                 <SessionSidebar
                   sessions={filteredSessions}
                   activeSession={activeSession}
+                  activeConversationId={activeConversationId}
+                  conversationLists={conversationLists}
                   isConsoleScene={isConsole}
                   onSessionSelect={handleSessionSelect}
+                  onConversationSelect={handleConversationSelect}
                   onCreateConsole={handleCreateConsole}
                   onDeleteSession={handleDeleteSession}
                   onRenameSession={handleRenameSession}
@@ -438,8 +572,11 @@ export default function ChatPage() {
           <SessionSidebar
             sessions={filteredSessions}
             activeSession={activeSession}
+            activeConversationId={activeConversationId}
+            conversationLists={conversationLists}
             isConsoleScene={isConsole}
             onSessionSelect={handleSessionSelect}
+            onConversationSelect={handleConversationSelect}
             onCreateConsole={handleCreateConsole}
             onDeleteSession={handleDeleteSession}
             onRenameSession={handleRenameSession}
@@ -447,9 +584,12 @@ export default function ChatPage() {
         )}
         <MessageArea
           session={currentMeta}
+          conversation={selectedConversation}
+          conversationId={activeConversationId}
           turns={turns}
           loading={loadingMessages}
           isConsole={isConsole && !!activeSession}
+          isReadOnly={isReadOnlyConversation}
           streaming={streaming}
           thinkingStreaming={thinkingStreaming}
           sending={sending}

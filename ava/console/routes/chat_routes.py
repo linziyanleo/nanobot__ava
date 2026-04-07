@@ -50,10 +50,20 @@ async def get_history(
 @router.get("/messages")
 async def get_messages(
     session_key: str = Query(..., description="Session key (e.g. telegram:12345)"),
+    conversation_id: str | None = Query(None, description="Conversation id within the session; omit to use active conversation"),
     user: UserInfo = Depends(auth.require_role("admin", "editor", "viewer")),
 ):
     """Full message history for any session, including tool_calls and reasoning."""
-    return _get_chat_service().get_messages(session_key)
+    return _get_chat_service().get_messages(session_key, conversation_id=conversation_id)
+
+
+@router.get("/conversations")
+async def list_conversations(
+    session_key: str = Query(..., description="Session key (e.g. telegram:12345)"),
+    user: UserInfo = Depends(auth.require_role("admin", "editor", "viewer")),
+):
+    """Conversation summaries for one session_key."""
+    return _get_chat_service().list_conversations(session_key)
 
 @router.websocket("/ws/observe/{session_key:path}")
 async def observe_ws(websocket: WebSocket, session_key: str):

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+from datetime import datetime
 from pathlib import Path
 
 from typing import Any
@@ -48,20 +50,65 @@ def apply_storage_patch() -> str:
     original_load = SessionManager._load
     original_list = SessionManager.list_sessions
 
+    def _get_session_conversation_id(session: Session) -> str:
+        metadata = getattr(session, "metadata", None)
+        if not isinstance(metadata, dict):
+            return ""
+        value = metadata.get("conversation_id")
+        return value if isinstance(value, str) else ""
+
+    def _resolve_active_conversation_id(conn, session_row) -> tuple[dict[str, Any], str]:
+        metadata_raw = session_row["metadata"] or "{}"
+        try:
+            metadata = json.loads(metadata_raw)
+        except json.JSONDecodeError:
+            metadata = {}
+
+        active_conversation_id = metadata.get("conversation_id")
+        if isinstance(active_conversation_id, str) and active_conversation_id:
+            return metadata, active_conversation_id
+
+        latest_row = conn.execute(
+            """
+            SELECT conversation_id
+              FROM session_messages
+             WHERE session_id = ?
+             ORDER BY CASE WHEN timestamp IS NULL OR timestamp = '' THEN 1 ELSE 0 END,
+                      timestamp DESC,
+                      seq DESC
+             LIMIT 1
+            """,
+            (session_row["id"],),
+        ).fetchone()
+        if latest_row:
+            value = latest_row["conversation_id"]
+            active_conversation_id = value if isinstance(value, str) else ""
+        else:
+            active_conversation_id = ""
+
+        metadata["conversation_id"] = active_conversation_id
+        return metadata, active_conversation_id
+
+    def _decode_content(raw_content: Any) -> Any:
+        if raw_content is None:
+            return None
+        if not isinstance(raw_content, str):
+            return raw_content
+        try:
+            parsed = json.loads(raw_content)
+        except (json.JSONDecodeError, TypeError):
+            return raw_content
+        if isinstance(parsed, (dict, list)):
+            return parsed
+        return raw_content
+
     def patched_save(self: SessionManager, session: Session) -> None:
-        """Save session to SQLite database (incremental append).
-
-        Only inserts messages whose seq >= current DB count, avoiding the
-        destructive DELETE-then-INSERT pattern that caused history loss.
-        A full rewrite is only performed when messages were actually removed
-        from the in-memory list (e.g. session.clear() or retain_recent_legal_suffix).
-        """
-        import json as _json
-
+        """Save only the active conversation slice for a session."""
         conn = db._get_conn()
+        active_conversation_id = _get_session_conversation_id(session)
 
-        metadata_json = _json.dumps(session.metadata, ensure_ascii=False)
-        token_stats_json = _json.dumps(
+        metadata_json = json.dumps(session.metadata, ensure_ascii=False)
+        token_stats_json = json.dumps(
             session.metadata.get("token_stats", {}), ensure_ascii=False
         )
 
@@ -93,22 +140,26 @@ def apply_storage_patch() -> str:
         if session_row:
             session_id = session_row["id"]
 
-            # Count existing messages in DB
             row = conn.execute(
-                "SELECT COUNT(*) as cnt FROM session_messages WHERE session_id = ?",
-                (session_id,),
+                """
+                SELECT COUNT(*) as cnt
+                  FROM session_messages
+                 WHERE session_id = ? AND conversation_id = ?
+                """,
+                (session_id, active_conversation_id),
             ).fetchone()
             db_count = row["cnt"] if row else 0
 
             mem_count = len(session.messages)
-
-            # Detect if messages were reset (clear/retain/reassigned):
-            # Compare first message timestamp — if it differs, the list was rebuilt.
             needs_rewrite = mem_count < db_count
             if not needs_rewrite and db_count > 0 and mem_count > 0:
                 first_db = conn.execute(
-                    "SELECT timestamp FROM session_messages WHERE session_id = ? AND seq = 0",
-                    (session_id,),
+                    """
+                    SELECT timestamp
+                      FROM session_messages
+                     WHERE session_id = ? AND conversation_id = ? AND seq = 0
+                    """,
+                    (session_id, active_conversation_id),
                 ).fetchone()
                 if first_db:
                     mem_ts = session.messages[0].get("timestamp", "")
@@ -116,29 +167,32 @@ def apply_storage_patch() -> str:
                         needs_rewrite = True
 
             if needs_rewrite:
-                conn.execute("DELETE FROM session_messages WHERE session_id = ?", (session_id,))
+                conn.execute(
+                    "DELETE FROM session_messages WHERE session_id = ? AND conversation_id = ?",
+                    (session_id, active_conversation_id),
+                )
                 start_seq = 0
             else:
-                # Incremental: only append new messages
                 start_seq = db_count
 
             for seq in range(start_seq, mem_count):
                 msg = session.messages[seq]
                 tool_calls_json = (
-                    _json.dumps(msg.get("tool_calls", []), ensure_ascii=False)
+                    json.dumps(msg.get("tool_calls", []), ensure_ascii=False)
                     if msg.get("tool_calls") else None
                 )
                 content = msg.get("content")
                 if content is not None and not isinstance(content, str):
-                    content = _json.dumps(content, ensure_ascii=False)
+                    content = json.dumps(content, ensure_ascii=False)
 
                 conn.execute(
                     """INSERT INTO session_messages
-                       (session_id, seq, role, content, tool_calls, tool_call_id, name, reasoning_content, timestamp)
-                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                       (session_id, seq, conversation_id, role, content, tool_calls, tool_call_id, name, reasoning_content, timestamp)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                     (
                         session_id,
                         seq,
+                        active_conversation_id,
                         msg.get("role", ""),
                         content,
                         tool_calls_json,
@@ -153,7 +207,7 @@ def apply_storage_patch() -> str:
         self._cache[session.key] = session
 
     def patched_load(self: SessionManager, key: str) -> Session | None:
-        """Load session from SQLite database, then apply backfill."""
+        """Load only the active conversation from SQLite, then apply backfill."""
         conn = db._get_conn()
 
         session_row = conn.execute(
@@ -163,20 +217,26 @@ def apply_storage_patch() -> str:
         if not session_row:
             return None
 
+        metadata, active_conversation_id = _resolve_active_conversation_id(conn, session_row)
         messages = []
         msg_rows = conn.execute(
-            "SELECT * FROM session_messages WHERE session_id = ? ORDER BY seq",
-            (session_row["id"],),
+            """
+            SELECT *
+              FROM session_messages
+             WHERE session_id = ? AND conversation_id = ?
+             ORDER BY seq
+            """,
+            (session_row["id"], active_conversation_id),
         ).fetchall()
 
         for msg_row in msg_rows:
             msg = {
                 "role": msg_row["role"],
-                "content": msg_row["content"],
+                "content": _decode_content(msg_row["content"]),
                 "timestamp": msg_row["timestamp"],
             }
             if msg_row["tool_calls"]:
-                msg["tool_calls"] = __import__("json").loads(msg_row["tool_calls"])
+                msg["tool_calls"] = json.loads(msg_row["tool_calls"])
             if msg_row["tool_call_id"]:
                 msg["tool_call_id"] = msg_row["tool_call_id"]
             if msg_row["name"]:
@@ -185,15 +245,17 @@ def apply_storage_patch() -> str:
                 msg["reasoning_content"] = msg_row["reasoning_content"]
             messages.append(msg)
 
-        metadata = __import__("json").loads(session_row["metadata"])
-        metadata["token_stats"] = __import__("json").loads(session_row["token_stats"])
+        try:
+            metadata["token_stats"] = json.loads(session_row["token_stats"] or "{}")
+        except json.JSONDecodeError:
+            metadata["token_stats"] = {}
         if session_row["last_completed"]:
             metadata["last_completed"] = session_row["last_completed"]
 
         session = Session(
             key=key,
             messages=messages,
-            created_at=__import__("datetime").datetime.fromisoformat(session_row["created_at"]),
+            created_at=datetime.fromisoformat(session_row["created_at"]),
             metadata=metadata,
             last_consolidated=session_row["last_consolidated"],
         )

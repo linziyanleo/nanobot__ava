@@ -348,6 +348,11 @@ class TestTokenStatsRecordId:
         sessions = DummySessions(session)
         db = Database(tmp_path / "test.db")
         collector = TokenStatsCollector(data_dir=tmp_path, db=db)
+        observe_events: list[dict] = []
+
+        class DummyBus:
+            def dispatch_observe_event(self, session_key, event):
+                observe_events.append({"session_key": session_key, **event})
 
         collector.record(
             model="model-old",
@@ -392,7 +397,7 @@ class TestTokenStatsRecordId:
             sessions=sessions,
             bg_tasks=None,
             token_stats=collector,
-            bus=None,
+            bus=DummyBus(),
         )
 
         await AgentLoop._process_message(loop, SimpleNamespace(content="/new", session_key=session.key))
@@ -400,6 +405,13 @@ class TestTokenStatsRecordId:
 
         assert rotated_conversation_id != "conv_old"
         assert captured[0] == ("/new", rotated_conversation_id, 1)
+        assert any(
+            event["type"] == "conversation_rotated"
+            and event["session_key"] == session.key
+            and event["old_conversation_id"] == "conv_old"
+            and event["new_conversation_id"] == rotated_conversation_id
+            for event in observe_events
+        )
 
         await AgentLoop._process_message(loop, SimpleNamespace(content="fresh question", session_key=session.key))
 

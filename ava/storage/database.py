@@ -62,11 +62,15 @@ class Database:
     def _create_schema(self) -> None:
         conn = self._get_conn()
         conn.executescript(_SCHEMA_DDL)
-        for col, col_type, default in _SAFE_ALTER_COLUMNS:
+        for col, col_type, default in _SAFE_TOKEN_USAGE_COLUMNS:
             try:
                 conn.execute(f"ALTER TABLE token_usage ADD COLUMN {col} {col_type} DEFAULT {default}")
             except sqlite3.OperationalError:
                 pass  # column already exists
+        try:
+            conn.execute("ALTER TABLE session_messages ADD COLUMN conversation_id TEXT DEFAULT ''")
+        except sqlite3.OperationalError:
+            pass
         for sql in _SAFE_POST_MIGRATION_SQL:
             try:
                 conn.execute(sql)
@@ -253,16 +257,24 @@ class Database:
         if not row:
             return
         session_id = row["id"]
+        conversation_id = ""
+        if isinstance(metadata.get("conversation_id"), str):
+            conversation_id = metadata["conversation_id"]
+        elif isinstance(metadata.get("metadata"), dict):
+            nested_value = metadata["metadata"].get("conversation_id")
+            if isinstance(nested_value, str):
+                conversation_id = nested_value
 
         for seq, msg in enumerate(messages):
             tool_calls_json = json.dumps(msg["tool_calls"], ensure_ascii=False) if msg.get("tool_calls") else None
             conn.execute(
                 """INSERT INTO session_messages
-                   (session_id, seq, role, content, tool_calls, tool_call_id, name, reasoning_content, timestamp)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                   (session_id, seq, conversation_id, role, content, tool_calls, tool_call_id, name, reasoning_content, timestamp)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
                     session_id,
                     seq,
+                    conversation_id,
                     msg.get("role", ""),
                     msg.get("content") if isinstance(msg.get("content"), str) else json.dumps(msg.get("content"), ensure_ascii=False) if msg.get("content") else None,
                     tool_calls_json,
@@ -374,7 +386,7 @@ class Database:
 # DDL
 # ------------------------------------------------------------------
 
-_SAFE_ALTER_COLUMNS: list[tuple[str, str, str]] = [
+_SAFE_TOKEN_USAGE_COLUMNS: list[tuple[str, str, str]] = [
     ("cost_usd", "REAL", "0"),
     ("current_turn_tokens", "INTEGER", "0"),
     ("tool_names", "TEXT", "''"),
@@ -383,6 +395,7 @@ _SAFE_ALTER_COLUMNS: list[tuple[str, str, str]] = [
 
 _SAFE_POST_MIGRATION_SQL: list[str] = [
     "CREATE INDEX IF NOT EXISTS idx_tu_conv_turn ON token_usage(session_key, conversation_id, turn_seq)",
+    "CREATE INDEX IF NOT EXISTS idx_msg_session_conv_seq ON session_messages(session_id, conversation_id, seq)",
 ]
 
 _SCHEMA_DDL = """
@@ -407,6 +420,7 @@ CREATE TABLE IF NOT EXISTS session_messages (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     session_id INTEGER NOT NULL,
     seq INTEGER NOT NULL,
+    conversation_id TEXT DEFAULT '',
     role TEXT NOT NULL,
     content TEXT,
     tool_calls TEXT,

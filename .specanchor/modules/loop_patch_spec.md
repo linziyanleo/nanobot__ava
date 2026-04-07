@@ -15,7 +15,7 @@
 - **Token 统计**：包装 `_run_agent_loop`（拦截 provider 调用获取原始 usage）和 `_process_message`（每轮记录完整字段）
 - **Conversation 分段**：为同一 `session_key` 下的逻辑新会话维护 `session.metadata["conversation_id"]`；`/new` 前置轮换新 id，后续 turn 在该 conversation 内重新从 0 编号
 - **Phase 0 预记录**：在 `patched_run_agent_loop` 开头（LLM 调用前）写入 pending 状态的 token_usage 记录，首次 LLM 调用完成后 UPDATE 填入真实数值
-- **实时广播**：通过 `bus.dispatch_observe_event()` 广播 `message_arrived` / `processing_started` / `token_recorded` / `turn_completed` 四类生命周期事件
+- **实时广播**：通过 `bus.dispatch_observe_event()` 广播 `message_arrived` / `processing_started` / `token_recorded` / `conversation_rotated` / `turn_completed` 五类生命周期事件
 - **Database 共享**：通过 `set_shared_db()` 接收 storage_patch 的共享 Database 实例
 - **弱引用回指**：模块级 `_agent_loop_ref` 仅保存最近 loop 的 `weakref.ref`，供 console_patch “尽量获取当前 loop”，但不延长 `AgentLoop` 生命周期
 
@@ -41,6 +41,7 @@
 | `message_arrived` | `patched_run_agent_loop` 开头 | `{session_key, role, content, timestamp}` |
 | `processing_started` | `patched_run_agent_loop` 开头 | `{session_key, model}` |
 | `token_recorded` | Phase 0 写入 / UPDATE 时 | `{session_key, record_id, phase}` |
+| `conversation_rotated` | `/new` 成功返回后 | `{session_key, old_conversation_id, new_conversation_id, timestamp}` |
 | `turn_completed` | `patched_process_message` 中 original 返回后 | `{session_key, message_count}` |
 
 ### 2.2 Phase 0 预记录
@@ -140,6 +141,7 @@ def get_agent_loop():
 | Phase 0 UPDATE | 首次 LLM 调用后 pending 记录被 UPDATE |
 | Phase 0 异常 | LLM 异常时 pending 记录被标记为 error |
 | `/new` conversation 轮换 | slash `/new` 后 `session.metadata["conversation_id"]` 被刷新，下一条普通消息从新 conversation 的 Turn #0 开始 |
+| `/new` observe 事件 | `/new` 成功后会广播 `conversation_rotated`，供 ChatPage 刷新 conversation 列表并切到新 active conversation |
 | 同序号 turn 不串线 | 同一 `session_key` 下旧 `conversation_id` 的 Turn #0 与 `/new` 后新 `conversation_id` 的 Turn #0 分开聚合 |
 | 实时广播时序 | message_arrived → token_recorded(pending) → processing_started → turn_completed |
 | shared_db | set_shared_db() 后新 AgentLoop 获得共享 db |

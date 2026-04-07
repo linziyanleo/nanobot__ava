@@ -55,7 +55,7 @@ def patched_manager(tmp_path):
     return mgr
 
 
-def _make_session(key="test:123", messages=None):
+def _make_session(key="test:123", messages=None, metadata=None):
     """Helper to create a Session instance."""
     return Session(
         key=key,
@@ -64,7 +64,7 @@ def _make_session(key="test:123", messages=None):
             {"role": "assistant", "content": "hi there", "timestamp": "2026-01-01T00:00:01"},
         ],
         created_at=datetime(2026, 1, 1),
-        metadata={"token_stats": {}},
+        metadata=metadata or {"token_stats": {}},
         last_consolidated=0,
     )
 
@@ -113,6 +113,37 @@ class TestStoragePatch:
 
         assert "conversation_id" in columns
         assert "idx_tu_conv_turn" in indexes
+
+    def test_database_adds_session_message_conversation_column_and_index(self, tmp_path):
+        db_path = tmp_path / "legacy_messages.db"
+        conn = sqlite3.connect(str(db_path))
+        conn.executescript(
+            """
+            CREATE TABLE session_messages (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                session_id INTEGER NOT NULL,
+                seq INTEGER NOT NULL,
+                role TEXT NOT NULL,
+                content TEXT,
+                tool_calls TEXT,
+                tool_call_id TEXT,
+                name TEXT,
+                reasoning_content TEXT,
+                timestamp TEXT
+            );
+            """
+        )
+        conn.commit()
+        conn.close()
+
+        from ava.storage import Database
+
+        db = Database(db_path)
+        columns = {row["name"] for row in db.fetchall("PRAGMA table_info(session_messages)")}
+        indexes = {row["name"] for row in db.fetchall("PRAGMA index_list(session_messages)")}
+
+        assert "conversation_id" in columns
+        assert "idx_msg_session_conv_seq" in indexes
 
     def test_patch_applies_without_error(self, tmp_path):
         """T5.0: apply_storage_patch runs without error."""
@@ -208,6 +239,54 @@ class TestStoragePatch:
         loaded = patched_manager._load("test:123")
         assert loaded.messages[0]["content"] == "new"
         assert loaded.messages[1]["content"] == "new reply"
+
+    def test_new_conversation_keeps_old_history_and_loads_only_active_conversation(self, patched_manager):
+        session = _make_session(
+            messages=[
+                {"role": "user", "content": "old", "timestamp": "t1"},
+                {"role": "assistant", "content": "old reply", "timestamp": "t2"},
+            ],
+            metadata={"token_stats": {}, "conversation_id": "conv_old"},
+        )
+        patched_manager.save(session)
+
+        session.metadata["conversation_id"] = "conv_new"
+        session.clear()
+        patched_manager.save(session)
+
+        session.add_message("user", "fresh")
+        session.add_message("assistant", "fresh reply")
+        patched_manager.save(session)
+
+        loaded = patched_manager._load("test:123")
+        assert loaded is not None
+        assert loaded.metadata["conversation_id"] == "conv_new"
+        assert [msg["content"] for msg in loaded.messages] == ["fresh", "fresh reply"]
+
+        conn = patched_manager._cache["test:123"]  # confirm cache still points at live session
+        assert conn.metadata["conversation_id"] == "conv_new"
+
+        db_rows = patched_manager.list_sessions()
+        assert any(row["key"] == "test:123" for row in db_rows)
+
+        from ava.storage import get_db
+        db = get_db()
+        rows = db.fetchall(
+            """
+            SELECT conversation_id, seq, content
+              FROM session_messages sm
+              JOIN sessions s ON s.id = sm.session_id
+             WHERE s.key = ?
+             ORDER BY conversation_id, seq
+            """,
+            ("test:123",),
+        )
+        assert [(row["conversation_id"], row["content"]) for row in rows] == [
+            ("conv_new", "fresh"),
+            ("conv_new", "fresh reply"),
+            ("conv_old", "old"),
+            ("conv_old", "old reply"),
+        ]
 
     def test_cache_updated(self, patched_manager):
         """T5.7: save updates _cache."""

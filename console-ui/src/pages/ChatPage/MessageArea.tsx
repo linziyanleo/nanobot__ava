@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, useCallback } from 'react'
 import { MessageSquare, Loader2, Brain, ChevronDown, ChevronRight, RefreshCw, Copy, Check, ArrowDown, Search, Menu } from 'lucide-react'
-import type { SessionMeta, TurnGroup, TurnTokenStats, IterationTokenStats } from './types';
+import type { SessionMeta, ConversationMeta, TurnGroup, TurnTokenStats, IterationTokenStats } from './types';
 import { SCENE_LABELS } from './types'
 import { TurnGroupComponent } from './TurnGroup'
 import { ChatInput } from './ChatInput'
@@ -10,9 +10,12 @@ import { api } from '../../api/client';
 
 interface MessageAreaProps {
   session: SessionMeta | null
+  conversation: ConversationMeta | null
+  conversationId: string | null
   turns: TurnGroup[]
   loading: boolean
   isConsole: boolean
+  isReadOnly?: boolean
   streaming: string
   thinkingStreaming: string
   sending: boolean
@@ -23,7 +26,7 @@ interface MessageAreaProps {
   onToggleSessionPanel?: () => void
 }
 
-export function MessageArea({ session, turns, loading, isConsole, streaming, thinkingStreaming, sending, processing, onSend, onRefresh, isMobile, onToggleSessionPanel }: MessageAreaProps) {
+export function MessageArea({ session, conversation, conversationId, turns, loading, isConsole, isReadOnly, streaming, thinkingStreaming, sending, processing, onSend, onRefresh, isMobile, onToggleSessionPanel }: MessageAreaProps) {
   const bottomRef = useRef<HTMLDivElement>(null)
   const scrollContainerRef = useRef<HTMLDivElement>(null)
   const isInitialScroll = useRef(true)
@@ -41,8 +44,8 @@ export function MessageArea({ session, turns, loading, isConsole, streaming, thi
       setIterationStats(new Map());
       return;
     }
-    const conversationFilter = session.conversation_id
-      ? `&conversation_id=${encodeURIComponent(session.conversation_id)}`
+    const conversationFilter = conversationId !== null
+      ? `&conversation_id=${encodeURIComponent(conversationId)}`
       : ''
     api<TurnTokenStats[]>(`/stats/tokens/by-session?session_key=${encodeURIComponent(session.key)}${conversationFilter}`)
       .then(data => {
@@ -62,7 +65,7 @@ export function MessageArea({ session, turns, loading, isConsole, streaming, thi
         setIterationStats(map);
       })
       .catch(() => setIterationStats(new Map()));
-  }, [session?.key, session?.conversation_id, turns.length]);
+  }, [session?.key, conversationId, turns.length]);
 
   const checkScrollPosition = useCallback(() => {
     const el = scrollContainerRef.current
@@ -150,15 +153,20 @@ export function MessageArea({ session, turns, loading, isConsole, streaming, thi
             <span className="text-[10px] text-[var(--text-secondary)]">
               {SCENE_LABELS[session.scene]}
             </span>
+            {conversation && (
+              <span className="text-[10px] text-[var(--text-secondary)] opacity-70">
+                {conversation.is_legacy ? 'Legacy' : conversation.conversation_id}
+              </span>
+            )}
             <span className="text-xs text-[var(--text-secondary)] px-1.5 py-0.5 rounded bg-[var(--bg-tertiary)]">
               ⚡ {formatTokenCount(session.token_stats.total_tokens)} tokens · {session.token_stats.llm_calls} calls
             </span>
           </div>
         </div>
         <div className="flex items-center gap-1.5">
-          {!isConsole && (
+          {(isReadOnly || !isConsole) && (
             <span className="text-[10px] px-2 py-0.5 rounded-full bg-[var(--bg-tertiary)] text-[var(--text-secondary)]">
-              Read-only
+              {conversation && isReadOnly ? 'History · Read-only' : 'Read-only'}
             </span>
           )}
           <button
@@ -267,7 +275,7 @@ export function MessageArea({ session, turns, loading, isConsole, streaming, thi
       )}
 
       {/* Input (console only) */}
-      {isConsole && <ChatInput onSend={onSend} disabled={sending} isMobile={isMobile} />}
+      {isConsole && !isReadOnly && <ChatInput onSend={onSend} disabled={sending} isMobile={isMobile} />}
 
       {/* Search modal */}
       {showSearch && (

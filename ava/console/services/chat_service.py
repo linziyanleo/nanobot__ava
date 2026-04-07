@@ -45,10 +45,49 @@ class ChatService:
         value = meta.get("conversation_id")
         return value if isinstance(value, str) else ""
 
+    @staticmethod
+    def _decode_message_content(raw_content: Any) -> Any:
+        if raw_content is None or not isinstance(raw_content, str):
+            return raw_content
+        try:
+            parsed = json.loads(raw_content)
+        except (json.JSONDecodeError, TypeError):
+            return raw_content
+        if isinstance(parsed, (dict, list)):
+            return parsed
+        return raw_content
+
+    def _resolve_active_conversation_id(
+        self,
+        session_id: int,
+        meta: dict[str, Any] | None,
+    ) -> str:
+        active_conversation_id = self._extract_conversation_id(meta)
+        if active_conversation_id:
+            return active_conversation_id
+        if not self._use_db:
+            return ""
+        latest = self._db.fetchone(
+            """
+            SELECT conversation_id
+              FROM session_messages
+             WHERE session_id = ?
+             ORDER BY CASE WHEN timestamp IS NULL OR timestamp = '' THEN 1 ELSE 0 END,
+                      timestamp DESC,
+                      seq DESC
+             LIMIT 1
+            """,
+            (session_id,),
+        )
+        if not latest:
+            return ""
+        value = latest["conversation_id"]
+        return value if isinstance(value, str) else ""
+
     def list_sessions(self, user_id: str | None = None) -> list[dict]:
         if self._use_db:
             rows = self._db.fetchall(
-                """SELECT s.key, s.created_at, s.updated_at, s.metadata, s.token_stats,
+                """SELECT s.id, s.key, s.created_at, s.updated_at, s.metadata, s.token_stats,
                           (SELECT COUNT(*) FROM session_messages WHERE session_id = s.id) as msg_count
                    FROM sessions s
                    ORDER BY s.updated_at DESC"""
@@ -73,7 +112,7 @@ class ChatService:
                     "scene": self._derive_scene(key),
                     "created_at": r["created_at"] or "",
                     "updated_at": r["updated_at"] or "",
-                    "conversation_id": self._extract_conversation_id(meta),
+                    "conversation_id": self._resolve_active_conversation_id(r["id"], meta),
                     "token_stats": {
                         "total_prompt_tokens": ts.get("total_prompt_tokens", 0),
                         "total_completion_tokens": ts.get("total_completion_tokens", 0),
@@ -124,35 +163,147 @@ class ChatService:
         sessions.sort(key=lambda s: s.get("updated_at", ""), reverse=True)
         return sessions
 
-    def get_messages(self, session_key: str) -> list[dict]:
-        """Return full message details for a session from DB or JSONL."""
+    def list_conversations(self, session_key: str) -> list[dict[str, Any]]:
         if self._use_db:
-            row = self._db.fetchone("SELECT id FROM sessions WHERE key = ?", (session_key,))
+            row = self._db.fetchone(
+                "SELECT id, metadata FROM sessions WHERE key = ?",
+                (session_key,),
+            )
             if not row:
                 return []
+
+            meta: dict[str, Any] = {}
+            if row["metadata"]:
+                try:
+                    meta = json.loads(row["metadata"])
+                except json.JSONDecodeError:
+                    meta = {}
+            active_conversation_id = self._resolve_active_conversation_id(row["id"], meta)
+
+            message_rows = self._db.fetchall(
+                """
+                SELECT conversation_id, seq, role, content, timestamp
+                  FROM session_messages
+                 WHERE session_id = ?
+                 ORDER BY CASE WHEN timestamp IS NULL OR timestamp = '' THEN 1 ELSE 0 END,
+                          timestamp ASC,
+                          seq ASC
+                """,
+                (row["id"],),
+            )
+
+            groups: dict[str, dict[str, Any]] = {}
+            for message_row in message_rows:
+                conversation_id = message_row["conversation_id"]
+                if not isinstance(conversation_id, str):
+                    conversation_id = ""
+                group = groups.setdefault(
+                    conversation_id,
+                    {
+                        "conversation_id": conversation_id,
+                        "first_message_preview": "",
+                        "message_count": 0,
+                        "created_at": "",
+                        "updated_at": "",
+                        "is_active": False,
+                        "is_legacy": conversation_id == "",
+                    },
+                )
+                group["message_count"] += 1
+                timestamp = message_row["timestamp"] or ""
+                if timestamp and not group["created_at"]:
+                    group["created_at"] = timestamp
+                if timestamp:
+                    group["updated_at"] = timestamp
+                if not group["first_message_preview"]:
+                    preview = self._decode_message_content(message_row["content"])
+                    if isinstance(preview, str):
+                        preview_text = preview.strip()
+                    elif isinstance(preview, list):
+                        preview_text = " ".join(
+                            item.get("text", "")
+                            for item in preview
+                            if isinstance(item, dict) and isinstance(item.get("text"), str)
+                        ).strip()
+                    else:
+                        preview_text = ""
+                    if preview_text:
+                        group["first_message_preview"] = preview_text[:60]
+
+            if active_conversation_id not in groups:
+                groups[active_conversation_id] = {
+                    "conversation_id": active_conversation_id,
+                    "first_message_preview": "",
+                    "message_count": 0,
+                    "created_at": "",
+                    "updated_at": "",
+                    "is_active": True,
+                    "is_legacy": active_conversation_id == "",
+                }
+
+            conversations = list(groups.values())
+            for item in conversations:
+                item["is_active"] = item["conversation_id"] == active_conversation_id
+            conversations.sort(
+                key=lambda item: item["updated_at"] or item["created_at"] or "",
+                reverse=True,
+            )
+            conversations.sort(key=lambda item: not item["is_active"])
+            return conversations
+
+        messages = self.get_messages(session_key)
+        if not messages:
+            return []
+        first_timestamp = messages[0].get("timestamp", "")
+        last_timestamp = messages[-1].get("timestamp", "")
+        preview = ""
+        for message in messages:
+            content = message.get("content")
+            if isinstance(content, str) and content.strip():
+                preview = content.strip()[:60]
+                break
+        return [{
+            "conversation_id": "",
+            "first_message_preview": preview,
+            "message_count": len(messages),
+            "created_at": first_timestamp,
+            "updated_at": last_timestamp,
+            "is_active": True,
+            "is_legacy": True,
+        }]
+
+    def get_messages(self, session_key: str, conversation_id: str | None = None) -> list[dict]:
+        """Return full message details for one conversation from DB or JSONL."""
+        if self._use_db:
+            row = self._db.fetchone(
+                "SELECT id, metadata FROM sessions WHERE key = ?",
+                (session_key,),
+            )
+            if not row:
+                return []
+            meta: dict[str, Any] = {}
+            if row["metadata"]:
+                try:
+                    meta = json.loads(row["metadata"])
+                except json.JSONDecodeError:
+                    meta = {}
+            resolved_conversation_id = (
+                self._resolve_active_conversation_id(row["id"], meta)
+                if conversation_id is None
+                else conversation_id
+            )
             msg_rows = self._db.fetchall(
                 """SELECT role, content, tool_calls, tool_call_id, name,
-                          reasoning_content, timestamp
+                          reasoning_content, timestamp, conversation_id
                    FROM session_messages
-                   WHERE session_id = ?
+                   WHERE session_id = ? AND conversation_id = ?
                    ORDER BY seq""",
-                (row["id"],),
+                (row["id"], resolved_conversation_id),
             )
             messages: list[dict] = []
             for mr in msg_rows:
                 msg: dict[str, Any] = {"role": mr["role"]}
-                content = mr["content"]
-                if content is not None:
-                    try:
-                        parsed = json.loads(content)
-                        if isinstance(parsed, list):
-                            msg["content"] = parsed
-                        else:
-                            msg["content"] = content
-                    except (json.JSONDecodeError, TypeError):
-                        msg["content"] = content
-                else:
-                    msg["content"] = None
+                msg["content"] = self._decode_message_content(mr["content"])
                 if mr["tool_calls"]:
                     try:
                         msg["tool_calls"] = json.loads(mr["tool_calls"])
@@ -166,6 +317,7 @@ class ChatService:
                     msg["reasoning_content"] = mr["reasoning_content"]
                 if mr["timestamp"]:
                     msg["timestamp"] = mr["timestamp"]
+                msg["metadata"] = {"conversation_id": mr["conversation_id"] or ""}
                 messages.append(msg)
             return messages
 
@@ -254,14 +406,24 @@ class ChatService:
     def get_history(self, session_id: str) -> list[dict]:
         if self._use_db:
             session_key = f"console:{session_id}"
-            row = self._db.fetchone("SELECT id FROM sessions WHERE key = ?", (session_key,))
+            row = self._db.fetchone(
+                "SELECT id, metadata FROM sessions WHERE key = ?",
+                (session_key,),
+            )
             if not row:
                 return []
+            meta: dict[str, Any] = {}
+            if row["metadata"]:
+                try:
+                    meta = json.loads(row["metadata"])
+                except json.JSONDecodeError:
+                    meta = {}
+            active_conversation_id = self._resolve_active_conversation_id(row["id"], meta)
             msg_rows = self._db.fetchall(
                 """SELECT role, content, timestamp FROM session_messages
-                   WHERE session_id = ? AND role IN ('user', 'assistant') AND content IS NOT NULL AND content != ''
+                   WHERE session_id = ? AND conversation_id = ? AND role IN ('user', 'assistant') AND content IS NOT NULL AND content != ''
                    ORDER BY seq""",
-                (row["id"],),
+                (row["id"], active_conversation_id),
             )
             return [
                 {"role": r["role"], "content": r["content"], "timestamp": r["timestamp"] or ""}
