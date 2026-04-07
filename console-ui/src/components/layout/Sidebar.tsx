@@ -5,8 +5,11 @@ import {
   PanelLeftClose,
   User,
   LogOut,
+  Sun,
+  Moon,
 } from 'lucide-react';
 import { useAuth } from '../../stores/auth';
+import { useTheme } from '../../stores/theme';
 import { cn } from '../../lib/utils';
 import { navItems } from './navItems';
 
@@ -39,6 +42,7 @@ function FixedTooltip({ label, children }: { label: string; children: ReactNode 
 
 export default function Sidebar() {
   const { user, logout, isAdmin } = useAuth();
+  const { isDark, toggleTheme } = useTheme();
   const [collapsed, setCollapsed] = useState(() => {
     try {
       return localStorage.getItem(STORAGE_KEY) === '1';
@@ -116,7 +120,9 @@ export default function Sidebar() {
             </NavLink>
           );
           return collapsed ? (
-            <FixedTooltip key={item.to} label={item.label}>{link}</FixedTooltip>
+            <FixedTooltip key={item.to} label={item.label}>
+              {link}
+            </FixedTooltip>
           ) : (
             <div key={item.to}>{link}</div>
           );
@@ -126,57 +132,59 @@ export default function Sidebar() {
       {/* Footer */}
       <div className={cn('border-t border-[var(--border)]', collapsed ? 'p-2' : 'p-4')}>
         {collapsed ? (
-          isAdmin() ? (
-            <FixedTooltip label={user?.username ?? '用户'}>
-              <NavLink
-                to="/users"
-                className="flex justify-center p-2 rounded-lg text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)] transition-colors"
-              >
-                <User className="w-4 h-4" />
-              </NavLink>
-            </FixedTooltip>
-          ) : (
-            <FixedTooltip label={`${user?.username ?? '用户'} · 退出`}>
+          <div className="space-y-1">
+            {isAdmin() ? (
+              <FixedTooltip label={user?.username ?? '用户'}>
+                <NavLink
+                  to="/users"
+                  className="flex justify-center p-2 rounded-lg text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)] transition-colors"
+                >
+                  <User className="w-4 h-4" />
+                </NavLink>
+              </FixedTooltip>
+            ) : (
+              <FixedTooltip label={`${user?.username ?? '用户'} · 退出`}>
+                <button
+                  onClick={logout}
+                  className="flex justify-center p-2 rounded-lg text-[var(--text-secondary)] hover:text-[var(--danger)] hover:bg-[var(--bg-tertiary)] transition-colors w-full"
+                >
+                  <User className="w-4 h-4" />
+                </button>
+              </FixedTooltip>
+            )}
+            <FixedTooltip label={isDark ? '切换到白天模式' : '切换到黑夜模式'}>
               <button
-                onClick={logout}
-                className="flex justify-center p-2 rounded-lg text-[var(--text-secondary)] hover:text-[var(--danger)] hover:bg-[var(--bg-tertiary)] transition-colors w-full"
+                onClick={toggleTheme}
+                className="flex justify-center p-2 rounded-lg text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)] transition-colors w-full"
               >
-                <User className="w-4 h-4" />
+                {isDark ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
               </button>
             </FixedTooltip>
-          )
+          </div>
         ) : (
-          isAdmin() ? (
-            <NavLink
-              to="/users"
-              className="flex items-center gap-3 px-1 py-1.5 rounded-lg hover:bg-[var(--bg-tertiary)] transition-colors"
-            >
-              <div className="w-8 h-8 rounded-full bg-[var(--accent)]/15 flex items-center justify-center shrink-0">
-                <User className="w-4 h-4 text-[var(--accent)]" />
-              </div>
-              <div className="min-w-0">
-                <p className="text-sm font-medium text-[var(--text-primary)] truncate">{user?.username}</p>
-                <p className="text-xs text-[var(--text-secondary)] capitalize">{user?.role}</p>
-              </div>
-            </NavLink>
-          ) : (
-            <div className="flex items-center gap-2 px-1 py-1.5">
-              <div className="w-8 h-8 rounded-full bg-[var(--bg-tertiary)] flex items-center justify-center shrink-0">
-                <User className="w-4 h-4 text-[var(--text-secondary)]" />
-              </div>
-              <div className="min-w-0 flex-1">
-                <p className="text-sm font-medium text-[var(--text-primary)] truncate">{user?.username}</p>
-                <p className="text-xs text-[var(--text-secondary)] capitalize">{user?.role}</p>
-              </div>
-              <button
-                onClick={logout}
-                title="退出登录"
-                className="p-1.5 rounded-lg text-[var(--text-secondary)] hover:text-[var(--danger)] hover:bg-[var(--bg-tertiary)] transition-colors shrink-0"
-              >
-                <LogOut className="w-3.5 h-3.5" />
-              </button>
+          <div className="flex items-center gap-2 px-1 py-1.5">
+            <div className="w-8 h-8 rounded-full bg-[var(--bg-tertiary)] flex items-center justify-center shrink-0">
+              <User className="w-4 h-4 text-[var(--text-secondary)]" />
             </div>
-          )
+            <div className="min-w-0 flex-1">
+              <p className="text-sm font-medium text-[var(--text-primary)] truncate">{user?.username}</p>
+              <p className="text-xs text-[var(--text-secondary)] capitalize">{user?.role}</p>
+            </div>
+            <button
+              onClick={toggleTheme}
+              title={isDark ? '切换到白天模式' : '切换到黑夜模式'}
+              className="p-1.5 rounded-lg text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)] transition-colors shrink-0"
+            >
+              {isDark ? <Sun className="w-3.5 h-3.5" /> : <Moon className="w-3.5 h-3.5" />}
+            </button>
+            <button
+              onClick={logout}
+              title="退出登录"
+              className="p-1.5 rounded-lg text-[var(--text-secondary)] hover:text-[var(--danger)] hover:bg-[var(--bg-tertiary)] transition-colors shrink-0"
+            >
+              <LogOut className="w-3.5 h-3.5" />
+            </button>
+          </div>
         )}
       </div>
     </aside>

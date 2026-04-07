@@ -1,5 +1,5 @@
 import { useEffect, useState, useRef, useCallback } from 'react'
-import { Save, RefreshCw, FileJson, FilePlus2 } from 'lucide-react';
+import { Save, RefreshCw, FileJson } from 'lucide-react';
 import { api } from '../../api/client'
 import { useAuth } from '../../stores/auth'
 import type { ConfigData, NanobotConfig, ChannelBase } from './types'
@@ -10,9 +10,8 @@ import { ProviderSection } from './ProviderSection'
 import { GatewaySection } from './GatewaySection'
 import { ToolsSection } from './ToolsSection'
 import { TokenStatsSection } from './TokenStatsSection'
-import { ExtraConfigEditor } from './ExtraConfigEditor'
 
-type ConfigTab = 'main' | 'extra';
+type ConfigTab = 'main';
 
 export default function ConfigPage() {
   const [activeTab, setActiveTab] = useState<ConfigTab>('main');
@@ -77,7 +76,6 @@ export default function ConfigPage() {
 
   const TABS = [
     { id: 'main' as const, label: '主配置', icon: FileJson, desc: 'config.json' },
-    { id: 'extra' as const, label: '扩展配置', icon: FilePlus2, desc: 'extra_config.json' },
   ];
 
   if (activeTab === 'main' && !parsed) {
@@ -215,10 +213,6 @@ export default function ConfigPage() {
             />
           )}
         </div>
-      )}
-
-      {activeTab === 'extra' && (
-        <ExtraConfigEditor readOnly={readOnly} />
       )}
     </div>
   );
