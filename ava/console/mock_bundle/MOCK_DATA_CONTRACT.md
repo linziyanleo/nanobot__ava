@@ -58,7 +58,8 @@ It is copied into `~/.nanobot/console/mock_data/` and becomes writable there.
 - At least 2 media records with different prompt shapes
 - At least 2 token usage rows across different model roles
 - At least 1 audit row
-- At least 1 session and 2 session messages
+- At least 3 chat sessions covering plain text, tool-call turn, and subagent summary blocks
+- At least 2 active background tasks (`queued` + `running`) and 3 history tasks across different terminal statuses
 
 ## Mutation rules
 
@@ -73,6 +74,8 @@ It is copied into `~/.nanobot/console/mock_data/` and becomes writable there.
 ## UI coverage notes
 
 - `Background Tasks` is exposed to `mock_tester` as a mock-safe observation page.
-  - It renders empty/history state only unless a future mock task source is added.
+  - It should include seeded `queued` / `running` cards and history rows with different terminal statuses.
 - `Chat` is exposed with mock session records from `mock.nanobot.db`.
   - No live agent execution runs under `mock_tester`.
+  - Seeded conversations should exercise user media blocks, assistant thinking, `page_agent` / `vision` / `transcribe` / generic / `image_gen` / `claude_code` tool call-result blocks, and subagent summary rendering.
+  - Session header and per-turn token entry should be able to drill down into `Token Stats` with `session_key` and `conversation_id`.

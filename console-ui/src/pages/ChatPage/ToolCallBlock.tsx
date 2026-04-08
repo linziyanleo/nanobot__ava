@@ -1,5 +1,6 @@
 import { useState, useMemo, useEffect } from 'react'
-import { ChevronDown, ChevronRight, Wrench, Loader2, Image, Eye, Mic, Globe } from 'lucide-react'
+import { useNavigate } from 'react-router-dom'
+import { ChevronDown, ChevronRight, Wrench, Loader2, Image, Eye, Mic, Globe, ExternalLink } from 'lucide-react'
 import { cn } from '../../lib/utils'
 import type { ToolCallWithResult, TurnTokenStats, IterationTokenStats } from './types'
 import { getContentText, imageUrl, extractImagePaths, formatTokenCount } from './utils'
@@ -22,6 +23,9 @@ interface ToolCallBlockProps {
   isLoading: boolean
   tokenStats?: TurnTokenStats
   iterationStats?: IterationTokenStats
+  sessionKey?: string
+  conversationId?: string
+  turnSeq?: number | null
 }
 
 const MEDIA_TOOLS: Record<string, { icon: typeof Image; label: string; color: string }> = {
@@ -94,7 +98,45 @@ function parsePageAgentResult(text: string): PageAgentResult | null {
   }
 }
 
-export function ToolCallBlock({ tc, isLoading, tokenStats, iterationStats }: ToolCallBlockProps) {
+function TokenStatsLink({
+  sessionKey,
+  conversationId,
+  turnSeq,
+}: {
+  sessionKey?: string
+  conversationId?: string
+  turnSeq?: number | null
+}) {
+  const navigate = useNavigate()
+
+  if (!sessionKey || turnSeq == null) return null
+
+  return (
+    <button
+      onClick={() => {
+        const params = new URLSearchParams({ session_key: sessionKey })
+        if (conversationId) params.set('conversation_id', conversationId)
+        params.set('turn_seq', String(turnSeq))
+        navigate(`/tokens?${params.toString()}`)
+      }}
+      className="inline-flex items-center gap-1 rounded-md border border-[var(--border)] bg-[var(--bg-tertiary)] px-2 py-1 text-[10px] text-[var(--text-secondary)] hover:text-[var(--accent)] transition-colors"
+      title="查看当前工具块对应的 Token 统计"
+    >
+      <ExternalLink className="w-3 h-3" />
+      <span>Token 统计</span>
+    </button>
+  )
+}
+
+export function ToolCallBlock({
+  tc,
+  isLoading,
+  tokenStats,
+  iterationStats,
+  sessionKey,
+  conversationId,
+  turnSeq,
+}: ToolCallBlockProps) {
   const [expanded, setExpanded] = useState(false)
 
   const fnName = tc.call.function.name
@@ -153,6 +195,7 @@ export function ToolCallBlock({ tc, isLoading, tokenStats, iterationStats }: Too
   }, [fnName, prompt, regexImageUrls.length, resultText, tc.result])
 
   const mediaImageUrls = regexImageUrls.length > 0 ? regexImageUrls : apiImageUrls
+  const effectiveConversationId = conversationId || iterationStats?.conversation_id || tokenStats?.conversation_id || ''
 
   if (fnName === 'claude_code') {
     const prompt = (parsedArgs.prompt || '') as string
@@ -252,6 +295,12 @@ export function ToolCallBlock({ tc, isLoading, tokenStats, iterationStats }: Too
                 {sessionArg && <span>Resume: <span className="font-mono text-[var(--text-primary)]">{sessionArg.slice(0, 8)}...</span></span>}
               </div>
             )}
+
+            <TokenStatsLink
+              sessionKey={sessionKey}
+              conversationId={effectiveConversationId}
+              turnSeq={turnSeq}
+            />
 
             {/* Result */}
             {ccResult && (
@@ -381,6 +430,12 @@ export function ToolCallBlock({ tc, isLoading, tokenStats, iterationStats }: Too
               </div>
             )}
 
+            <TokenStatsLink
+              sessionKey={sessionKey}
+              conversationId={effectiveConversationId}
+              turnSeq={turnSeq}
+            />
+
             {paResult?.url && paResult.url !== 'unknown' && (
               <div className="flex flex-wrap gap-x-4 gap-y-1 text-[10px]">
                 <div className="flex items-center gap-1 text-[var(--text-secondary)]">
@@ -473,6 +528,11 @@ export function ToolCallBlock({ tc, isLoading, tokenStats, iterationStats }: Too
                 <div className="text-[var(--text-primary)] text-[11px]">{displayPrompt}</div>
               </div>
             )}
+            <TokenStatsLink
+              sessionKey={sessionKey}
+              conversationId={effectiveConversationId}
+              turnSeq={turnSeq}
+            />
             {args && args !== '{}' && !displayPrompt && (
               <div className="pt-1.5">
                 <div className="text-[var(--text-secondary)] mb-0.5 font-medium">Arguments</div>
@@ -539,6 +599,11 @@ export function ToolCallBlock({ tc, isLoading, tokenStats, iterationStats }: Too
 
       {expanded && (
         <div className="p-3 space-y-2">
+          <TokenStatsLink
+            sessionKey={sessionKey}
+            conversationId={effectiveConversationId}
+            turnSeq={turnSeq}
+          />
           <div>
             <div className="text-[var(--text-secondary)] mb-0.5 font-medium">Arguments</div>
             <pre className="bg-[var(--bg-tertiary)] rounded p-2 overflow-x-auto whitespace-pre-wrap text-[var(--text-primary)] max-h-48 overflow-y-auto">

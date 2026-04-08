@@ -93,6 +93,9 @@ export function TurnGroupComponent({ turn, index, tokenStats, iterationStats, se
                 isLoading={!turn.isComplete && !tc.result}
                 tokenStats={tokenStats}
                 iterationStats={iterStat}
+                sessionKey={sessionKey}
+                conversationId={tokenStats?.conversation_id}
+                turnSeq={turnSeq}
               />
             )
           })}

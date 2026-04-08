@@ -5,7 +5,7 @@ specanchor:
   author: "@codex"
   created: "2026-04-07"
   status: "draft"
-  last_change: "补齐 mock_tester 的 mock-safe 页面覆盖，收口 chat/bg-tasks/skills/persona 入口与数据面"
+  last_change: "修复 legacy mock runtime 不会随 seed 更新的问题，旧 mock_data 现可在启动时自动刷新"
   related_modules:
     - ".specanchor/global-patch-spec.md"
   flow_type: "standard"
@@ -262,6 +262,10 @@ specanchor:
 - [ ] 本 spec 默认覆盖并替换“直接把 6688 暴露出去”的开发路径。
 - [x] 补齐 `mock_tester` 在 console-ui 中的页面入口，覆盖 `Pages.md` 中的 `chat` / `bg-tasks` / `persona` / `skills` 页面。
 - [x] `chat` / `bg-tasks` / `skills` 路由切换为 mock-safe 行为：mock 数据读取、空态观察页、或禁用会影响真实 runtime 的动作。
+- [x] `chat` mock 数据补齐：加入用户媒体块、assistant thinking、tool call/result、subagent 总结与 markdown 最终回复。
+- [x] `bg-tasks` mock 数据补齐：加入 `queued` / `running` 活跃任务和 `succeeded` / `failed` / `cancelled` 历史任务。
+- [x] `chat` 会话进一步补齐 `page_agent` / `vision` / `transcribe` / 通用工具 / `image_gen` / `claude_code` block，并让 session header 与每轮工具调用可跳转 `Token Stats`。
+- [x] 修复 `mock_data` legacy runtime 只在首次 seed 的问题；当 repo mock bundle 更新或旧 runtime 没有签名时，启动会自动重建 mock sandbox，避免 UI 继续读到只有 1 个 session / 2 条 token 的旧数据。
 
 ## 6. Review Verdict
 

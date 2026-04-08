@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 from dataclasses import dataclass
 from pathlib import Path
+from types import SimpleNamespace
 
 from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse, Response
@@ -13,6 +14,7 @@ from fastapi.staticfiles import StaticFiles
 from ava.console import auth
 from ava.console.middleware import setup_cors
 from ava.console.mock_bundle_runtime import (
+    MockBackgroundTaskStore,
     MockGatewayService,
     ensure_local_accounts,
     prepare_mock_runtime,
@@ -133,6 +135,9 @@ def create_console_app(
         chat=ChatService(agent_loop, workspace, db=db),
         token_stats=token_stats_collector,
     )
+    mock_chat = ChatService(agent_loop=None, workspace=mock_runtime.workspace, db=mock_db)
+    mock_chat._agent = SimpleNamespace(bg_tasks=MockBackgroundTaskStore())
+
     real_services.mock = Services(
         users=users,
         audit=AuditService(mock_runtime.root, db=mock_db),
@@ -141,7 +146,7 @@ def create_console_app(
         gateway=MockGatewayService(console_cfg.port),
         media=MediaService(media_dir=mock_runtime.media_dir, db=mock_db),
         skills=SkillsService(mock_runtime.workspace, skill_dir, mock_runtime.root, db=mock_db),
-        chat=ChatService(agent_loop=None, workspace=mock_runtime.workspace, db=mock_db),
+        chat=mock_chat,
         token_stats=TokenStatsCollector(data_dir=mock_runtime.root, db=mock_db) if mock_db is not None else None,
     )
     _services = real_services
@@ -248,6 +253,9 @@ def create_console_app_standalone(
         chat=None,  # type: ignore[arg-type]
         token_stats=token_stats,
     )
+    mock_chat = ChatService(agent_loop=None, workspace=mock_runtime.workspace, db=mock_db)
+    mock_chat._agent = SimpleNamespace(bg_tasks=MockBackgroundTaskStore())
+
     real_services.mock = Services(
         users=users,
         audit=AuditService(mock_runtime.root, db=mock_db),
@@ -256,7 +264,7 @@ def create_console_app_standalone(
         gateway=MockGatewayService(console_port),
         media=MediaService(media_dir=mock_runtime.media_dir, db=mock_db),
         skills=SkillsService(mock_runtime.workspace, skill_dir, mock_runtime.root, db=mock_db),
-        chat=ChatService(agent_loop=None, workspace=mock_runtime.workspace, db=mock_db),
+        chat=mock_chat,
         token_stats=TokenStatsCollector(data_dir=mock_runtime.root, db=mock_db),
     )
     _services = real_services

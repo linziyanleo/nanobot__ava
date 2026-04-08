@@ -3,13 +3,17 @@
 from __future__ import annotations
 
 import base64
+import hashlib
 import json
 import secrets
 import shutil
+import time
 from dataclasses import dataclass
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
+from ava.agent.bg_tasks import TimelineEvent
 from ava.storage.database import Database
 
 LOCAL_ADMIN_USERNAME = "nanobot"
@@ -19,6 +23,7 @@ MOCK_TESTER_PASSWORD_FILE = "mock_tester_password"
 LOCAL_SECRETS_DIRNAME = "local-secrets"
 MOCK_DATA_DIRNAME = "mock_data"
 MOCK_DB_FILENAME = "mock.nanobot.db"
+MOCK_BUNDLE_SIGNATURE_FILENAME = ".mock_bundle_signature"
 DEFAULT_CONSOLE_SECRET = "change-me-in-production-use-a-longer-key!"
 
 
@@ -60,6 +65,156 @@ class MockGatewayService:
 
     def health(self) -> dict[str, Any]:
         return {"ok": True, "mode": "mock"}
+
+
+class MockBackgroundTaskStore:
+    """Static-yet-mutable mock bg task store for console preview pages."""
+
+    def __init__(self, seed: dict[str, Any] | None = None) -> None:
+        payload = seed or _load_mock_seed()
+        self._active = {
+            item["task_id"]: self._normalize_task(item)
+            for item in payload.get("bg_tasks_active", [])
+        }
+        self._history = {
+            item["task_id"]: self._normalize_task(item)
+            for item in payload.get("bg_tasks_history", [])
+        }
+
+    @staticmethod
+    def _normalize_task(item: dict[str, Any]) -> dict[str, Any]:
+        task = dict(item)
+        task.setdefault("elapsed_ms", 0)
+        task.setdefault("result_preview", "")
+        task.setdefault("error_message", "")
+        task.setdefault("phase", "")
+        task.setdefault("last_tool_name", "")
+        task.setdefault("todo_summary", None)
+        task.setdefault("project_path", "")
+        task.setdefault("cli_session_id", "")
+        task.setdefault("timeline", [])
+        task.setdefault("full_prompt", "")
+        task.setdefault("full_result", "")
+        return task
+
+    @staticmethod
+    def _public_task(task: dict[str, Any]) -> dict[str, Any]:
+        return {
+            key: value
+            for key, value in task.items()
+            if key not in {"full_prompt", "full_result"}
+        }
+
+    def _filtered_tasks(
+        self,
+        *,
+        task_id: str | None = None,
+        session_key: str | None = None,
+        task_type: str | None = None,
+        include_finished: bool = True,
+    ) -> list[dict[str, Any]]:
+        tasks: list[dict[str, Any]] = []
+        if task_id:
+            task = self._active.get(task_id) or self._history.get(task_id)
+            if task:
+                tasks.append(task)
+        else:
+            tasks.extend(self._active.values())
+            if include_finished:
+                tasks.extend(self._history.values())
+
+        if session_key:
+            tasks = [task for task in tasks if task.get("origin_session_key") == session_key]
+        if task_type:
+            tasks = [task for task in tasks if task.get("task_type") == task_type]
+        tasks.sort(key=lambda task: float(task.get("started_at") or 0), reverse=True)
+        return tasks
+
+    def get_status(
+        self,
+        task_id: str | None = None,
+        session_key: str | None = None,
+        task_type: str | None = None,
+        include_finished: bool = True,
+        verbose: bool = False,
+    ) -> dict[str, Any]:
+        tasks = self._filtered_tasks(
+            task_id=task_id,
+            session_key=session_key,
+            task_type=task_type,
+            include_finished=include_finished,
+        )
+        running = sum(1 for task in tasks if task.get("status") in {"queued", "running"})
+        return {
+            "running": running,
+            "total": len(tasks),
+            "tasks": [self._public_task(task) for task in tasks],
+        }
+
+    def query_history(
+        self,
+        *,
+        page: int = 1,
+        page_size: int = 20,
+        session_key: str | None = None,
+    ) -> dict[str, Any]:
+        tasks = list(self._history.values())
+        if session_key:
+            tasks = [task for task in tasks if task.get("origin_session_key") == session_key]
+        tasks.sort(key=lambda task: float(task.get("started_at") or 0), reverse=True)
+        total = len(tasks)
+        offset = max(page - 1, 0) * page_size
+        paged = tasks[offset: offset + page_size]
+        return {
+            "tasks": [self._public_task(task) for task in paged],
+            "total": total,
+            "page": page,
+            "page_size": page_size,
+        }
+
+    def get_task_detail(self, task_id: str) -> dict[str, Any] | None:
+        task = self._active.get(task_id) or self._history.get(task_id)
+        if not task:
+            return None
+        return {
+            "task_id": task_id,
+            "full_prompt": str(task.get("full_prompt") or ""),
+            "full_result": str(task.get("full_result") or ""),
+        }
+
+    def get_timeline(self, task_id: str) -> list[TimelineEvent]:
+        task = self._active.get(task_id) or self._history.get(task_id)
+        if not task:
+            return []
+        return [
+            TimelineEvent(
+                timestamp=float(event.get("timestamp") or 0),
+                event=str(event.get("event") or ""),
+                detail=str(event.get("detail") or ""),
+            )
+            for event in task.get("timeline", [])
+        ]
+
+    async def cancel(self, task_id: str) -> str:
+        task = self._active.pop(task_id, None)
+        if task is None:
+            if task_id in self._history:
+                return f"Task {task_id} already finished."
+            return f"Task {task_id} not found."
+
+        now = time.time()
+        started_at = float(task.get("started_at") or now)
+        task["status"] = "cancelled"
+        task["finished_at"] = now
+        task["elapsed_ms"] = int(max(now - started_at, 0) * 1000)
+        task["error_message"] = str(task.get("error_message") or "Cancelled in mock mode.")
+        task.setdefault("timeline", []).append({
+            "timestamp": now,
+            "event": "cancelled",
+            "detail": "Cancelled from mock console",
+        })
+        self._history[task_id] = task
+        return f"Task {task_id} cancelled."
 
 
 def bundle_template_dir() -> Path:
@@ -127,8 +282,17 @@ def validate_console_security(console_cfg: Any, console_host: str) -> None:
 def prepare_mock_runtime(console_dir: Path, console_port: int) -> MockBundleRuntime:
     template_dir = bundle_template_dir()
     runtime_root = mock_runtime_dir(console_dir)
+    template_signature = _compute_template_signature(template_dir)
+    signature_path = runtime_root / MOCK_BUNDLE_SIGNATURE_FILENAME
+    runtime_exists = runtime_root.exists()
+    runtime_signature = _read_runtime_signature(signature_path)
+
+    if runtime_exists and runtime_signature != template_signature:
+        shutil.rmtree(runtime_root)
+
     runtime_root.mkdir(parents=True, exist_ok=True)
     _sync_template_tree(template_dir, runtime_root)
+    signature_path.write_text(template_signature + "\n", "utf-8")
 
     media_dir = runtime_root / "media" / "generated"
     media_dir.mkdir(parents=True, exist_ok=True)
@@ -298,7 +462,7 @@ def _seed_mock_db(db: Database, *, console_port: int, media_dir: Path) -> None:
                     msg["seq"],
                     msg.get("conversation_id", ""),
                     msg["role"],
-                    msg.get("content", ""),
+                    _encode_message_content(msg.get("content", "")),
                     json.dumps(msg.get("tool_calls"), ensure_ascii=False) if msg.get("tool_calls") else None,
                     msg.get("tool_call_id"),
                     msg.get("name"),
@@ -387,6 +551,31 @@ def _table_count(db: Database, table: str) -> int:
     return int(row["cnt"]) if row else 0
 
 
+def _encode_message_content(content: Any) -> str:
+    if isinstance(content, str):
+        return content
+    if content is None:
+        return ""
+    return json.dumps(content, ensure_ascii=False)
+
+
 def _load_mock_seed() -> dict[str, Any]:
     path = bundle_template_dir() / "mock_seed.json"
     return json.loads(path.read_text("utf-8"))
+
+
+def _compute_template_signature(template_dir: Path) -> str:
+    digest = hashlib.sha256()
+    for path in sorted(p for p in template_dir.rglob("*") if p.is_file()):
+        relative = path.relative_to(template_dir).as_posix()
+        digest.update(relative.encode("utf-8"))
+        digest.update(b"\0")
+        digest.update(path.read_bytes())
+        digest.update(b"\0")
+    return digest.hexdigest()
+
+
+def _read_runtime_signature(path: Path) -> str:
+    if not path.exists():
+        return ""
+    return path.read_text("utf-8").strip()

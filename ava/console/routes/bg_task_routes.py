@@ -87,8 +87,8 @@ async def get_timeline(task_id: str, user: UserInfo = Depends(auth.require_role(
 
 
 @router.post("/{task_id}/cancel")
-async def cancel_task(task_id: str, user: UserInfo = Depends(auth.require_role("admin", "editor", "viewer"))):
-    bg_store = _get_bg_store()
+async def cancel_task(task_id: str, user: UserInfo = Depends(auth.require_role("admin", "editor", "viewer", "mock_tester"))):
+    bg_store = _get_bg_store(user)
     if not bg_store:
         return {"message": "BackgroundTaskStore not initialized"}
     result = await bg_store.cancel(task_id)

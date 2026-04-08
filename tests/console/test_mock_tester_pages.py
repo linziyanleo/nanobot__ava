@@ -60,6 +60,8 @@ def test_mock_tester_can_open_mock_safe_console_pages(tmp_path, monkeypatch):
     sessions = client.get("/api/chat/sessions")
     assert sessions.status_code == 200
     assert any(item["key"] == "console:mock-session-1" for item in sessions.json())
+    assert any(item["key"] == "console:mock-session-2" for item in sessions.json())
+    assert any(item["key"] == "console:mock-session-3" for item in sessions.json())
 
     conversations = client.get(
         "/api/chat/conversations",
@@ -73,11 +75,61 @@ def test_mock_tester_can_open_mock_safe_console_pages(tmp_path, monkeypatch):
         params={"session_key": "console:mock-session-1"},
     )
     assert messages.status_code == 200
-    assert messages.json()[0]["content"] == "Please review the mock dashboard layout."
+    assert "[图片识别:" in messages.json()[0]["content"]
+
+    tool_messages = client.get(
+        "/api/chat/messages",
+        params={"session_key": "console:mock-session-2"},
+    )
+    assert tool_messages.status_code == 200
+    tool_payload = tool_messages.json()
+    assistant_with_tools = next(msg for msg in tool_payload if msg["role"] == "assistant" and msg.get("tool_calls"))
+    assert assistant_with_tools["reasoning_content"]
+    tool_names = {call["function"]["name"] for call in assistant_with_tools["tool_calls"]}
+    assert tool_names == {"page_agent", "vision", "transcribe", "memory_tool", "image_gen", "claude_code"}
+    assert any(msg["role"] == "tool" and msg.get("tool_call_id") == "mock-call-page-agent" for msg in tool_payload)
+    assert any(msg["role"] == "tool" and msg.get("tool_call_id") == "mock-call-memory-tool" for msg in tool_payload)
+    assert isinstance(tool_payload[-1]["content"], list)
+
+    subagent_messages = client.get(
+        "/api/chat/messages",
+        params={"session_key": "console:mock-session-3"},
+    )
+    assert subagent_messages.status_code == 200
+    assert subagent_messages.json()[0]["content"].startswith("[Subagent 'layout-inspector'")
 
     bg_tasks = client.get("/api/bg-tasks", params={"include_finished": "false"})
     assert bg_tasks.status_code == 200
-    assert bg_tasks.json()["tasks"] == []
+    statuses = {task["status"] for task in bg_tasks.json()["tasks"]}
+    assert statuses == {"queued", "running"}
+
+    history = client.get("/api/bg-tasks/history", params={"page": 1, "page_size": 10})
+    assert history.status_code == 200
+    history_statuses = {task["status"] for task in history.json()["tasks"]}
+    assert {"succeeded", "failed", "cancelled"} <= history_statuses
+
+    detail = client.get("/api/bg-tasks/mock-task-run-1/detail")
+    assert detail.status_code == 200
+    assert "mock_tester coverage" in detail.json()["full_prompt"]
+
+    token_turns = client.get(
+        "/api/stats/tokens/by-session",
+        params={"session_key": "console:mock-session-2", "conversation_id": "mock-conv-2"},
+    )
+    assert token_turns.status_code == 200
+    assert token_turns.json()[0]["llm_calls"] == 7
+
+    token_details = client.get(
+        "/api/stats/tokens/by-session/detailed",
+        params={"session_key": "console:mock-session-2", "conversation_id": "mock-conv-2"},
+    )
+    assert token_details.status_code == 200
+    model_roles = {row["model_role"] for row in token_details.json()}
+    assert {"page-agent", "vision", "voice", "mini", "imageGen", "claude_code", "default"} <= model_roles
+
+    timeline = client.get("/api/bg-tasks/mock-task-run-1/timeline")
+    assert timeline.status_code == 200
+    assert any(event["event"] == "checkpoint" for event in timeline.json()["events"])
 
     skills = client.get("/api/skills/list")
     assert skills.status_code == 200
@@ -105,6 +157,10 @@ def test_mock_tester_can_manage_mock_chat_sessions_but_not_mutate_real_skill_reg
 
     deleted = client.delete(f"/api/chat/sessions/{session_id}")
     assert deleted.status_code == 200
+
+    cancel = client.post("/api/bg-tasks/mock-task-queue-1/cancel")
+    assert cancel.status_code == 200
+    assert "cancelled" in cancel.json()["message"].lower()
 
     toggle = client.put(
         "/api/skills/toggle",

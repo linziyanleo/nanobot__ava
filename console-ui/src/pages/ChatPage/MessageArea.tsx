@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, useCallback } from 'react'
-import { MessageSquare, Loader2, Brain, ChevronDown, ChevronRight, RefreshCw, Copy, Check, ArrowDown, Search, Menu } from 'lucide-react'
+import { useNavigate } from 'react-router-dom'
+import { MessageSquare, Loader2, Brain, ChevronDown, ChevronRight, RefreshCw, Copy, Check, ArrowDown, Search, Menu, ExternalLink } from 'lucide-react'
 import type { SessionMeta, ConversationMeta, TurnGroup, TurnTokenStats, IterationTokenStats } from './types';
 import { SCENE_LABELS } from './types'
 import { TurnGroupComponent } from './TurnGroup'
@@ -27,6 +28,7 @@ interface MessageAreaProps {
 }
 
 export function MessageArea({ session, conversation, conversationId, turns, loading, isConsole, isReadOnly, streaming, thinkingStreaming, sending, processing, onSend, onRefresh, isMobile, onToggleSessionPanel }: MessageAreaProps) {
+  const navigate = useNavigate()
   const bottomRef = useRef<HTMLDivElement>(null)
   const scrollContainerRef = useRef<HTMLDivElement>(null)
   const isInitialScroll = useRef(true)
@@ -158,9 +160,18 @@ export function MessageArea({ session, conversation, conversationId, turns, load
                 {conversation.is_legacy ? 'Legacy' : conversation.conversation_id}
               </span>
             )}
-            <span className="text-xs text-[var(--text-secondary)] px-1.5 py-0.5 rounded bg-[var(--bg-tertiary)]">
-              ⚡ {formatTokenCount(session.token_stats.total_tokens)} tokens · {session.token_stats.llm_calls} calls
-            </span>
+            <button
+              onClick={() => {
+                const params = new URLSearchParams({ session_key: session.key })
+                if (conversationId) params.set('conversation_id', conversationId)
+                navigate(`/tokens?${params.toString()}`)
+              }}
+              className="inline-flex items-center gap-1 text-xs text-[var(--text-secondary)] px-1.5 py-0.5 rounded bg-[var(--bg-tertiary)] hover:text-[var(--accent)] transition-colors"
+              title="查看当前会话的 Token 统计"
+            >
+              <span>⚡ {formatTokenCount(session.token_stats.total_tokens)} tokens · {session.token_stats.llm_calls} calls</span>
+              <ExternalLink className="w-3 h-3" />
+            </button>
           </div>
         </div>
         <div className="flex items-center gap-1.5">

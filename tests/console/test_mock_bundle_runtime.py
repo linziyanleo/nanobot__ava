@@ -7,6 +7,7 @@ import pytest
 from ava.console.mock_bundle_runtime import (
     LOCAL_ADMIN_PASSWORD_FILE,
     LOCAL_ADMIN_USERNAME,
+    MockBackgroundTaskStore,
     MOCK_TESTER_PASSWORD_FILE,
     MOCK_TESTER_USERNAME,
     ensure_local_accounts,
@@ -42,6 +43,38 @@ def test_prepare_mock_runtime_copies_markdown_and_seeds_db(tmp_path):
     assert db.fetchone("SELECT COUNT(*) AS cnt FROM media_records")["cnt"] >= 2
     assert db.fetchone("SELECT COUNT(*) AS cnt FROM token_usage")["cnt"] >= 2
     assert db.fetchone("SELECT COUNT(*) AS cnt FROM session_messages")["cnt"] >= 2
+
+
+def test_prepare_mock_runtime_rebuilds_legacy_runtime_without_signature(tmp_path):
+    console_dir = tmp_path / "console"
+    runtime = prepare_mock_runtime(console_dir, console_port=6688)
+    db = Database(runtime.db_path)
+
+    db.execute("DELETE FROM token_usage")
+    db.execute("DELETE FROM session_messages")
+    db.execute("DELETE FROM sessions WHERE key != ?", ("console:mock-session-1",))
+    db.execute("UPDATE sessions SET token_stats = '{}' WHERE key = ?", ("console:mock-session-1",))
+    db.commit()
+
+    signature_path = runtime.root / ".mock_bundle_signature"
+    signature_path.unlink()
+
+    refreshed = prepare_mock_runtime(console_dir, console_port=6688)
+    refreshed_db = Database(refreshed.db_path)
+
+    assert refreshed_db.fetchone("SELECT COUNT(*) AS cnt FROM sessions")["cnt"] >= 3
+    assert refreshed_db.fetchone("SELECT COUNT(*) AS cnt FROM session_messages")["cnt"] >= 9
+    assert refreshed_db.fetchone("SELECT COUNT(*) AS cnt FROM token_usage")["cnt"] >= 9
+
+
+def test_mock_background_task_store_exposes_active_and_history_samples():
+    store = MockBackgroundTaskStore()
+
+    active = store.get_status(include_finished=False)
+    assert {task["status"] for task in active["tasks"]} == {"queued", "running"}
+
+    history = store.query_history(page=1, page_size=10)
+    assert {"succeeded", "failed", "cancelled"} <= {task["status"] for task in history["tasks"]}
 
 
 @pytest.mark.parametrize(
