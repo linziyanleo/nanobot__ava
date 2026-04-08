@@ -127,6 +127,10 @@ ignore = ["E501"]
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
+markers = [
+    "integration: 需要 Node.js 的集成测试",
+    "e2e: 需要 Node.js + Playwright + console-ui 的端到端测试",
+]
 
 [tool.coverage.run]
 source = ["nanobot"]

@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import { api } from '../api/client'
+import { api, setOnUnauthorized } from '../api/client'
 
 export type UserRole = 'admin' | 'editor' | 'viewer' | 'mock_tester'
 
@@ -20,7 +20,11 @@ interface AuthState {
   canEdit: () => boolean
 }
 
-export const useAuth = create<AuthState>((set, get) => ({
+export const useAuth = create<AuthState>((set, get) => {
+  // 当非 auth 请求收到 401 时，清除用户状态，让 ProtectedRoute 自动重定向到登录页
+  setOnUnauthorized(() => set({ user: null, loading: false }))
+
+  return {
   user: null,
   loading: true,
 
@@ -29,7 +33,7 @@ export const useAuth = create<AuthState>((set, get) => ({
       method: 'POST',
       body: JSON.stringify({ username, password }),
     })
-    set({ user: res.user })
+    set({ user: res.user, loading: false })
   },
 
   logout: () => {
@@ -52,4 +56,4 @@ export const useAuth = create<AuthState>((set, get) => ({
     const role = get().user?.role
     return role === 'admin' || role === 'editor' || role === 'mock_tester'
   },
-}))
+}})

@@ -1,5 +1,11 @@
 const BASE = '/api'
 
+let onUnauthorized: (() => void) | null = null
+
+export function setOnUnauthorized(cb: () => void) {
+  onUnauthorized = cb
+}
+
 export async function api<T = unknown>(
   path: string,
   options: RequestInit = {},
@@ -18,8 +24,8 @@ export async function api<T = unknown>(
   })
 
   if (res.status === 401) {
-    if (!window.location.pathname.startsWith('/login')) {
-      window.location.replace('/login')
+    if (onUnauthorized && !path.startsWith('/auth/')) {
+      onUnauthorized()
     }
     throw new Error('Unauthorized')
   }

@@ -279,10 +279,24 @@ async function executePageAgent(page, instruction) {
 
   if (!alreadyInjected) {
     // 通过本地 bundle 内容注入 page-agent（避免 CSP 限制）
-    await page.addScriptTag({ content: PAGE_AGENT_BUNDLE });
-    await page.evaluate(() => {
-      window.__pageAgentInjected = true;
-    });
+    // 重试机制：SPA 路由跳转可能导致执行上下文短暂销毁
+    let injected = false;
+    for (let attempt = 0; attempt < 3 && !injected; attempt++) {
+      try {
+        await page.addScriptTag({ content: PAGE_AGENT_BUNDLE });
+        await page.evaluate(() => {
+          window.__pageAgentInjected = true;
+        });
+        injected = true;
+      } catch (err) {
+        if (attempt < 2 && err.message.includes("Execution context")) {
+          log(`addScriptTag attempt ${attempt + 1} failed (context destroyed), retrying...`);
+          await new Promise((r) => setTimeout(r, 300));
+          continue;
+        }
+        throw err;
+      }
+    }
     log("page-agent injected via local bundle");
   }
 
@@ -417,7 +431,10 @@ async function setupActivityBridge(sessionId, session) {
   }
 
   // 页面内监听器需要按 document 生命周期重建；导航后该标记会自然丢失。
-  const bridged = await page.evaluate(() => !!window.__paActivityBridged);
+  let bridged = false;
+  try {
+    bridged = await page.evaluate(() => !!window.__paActivityBridged);
+  } catch { /* 导航后上下文可能已销毁，视为未桥接 */ }
   if (bridged) return;
 
   // 在页面中挂载监听器
@@ -525,7 +542,10 @@ const handlers = {
       touchSession(session);
 
       if (url) {
-        await session.page.goto(url, { waitUntil: "domcontentloaded", timeout: 30000 });
+        await session.page.goto(url, { waitUntil: "load", timeout: 30000 });
+        // SPA 客户端路由可能在 load 后触发二次导航（如 / → /login），
+        // 等待网络空闲以确保重定向链完成、执行上下文稳定。
+        await session.page.waitForLoadState("networkidle", { timeout: 10000 }).catch(() => {});
         touchSession(session);
       }
 
