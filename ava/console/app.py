@@ -141,7 +141,7 @@ def create_console_app(
         gateway=MockGatewayService(console_cfg.port),
         media=MediaService(media_dir=mock_runtime.media_dir, db=mock_db),
         skills=SkillsService(mock_runtime.workspace, skill_dir, mock_runtime.root, db=mock_db),
-        chat=None,
+        chat=ChatService(agent_loop=None, workspace=mock_runtime.workspace, db=mock_db),
         token_stats=TokenStatsCollector(data_dir=mock_runtime.root, db=mock_db) if mock_db is not None else None,
     )
     _services = real_services
@@ -256,7 +256,7 @@ def create_console_app_standalone(
         gateway=MockGatewayService(console_port),
         media=MediaService(media_dir=mock_runtime.media_dir, db=mock_db),
         skills=SkillsService(mock_runtime.workspace, skill_dir, mock_runtime.root, db=mock_db),
-        chat=None,  # type: ignore[arg-type]
+        chat=ChatService(agent_loop=None, workspace=mock_runtime.workspace, db=mock_db),
         token_stats=TokenStatsCollector(data_dir=mock_runtime.root, db=mock_db),
     )
     _services = real_services

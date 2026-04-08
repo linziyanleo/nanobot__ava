@@ -198,7 +198,9 @@ function SkillsSection() {
   const [deleting, setDeleting] = useState<string | null>(null)
   const [toggling, setToggling] = useState<string | null>(null)
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
-  const { canEdit, isAdmin } = useAuth()
+  const { canEdit, isAdmin, isMockTester } = useAuth()
+  const mockMode = isMockTester()
+  const canMutateRegistry = canEdit() && !mockMode
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [selectedFiles, setSelectedFiles] = useState<FileList | null>(null)
 
@@ -344,7 +346,7 @@ function SkillsSection() {
           >
             <RefreshCw className="w-4 h-4" />
           </button>
-          {canEdit() && (
+          {canMutateRegistry && (
             <button
               onClick={() => setShowInstall(showInstall ? null : 'git')}
               className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-[var(--accent)] hover:bg-[var(--accent-hover)] text-white text-sm font-medium"
@@ -361,8 +363,14 @@ function SkillsSection() {
         </div>
       )}
 
+      {mockMode && (
+        <div className="rounded-xl border border-amber-500/25 bg-amber-500/8 p-3 text-sm text-amber-200">
+          `mock_tester` 可以查看工具/技能状态，并编辑 mock `TOOLS.md`；启用、安装、删除技能仍保持禁用，避免影响真实 runtime。
+        </div>
+      )}
+
       {/* Install Panel */}
-      {showInstall && (
+      {showInstall && canMutateRegistry && (
         <div className="bg-[var(--bg-secondary)] border border-[var(--border)] rounded-xl p-4">
           <div className="flex items-center justify-between mb-4">
             <h3 className="font-semibold">添加新技能</h3>
@@ -505,8 +513,8 @@ function SkillsSection() {
           title="自定义技能"
           icon={<Package className="w-4 h-4" />}
           skills={avaSkills}
-          onToggle={canEdit() ? toggleSkill : undefined}
-          onDelete={isAdmin() ? deleteSkill : undefined}
+          onToggle={canMutateRegistry ? toggleSkill : undefined}
+          onDelete={isAdmin() && !mockMode ? deleteSkill : undefined}
           toggling={toggling}
           deleting={deleting}
           colorClass="text-purple-400"
@@ -520,7 +528,7 @@ function SkillsSection() {
           title=".agents 技能"
           icon={<Bot className="w-4 h-4" />}
           skills={agentsSkills}
-          onToggle={canEdit() ? toggleSkill : undefined}
+          onToggle={canMutateRegistry ? toggleSkill : undefined}
           toggling={toggling}
           deleting={deleting}
           colorClass="text-amber-400"
@@ -534,7 +542,7 @@ function SkillsSection() {
           title="内置技能"
           icon={<Wrench className="w-4 h-4" />}
           skills={builtinSkills}
-          onToggle={canEdit() ? toggleSkill : undefined}
+          onToggle={canMutateRegistry ? toggleSkill : undefined}
           toggling={toggling}
           deleting={deleting}
           colorClass="text-[var(--accent)]"

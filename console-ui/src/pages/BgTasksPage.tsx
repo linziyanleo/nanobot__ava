@@ -15,6 +15,7 @@ import {
   History,
 } from 'lucide-react'
 import { api, wsUrl } from '../api/client'
+import { useAuth } from '../stores/auth'
 
 interface TimelineEvent {
   timestamp: number
@@ -324,8 +325,14 @@ export default function BgTasksPage() {
   const [historyPage, setHistoryPage] = useState(1)
   const [historyLoading, setHistoryLoading] = useState(false)
   const PAGE_SIZE = 15
+  const { isMockTester } = useAuth()
+  const mockMode = isMockTester()
 
   const connectWs = useCallback(() => {
+    if (mockMode) {
+      setWsConnected(false)
+      return
+    }
     if (wsRef.current?.readyState === WebSocket.OPEN) return
     try {
       const ws = new WebSocket(wsUrl('/bg-tasks/ws'))
@@ -349,7 +356,7 @@ export default function BgTasksPage() {
     } catch {
       setWsConnected(false)
     }
-  }, [])
+  }, [mockMode])
 
   const fetchOnce = useCallback(async () => {
     try {
@@ -381,12 +388,14 @@ export default function BgTasksPage() {
 
   useEffect(() => {
     fetchOnce()
-    connectWs()
+    if (!mockMode) {
+      connectWs()
+    }
     return () => {
       wsRef.current?.close()
       if (reconnectTimer.current) clearTimeout(reconnectTimer.current)
     }
-  }, [fetchOnce, connectWs])
+  }, [fetchOnce, connectWs, mockMode])
 
   useEffect(() => {
     if (showHistory && !history) fetchHistory(1)
@@ -427,8 +436,8 @@ export default function BgTasksPage() {
         </div>
         <div className="flex items-center gap-2">
           <span className={`inline-flex items-center gap-1 text-xs ${wsConnected ? 'text-green-400' : 'text-[var(--text-secondary)]'}`}>
-            {wsConnected ? <Wifi className="w-3 h-3" /> : <WifiOff className="w-3 h-3" />}
-            {wsConnected ? 'Live' : 'Offline'}
+            {mockMode ? <Clock className="w-3 h-3" /> : wsConnected ? <Wifi className="w-3 h-3" /> : <WifiOff className="w-3 h-3" />}
+            {mockMode ? 'Mock' : wsConnected ? 'Live' : 'Offline'}
           </span>
           <button
             onClick={fetchOnce}

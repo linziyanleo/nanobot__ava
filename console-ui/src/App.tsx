@@ -55,12 +55,12 @@ export default function App() {
           <Route path="config" element={<ConfigPage />} />
           <Route path="memory" element={<MemoryPage />} />
           <Route path="media" element={<MediaPage />} />
-          <Route path="persona" element={<ProtectedRoute allowedRoles={['admin', 'editor', 'viewer']}><PersonaPage /></ProtectedRoute>} />
-          <Route path="skills" element={<ProtectedRoute allowedRoles={['admin', 'editor', 'viewer']}><SkillsPage /></ProtectedRoute>} />
-          <Route path="chat" element={<ProtectedRoute allowedRoles={['admin', 'editor', 'viewer']}><ChatPage /></ProtectedRoute>} />
+          <Route path="persona" element={<ProtectedRoute allowedRoles={['admin', 'editor', 'viewer', 'mock_tester']}><PersonaPage /></ProtectedRoute>} />
+          <Route path="skills" element={<ProtectedRoute allowedRoles={['admin', 'editor', 'viewer', 'mock_tester']}><SkillsPage /></ProtectedRoute>} />
+          <Route path="chat" element={<ProtectedRoute allowedRoles={['admin', 'editor', 'viewer', 'mock_tester']}><ChatPage /></ProtectedRoute>} />
           <Route path="gateway" element={<Navigate to="/" replace />} />
           <Route path="tasks" element={<ScheduledTasksPage />} />
-          <Route path="bg-tasks" element={<ProtectedRoute allowedRoles={['admin', 'editor', 'viewer']}><BgTasksPage /></ProtectedRoute>} />
+          <Route path="bg-tasks" element={<ProtectedRoute allowedRoles={['admin', 'editor', 'viewer', 'mock_tester']}><BgTasksPage /></ProtectedRoute>} />
           <Route path="tokens" element={<TokenStatsPage />} />
           <Route path="browser" element={<ProtectedRoute allowedRoles={['admin', 'editor', 'viewer']}><BrowserPage /></ProtectedRoute>} />
           <Route path="users" element={<ProtectedRoute allowedRoles={['admin']}><UsersPage /></ProtectedRoute>} />

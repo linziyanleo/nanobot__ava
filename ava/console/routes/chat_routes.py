@@ -13,65 +13,73 @@ from ava.console.models import ChatSessionCreateRequest, UserInfo
 
 router = APIRouter(prefix="/api/chat", tags=["chat"])
 
-def _get_chat_service():
-    from ava.console.app import get_services
-    svc = get_services().chat
+def _get_chat_service(user: UserInfo):
+    from ava.console.app import get_services_for_user
+    svc = get_services_for_user(user).chat
     if svc is None:
         raise HTTPException(status_code=503, detail="Chat service unavailable (gateway offline)")
     return svc
 
 @router.get("/sessions")
-async def list_sessions(user: UserInfo = Depends(auth.require_role("admin", "editor", "viewer"))):
-    return _get_chat_service().list_sessions(user.username)
+async def list_sessions(user: UserInfo = Depends(auth.require_role("admin", "editor", "viewer", "mock_tester"))):
+    return _get_chat_service(user).list_sessions(user.username)
 
 @router.post("/sessions")
 async def create_session(
     body: ChatSessionCreateRequest,
-    user: UserInfo = Depends(auth.require_role("admin", "editor", "viewer")),
+    user: UserInfo = Depends(auth.require_role("admin", "editor", "viewer", "mock_tester")),
 ):
-    return _get_chat_service().create_session(user.username, body.title)
+    return _get_chat_service(user).create_session(user.username, body.title)
 
 @router.delete("/sessions/{session_id}")
 async def delete_session(
     session_id: str,
-    user: UserInfo = Depends(auth.require_role("admin", "editor", "viewer")),
+    user: UserInfo = Depends(auth.require_role("admin", "editor", "viewer", "mock_tester")),
 ):
-    if not _get_chat_service().delete_session(session_id):
+    if not _get_chat_service(user).delete_session(session_id):
         raise HTTPException(status_code=404, detail="Session not found")
     return {"ok": True}
 
 @router.get("/sessions/{session_id}/history")
 async def get_history(
     session_id: str,
-    user: UserInfo = Depends(auth.require_role("admin", "editor", "viewer")),
+    user: UserInfo = Depends(auth.require_role("admin", "editor", "viewer", "mock_tester")),
 ):
-    return _get_chat_service().get_history(session_id)
+    return _get_chat_service(user).get_history(session_id)
 
 @router.get("/messages")
 async def get_messages(
     session_key: str = Query(..., description="Session key (e.g. telegram:12345)"),
     conversation_id: str | None = Query(None, description="Conversation id within the session; omit to use active conversation"),
-    user: UserInfo = Depends(auth.require_role("admin", "editor", "viewer")),
+    user: UserInfo = Depends(auth.require_role("admin", "editor", "viewer", "mock_tester")),
 ):
     """Full message history for any session, including tool_calls and reasoning."""
-    return _get_chat_service().get_messages(session_key, conversation_id=conversation_id)
+    return _get_chat_service(user).get_messages(session_key, conversation_id=conversation_id)
 
 
 @router.get("/conversations")
 async def list_conversations(
     session_key: str = Query(..., description="Session key (e.g. telegram:12345)"),
-    user: UserInfo = Depends(auth.require_role("admin", "editor", "viewer")),
+    user: UserInfo = Depends(auth.require_role("admin", "editor", "viewer", "mock_tester")),
 ):
     """Conversation summaries for one session_key."""
-    return _get_chat_service().list_conversations(session_key)
+    return _get_chat_service(user).list_conversations(session_key)
 
 @router.websocket("/ws/observe/{session_key:path}")
 async def observe_ws(websocket: WebSocket, session_key: str):
     """只读 WebSocket，订阅 MessageBus observe listener 推送非 Console 会话的实时事件。"""
     user = await auth.get_ws_user(websocket)
+    if user.role == "mock_tester":
+        await websocket.accept()
+        try:
+            while True:
+                await websocket.receive_text()
+        except WebSocketDisconnect:
+            pass
+        return
     await websocket.accept()
 
-    svc_chat = _get_chat_service()
+    svc_chat = _get_chat_service(user)
     bus = svc_chat._agent.bus
     queue = bus.register_observe_listener(session_key)
 
@@ -100,9 +108,17 @@ async def observe_ws(websocket: WebSocket, session_key: str):
 @router.websocket("/ws/{session_id}")
 async def chat_ws(websocket: WebSocket, session_id: str):
     user = await auth.get_ws_user(websocket)
+    if user.role == "mock_tester":
+        await websocket.accept()
+        try:
+            while True:
+                await websocket.receive_text()
+        except WebSocketDisconnect:
+            pass
+        return
     await websocket.accept()
 
-    svc_chat = _get_chat_service()
+    svc_chat = _get_chat_service(user)
     from ava.console.app import get_services
     svc = get_services()
 

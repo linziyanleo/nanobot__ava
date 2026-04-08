@@ -33,30 +33,30 @@ class ToggleSkillRequest(BaseModel):
 
 @router.get("/tools")
 async def list_tools(
-    user: UserInfo = Depends(auth.require_role("admin", "editor", "viewer")),
+    user: UserInfo = Depends(auth.require_role("admin", "editor", "viewer", "mock_tester")),
 ):
     """List all built-in tools."""
-    from ava.console.app import get_services
-    return {"tools": get_services().skills.list_tools()}
+    from ava.console.app import get_services_for_user
+    return {"tools": get_services_for_user(user).skills.list_tools()}
 
 
 @router.get("/list")
 async def list_skills(
-    user: UserInfo = Depends(auth.require_role("admin", "editor", "viewer")),
+    user: UserInfo = Depends(auth.require_role("admin", "editor", "viewer", "mock_tester")),
 ):
     """List all skills (ava + agents + builtin) with enabled state."""
-    from ava.console.app import get_services
-    return {"skills": get_services().skills.list_skills()}
+    from ava.console.app import get_services_for_user
+    return {"skills": get_services_for_user(user).skills.list_skills()}
 
 
 @router.get("/detail/{name}")
 async def get_skill(
     name: str,
-    user: UserInfo = Depends(auth.require_role("admin", "editor", "viewer")),
+    user: UserInfo = Depends(auth.require_role("admin", "editor", "viewer", "mock_tester")),
 ):
     """Get skill details."""
-    from ava.console.app import get_services
-    skill = get_services().skills.get_skill(name)
+    from ava.console.app import get_services_for_user
+    skill = get_services_for_user(user).skills.get_skill(name)
     if not skill:
         raise HTTPException(status_code=404, detail=f"Skill '{name}' not found")
     return skill

@@ -34,14 +34,14 @@ It is copied into `~/.nanobot/console/mock_data/` and becomes writable there.
   - consumer pages: Memory diary tab
   - storage: `mock_data/workspace/diary/**`
 - `workspace/AGENTS.md`, `SOUL.md`, `TOOLS.md`, `USER.md`
-  - consumer pages: Persona, Skills docs when enabled for mock in future
+  - consumer pages: Persona, Skills docs
   - storage: `mock_data/workspace/*.md`
 
 ### Database-backed
 
 - `mock.nanobot.db`
   - schema: same SQLite schema family as `nanobot.db`
-  - consumer pages: Media, Token Stats, future audit/chat read-only mock coverage
+  - consumer pages: Media, Token Stats, chat read-only mock coverage
 
 ### Media assets
 
@@ -69,3 +69,10 @@ It is copied into `~/.nanobot/console/mock_data/` and becomes writable there.
   - real `~/.nanobot/nanobot.db`
   - real workspace
   - real media directory
+
+## UI coverage notes
+
+- `Background Tasks` is exposed to `mock_tester` as a mock-safe observation page.
+  - It renders empty/history state only unless a future mock task source is added.
+- `Chat` is exposed with mock session records from `mock.nanobot.db`.
+  - No live agent execution runs under `mock_tester`.

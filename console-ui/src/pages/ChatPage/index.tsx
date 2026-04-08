@@ -33,7 +33,8 @@ export default function ChatPage() {
   const observeSessionKey = useRef<string>('')
   const initializedRef = useRef(false)
   const { isMobile } = useResponsiveMode()
-  useAuth()
+  const { isMockTester } = useAuth()
+  const mockMode = isMockTester()
 
   const loadConversations = useCallback(async (sessionKey: string) => {
     try {
@@ -277,7 +278,7 @@ export default function ChatPage() {
             const conversationId = pickConversationId(firstSessionInScene, conversations, firstSessionInScene.conversation_id)
             await loadSessionMessagesWithMetaRef.current(firstSessionInScene.key, firstSessionInScene, conversationId)
           })()
-          if (firstScene === 'console') {
+          if (firstScene === 'console' && !mockMode) {
             const sid = firstSessionInScene.key.replace(/^console:/, '')
             connectWs(sid)
           }
@@ -288,7 +289,7 @@ export default function ChatPage() {
       console.error('Failed to load sessions:', err)
       return []
     }
-  }, [activeSession, connectWs, pickConversationId])
+  }, [activeSession, connectWs, mockMode, pickConversationId])
 
   useEffect(() => {
     loadSessionList()
@@ -302,14 +303,14 @@ export default function ChatPage() {
 
   // Observe WS for non-console sessions (replaces 10s polling)
   useEffect(() => {
-    if (!activeSession || activeScene === 'console') {
+    if (!activeSession || activeScene === 'console' || mockMode) {
       disconnectObserveWs()
       return
     }
     connectObserveWs(activeSession)
     return () => disconnectObserveWs()
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeSession, activeScene])
+  }, [activeSession, activeScene, disconnectObserveWs, connectObserveWs, mockMode])
 
   const handleSessionSelect = (key: string) => {
     setActiveSession(key)
@@ -330,7 +331,7 @@ export default function ChatPage() {
       await loadSessionMessagesWithMetaRef.current(key, meta || null, conversationId)
     })()
 
-    if (meta?.scene === 'console') {
+    if (meta?.scene === 'console' && !mockMode) {
       const sid = key.replace(/^console:/, '')
       connectWs(sid)
     }
@@ -366,7 +367,7 @@ export default function ChatPage() {
         const conversationId = pickConversationId(first, conversations, first.conversation_id)
         await loadSessionMessagesWithMetaRef.current(first.key, first, conversationId)
       })()
-      if (scene === 'console') {
+      if (scene === 'console' && !mockMode) {
         const sid = first.key.replace(/^console:/, '')
         connectWs(sid)
       }
@@ -416,7 +417,9 @@ export default function ChatPage() {
       }))
       setActiveConversationId(res.conversation_id)
       setTurns([])
-      connectWs(sid)
+      if (!mockMode) {
+        connectWs(sid)
+      }
 
       loadSessionList()
     } catch (err: any) {
@@ -494,6 +497,7 @@ export default function ChatPage() {
   refreshSessionViewRef.current = refreshSessionView
 
   const handleSend = (message: string) => {
+    if (mockMode) return
     if (!wsRef.current || sending || !currentMeta || activeConversationId !== currentMeta.conversation_id) return
     setStreaming('')
     setThinkingStreaming('')
@@ -516,12 +520,12 @@ export default function ChatPage() {
     wsRef.current.send(JSON.stringify({ content: message }))
   }
 
-  const isConsole = activeScene === 'console'
+  const isConsole = activeScene === 'console' && !mockMode
   const filteredSessions = sessions.filter((s) => s.scene === activeScene)
   const selectedConversation = activeSession
     ? (conversationLists[activeSession] || []).find((item) => item.conversation_id === activeConversationId) || null
     : null
-  const isReadOnlyConversation = !currentMeta || activeConversationId !== currentMeta.conversation_id
+  const isReadOnlyConversation = mockMode || !currentMeta || activeConversationId !== currentMeta.conversation_id
 
   return (
     <div className={isMobile ? '-m-4 -mb-20 h-[calc(100dvh-4rem-env(safe-area-inset-bottom,0px))] flex flex-col overflow-hidden' : '-m-6 h-[calc(100vh)] flex flex-col overflow-hidden'}>

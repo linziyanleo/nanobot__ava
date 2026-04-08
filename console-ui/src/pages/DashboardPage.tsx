@@ -17,6 +17,7 @@ import {
   Server,
   Settings,
   Shield,
+  Timer,
   UserCog,
 } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
@@ -174,15 +175,31 @@ export default function DashboardPage() {
     ? [
         {
           icon: Settings,
-          label: 'Config',
+          label: '配置',
           value: 'Mock Config',
           sub: 'Edit only mock config files',
           color: 'text-[var(--accent)]',
           onClick: () => navigate('/config'),
         },
         {
+          icon: Timer,
+          label: '定时任务',
+          value: 'Mock Cron',
+          sub: 'Cron jobs live under mock_data',
+          color: 'text-cyan-400',
+          onClick: () => navigate('/tasks'),
+        },
+        {
+          icon: Cpu,
+          label: '后台任务',
+          value: 'Mock Tasks',
+          sub: 'Observe empty/mock-safe task states',
+          color: 'text-blue-400',
+          onClick: () => navigate('/bg-tasks'),
+        },
+        {
           icon: Brain,
-          label: 'Memory',
+          label: '记忆',
           value: 'Mock Memory',
           sub: 'Preview persona and memory documents',
           color: 'text-amber-400',
@@ -190,15 +207,39 @@ export default function DashboardPage() {
         },
         {
           icon: Image,
-          label: 'Media',
+          label: '生成图片',
           value: 'Mock Media',
           sub: 'Gallery stays inside mock_data',
           color: 'text-emerald-400',
           onClick: () => navigate('/media'),
         },
         {
+          icon: UserCog,
+          label: '人设',
+          value: 'Mock Persona',
+          sub: 'Edit workspace identity files in sandbox',
+          color: 'text-violet-400',
+          onClick: () => navigate('/persona'),
+        },
+        {
+          icon: Hammer,
+          label: '技能和工具',
+          value: 'Mock Skills',
+          sub: 'Inspect tool registry and mock TOOLS.md',
+          color: 'text-fuchsia-400',
+          onClick: () => navigate('/skills'),
+        },
+        {
+          icon: MessageSquare,
+          label: '聊天',
+          value: 'Mock Chat',
+          sub: 'Browse seeded mock conversations safely',
+          color: 'text-pink-400',
+          onClick: () => navigate('/chat'),
+        },
+        {
           icon: BarChart3,
-          label: 'Tokens',
+          label: 'Token 统计',
           value: 'Mock Stats',
           sub: 'Token charts come from mock.nanobot.db',
           color: 'text-sky-400',
@@ -254,8 +295,8 @@ export default function DashboardPage() {
             <div>
               <p className="text-sm font-semibold text-amber-300">MOCK SANDBOX</p>
               <p className="mt-1 text-sm text-amber-100/80">
-                当前账号只能读取和编辑 `~/.nanobot/console/mock_data/`。真实 workspace、真实 `~/.nanobot`、
-                live chat 和 gateway 控制都不会暴露给这个账号。
+                当前账号只能读取和编辑 `~/.nanobot/console/mock_data/`。真实 workspace、真实 `~/.nanobot`、live agent
+                执行与 gateway 控制都不会暴露给这个账号；聊天与后台任务页面也只展示 mock-safe 数据或空态。
               </p>
             </div>
           </div>
@@ -344,7 +385,9 @@ export default function DashboardPage() {
         </div>
       )}
 
-      <div className={`mb-6 rounded-xl border border-[var(--border)] bg-[var(--bg-secondary)] ${isMobile ? 'p-4' : 'p-5'}`}>
+      <div
+        className={`mb-6 rounded-xl border border-[var(--border)] bg-[var(--bg-secondary)] ${isMobile ? 'p-4' : 'p-5'}`}
+      >
         <div className="mb-3 flex items-center justify-between gap-3">
           <div className="flex items-center gap-3">
             <div className={`rounded-lg p-2 ${status?.running ? 'bg-[var(--success)]/10' : 'bg-[var(--danger)]/10'}`}>
@@ -402,7 +445,9 @@ export default function DashboardPage() {
         <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
           <div className="rounded-lg bg-[var(--bg-primary)] p-3">
             <p className="mb-0.5 text-[10px] text-[var(--text-secondary)]">Status</p>
-            <p className={`text-sm font-semibold ${status?.running ? 'text-[var(--success)]' : 'text-[var(--danger)]'}`}>
+            <p
+              className={`text-sm font-semibold ${status?.running ? 'text-[var(--success)]' : 'text-[var(--danger)]'}`}
+            >
               {status?.running ? 'Online' : 'Offline'}
             </p>
           </div>
@@ -425,8 +470,10 @@ export default function DashboardPage() {
             <div className="rounded-lg bg-[var(--bg-primary)] p-3">
               <p className="mb-0.5 text-[10px] text-[var(--text-secondary)]">Supervisor</p>
               <p className="flex items-center gap-1 text-sm font-semibold">
-                <Shield className={`h-3 w-3 ${status.supervised ? 'text-[var(--success)]' : 'text-[var(--text-secondary)]'}`} />
-                {status.supervised ? status.supervisor ?? 'enabled' : 'none'}
+                <Shield
+                  className={`h-3 w-3 ${status.supervised ? 'text-[var(--success)]' : 'text-[var(--text-secondary)]'}`}
+                />
+                {status.supervised ? (status.supervisor ?? 'enabled') : 'none'}
               </p>
             </div>
             <div className="rounded-lg bg-[var(--bg-primary)] p-3">
@@ -439,7 +486,9 @@ export default function DashboardPage() {
             </div>
             <div className="rounded-lg bg-[var(--bg-primary)] p-3">
               <p className="mb-0.5 text-[10px] text-[var(--text-secondary)]">Restart State</p>
-              <p className={`text-sm font-semibold ${status.restart_pending ? 'text-[var(--warning)]' : 'text-[var(--text-secondary)]'}`}>
+              <p
+                className={`text-sm font-semibold ${status.restart_pending ? 'text-[var(--warning)]' : 'text-[var(--text-secondary)]'}`}
+              >
                 {status.restart_pending ? 'Pending' : 'Stable'}
               </p>
             </div>
@@ -473,16 +522,18 @@ export default function DashboardPage() {
               .filter(task => task.status === 'queued' || task.status === 'running')
               .slice(0, 3)
               .map(task => {
-                const elapsed = task.started_at ? Math.floor(Date.now() / 1000 - task.started_at) : 0
-                const elapsedText = elapsed >= 60 ? `${Math.floor(elapsed / 60)}m ${elapsed % 60}s` : `${elapsed}s`
-                const StatusIcon = task.status === 'running' ? Loader2 : Clock
+                const elapsed = task.started_at ? Math.floor(Date.now() / 1000 - task.started_at) : 0;
+                const elapsedText = elapsed >= 60 ? `${Math.floor(elapsed / 60)}m ${elapsed % 60}s` : `${elapsed}s`;
+                const StatusIcon = task.status === 'running' ? Loader2 : Clock;
                 return (
                   <button
                     key={task.task_id}
                     onClick={() => navigate('/bg-tasks')}
                     className="flex w-full items-center gap-3 rounded-lg bg-[var(--bg-primary)] p-3 text-left transition-colors hover:bg-[var(--bg-tertiary)]"
                   >
-                    <StatusIcon className={`h-4 w-4 ${task.status === 'running' ? 'animate-spin text-blue-400' : 'text-yellow-500'}`} />
+                    <StatusIcon
+                      className={`h-4 w-4 ${task.status === 'running' ? 'animate-spin text-blue-400' : 'text-yellow-500'}`}
+                    />
                     <div className="min-w-0 flex-1">
                       <p className="truncate text-sm">{task.prompt_preview || '(no prompt)'}</p>
                       <p className="text-xs text-[var(--text-secondary)]">
@@ -490,7 +541,7 @@ export default function DashboardPage() {
                       </p>
                     </div>
                   </button>
-                )
+                );
               })}
           </div>
         </div>
@@ -522,7 +573,6 @@ export default function DashboardPage() {
       </div>
 
       <p className="mt-4 text-right font-mono text-[10px] text-[var(--text-secondary)] opacity-60">
-        v{__BUILD_VERSION__} · Built{' '}
         {new Date(__BUILD_TIME__).toLocaleString('zh-CN', {
           timeZone: 'Asia/Shanghai',
           year: 'numeric',
@@ -534,5 +584,5 @@ export default function DashboardPage() {
         })}
       </p>
     </div>
-  )
+  );
 }

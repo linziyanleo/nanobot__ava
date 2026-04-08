@@ -13,9 +13,9 @@ from ava.console.models import UserInfo
 router = APIRouter(prefix="/api/bg-tasks", tags=["bg-tasks"])
 
 
-def _get_bg_store():
-    from ava.console.app import get_services
-    svc = get_services()
+def _get_bg_store(user: UserInfo | None = None):
+    from ava.console.app import get_services_for_user
+    svc = get_services_for_user(user)
     agent_loop = getattr(svc.chat, "_agent", None) if svc.chat else None
     return getattr(agent_loop, "bg_tasks", None) if agent_loop else None
 
@@ -24,9 +24,9 @@ def _get_bg_store():
 async def list_tasks(
     session_key: str | None = None,
     include_finished: bool = True,
-    user: UserInfo = Depends(auth.require_role("admin", "editor", "viewer")),
+    user: UserInfo = Depends(auth.require_role("admin", "editor", "viewer", "mock_tester")),
 ):
-    bg_store = _get_bg_store()
+    bg_store = _get_bg_store(user)
     if not bg_store:
         return {"running": 0, "total": 0, "tasks": []}
     return bg_store.get_status(
@@ -40,17 +40,17 @@ async def list_history(
     page: int = 1,
     page_size: int = 20,
     session_key: str | None = None,
-    user: UserInfo = Depends(auth.require_role("admin", "editor", "viewer")),
+    user: UserInfo = Depends(auth.require_role("admin", "editor", "viewer", "mock_tester")),
 ):
-    bg_store = _get_bg_store()
+    bg_store = _get_bg_store(user)
     if not bg_store:
         return {"tasks": [], "total": 0, "page": page, "page_size": page_size}
     return bg_store.query_history(page=page, page_size=page_size, session_key=session_key)
 
 
 @router.get("/{task_id}")
-async def get_task(task_id: str, user: UserInfo = Depends(auth.require_role("admin", "editor", "viewer"))):
-    bg_store = _get_bg_store()
+async def get_task(task_id: str, user: UserInfo = Depends(auth.require_role("admin", "editor", "viewer", "mock_tester"))):
+    bg_store = _get_bg_store(user)
     if not bg_store:
         return {"error": "BackgroundTaskStore not initialized"}
     status = bg_store.get_status(task_id=task_id)
@@ -60,9 +60,9 @@ async def get_task(task_id: str, user: UserInfo = Depends(auth.require_role("adm
 
 
 @router.get("/{task_id}/detail")
-async def get_task_detail(task_id: str, user: UserInfo = Depends(auth.require_role("admin", "editor", "viewer"))):
+async def get_task_detail(task_id: str, user: UserInfo = Depends(auth.require_role("admin", "editor", "viewer", "mock_tester"))):
     """获取任务的完整 prompt 和 result。"""
-    bg_store = _get_bg_store()
+    bg_store = _get_bg_store(user)
     if not bg_store:
         return {"error": "BackgroundTaskStore not initialized"}
     detail = bg_store.get_task_detail(task_id)
@@ -72,8 +72,8 @@ async def get_task_detail(task_id: str, user: UserInfo = Depends(auth.require_ro
 
 
 @router.get("/{task_id}/timeline")
-async def get_timeline(task_id: str, user: UserInfo = Depends(auth.require_role("admin", "editor", "viewer"))):
-    bg_store = _get_bg_store()
+async def get_timeline(task_id: str, user: UserInfo = Depends(auth.require_role("admin", "editor", "viewer", "mock_tester"))):
+    bg_store = _get_bg_store(user)
     if not bg_store:
         return {"events": []}
     events = bg_store.get_timeline(task_id)
@@ -99,15 +99,16 @@ async def cancel_task(task_id: str, user: UserInfo = Depends(auth.require_role("
 async def bg_tasks_ws(websocket: WebSocket):
     """Push task status snapshots at 2 s intervals; skip if unchanged."""
     user = await auth.get_ws_user(websocket)
-    if user.role == "mock_tester":
-        await websocket.close(code=1008)
-        return
     await websocket.accept()
-    bg_store = _get_bg_store()
+    bg_store = _get_bg_store(user)
 
     if not bg_store:
-        await websocket.send_json({"type": "error", "message": "BackgroundTaskStore not initialized"})
-        await websocket.close()
+        await websocket.send_json({"type": "update", "running": 0, "total": 0, "tasks": []})
+        try:
+            while True:
+                await websocket.receive_text()
+        except WebSocketDisconnect:
+            pass
         return
 
     prev_snapshot: str = ""
