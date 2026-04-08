@@ -598,13 +598,26 @@ const handlers = {
   },
 
   async screenshot(id, params) {
-    const { session_id: sid, path: savePath } = params;
-    if (!sid || !sessions.has(sid)) {
-      return reply(id, false, { code: "NO_SESSION", message: `session ${sid} not found` });
+    const { session_id: sid, path: savePath, url } = params;
+    if (!sid) {
+      return reply(id, false, { code: "NO_SESSION", message: "session_id is required" });
     }
 
     try {
-      const session = sessions.get(sid);
+      // 若 session 不存在但提供了 url，自动创建 session 并导航
+      let session = sessions.get(sid);
+      if (!session) {
+        if (!url) {
+          return reply(id, false, { code: "NO_SESSION", message: `session ${sid} not found` });
+        }
+        session = await getOrCreateSession(sid);
+        await session.page.goto(url, { waitUntil: "load", timeout: 30000 });
+        await session.page.waitForLoadState("networkidle", { timeout: 10000 }).catch(() => {});
+      } else if (url) {
+        // session 已存在但提供了新 url，导航到新页面
+        await session.page.goto(url, { waitUntil: "load", timeout: 30000 });
+        await session.page.waitForLoadState("networkidle", { timeout: 10000 }).catch(() => {});
+      }
       touchSession(session);
 
       // 截图前隐藏 page-agent 注入的 UI 面板，避免遮挡页面内容

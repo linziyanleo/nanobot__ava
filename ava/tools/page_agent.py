@@ -199,13 +199,24 @@ class PageAgentTool(Tool):
                 "action": {
                     "type": "string",
                     "enum": ["execute", "screenshot", "get_page_info", "close_session", "restart_runner"],
-                    "description": "Action to perform",
+                    "description": (
+                        "Action to perform. "
+                        "'execute': interact with page via natural language instruction (click, fill, scroll, navigate). "
+                        "'screenshot': capture a PNG screenshot of the current page (requires session_id of an open session; "
+                        "supports optional url to navigate before capture). "
+                        "IMPORTANT: when the user asks to take a screenshot / 截图 / capture the page, "
+                        "always use 'screenshot' — do NOT use 'execute' with a screenshot instruction. "
+                        "'get_page_info': get page URL, title, and element summary. "
+                        "'close_session': close a browser session. "
+                        "'restart_runner': restart the browser runner process."
+                    ),
                 },
                 "url": {
                     "type": "string",
                     "description": (
-                        "Target URL to navigate to (only for execute action, "
-                        "optional if session already has a page open)"
+                        "Target URL to navigate to (for execute and screenshot actions, "
+                        "optional if session already has a page open). "
+                        "For screenshot: if no session_id exists, a new session is created and navigates to this URL before capture."
                     ),
                 },
                 "instruction": {
@@ -214,7 +225,11 @@ class PageAgentTool(Tool):
                 },
                 "session_id": {
                     "type": "string",
-                    "description": "Session ID for reusing browser context. Omit to auto-generate.",
+                    "description": (
+                        "Session ID for reusing browser context. "
+                        "For execute: omit to auto-generate. "
+                        "For screenshot: provide to capture an existing session, or omit with url to auto-create."
+                    ),
                 },
                 "response_format": {
                     "type": "string",
@@ -501,12 +516,15 @@ class PageAgentTool(Tool):
 
     async def _do_screenshot(self, kwargs: dict, response_format: str) -> str:
         session_id = kwargs.get("session_id")
-        if not session_id:
+        url = kwargs.get("url")
+        if not session_id and not url:
             return self._format_action_error(
-                "session_id is required for screenshot action",
+                "session_id or url is required for screenshot action",
                 response_format=response_format,
                 action="screenshot",
             )
+        if not session_id:
+            session_id = f"s_{uuid.uuid4().hex[:8]}"
 
         # 生成截图路径
         ts = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
@@ -515,10 +533,13 @@ class PageAgentTool(Tool):
         filename = f"page-agent-{ts}-{session_id[:8]}.png"
         save_path = str(screenshot_dir / filename)
 
-        result = await self._rpc("screenshot", {
+        rpc_params = {
             "session_id": session_id,
             "path": save_path,
-        })
+        }
+        if url:
+            rpc_params["url"] = url
+        result = await self._rpc("screenshot", rpc_params)
 
         if not result.get("success"):
             err = result.get("error", {})
