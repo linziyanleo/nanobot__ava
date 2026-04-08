@@ -1,4 +1,4 @@
-"""Monkey patch to inject CafeExt custom tools into AgentLoop."""
+"""Monkey patch to inject sidecar custom tools into AgentLoop."""
 
 import shutil
 
@@ -21,11 +21,11 @@ from ava.tools import (
 
 def apply_tools_patch() -> str:
     """Apply the custom tools patch to AgentLoop.
-    
+
     This function:
     1. Saves the original _register_default_tools method
     2. Creates a wrapper that calls the original method first
-    3. Then registers the 5 CafeExt custom tools
+    3. Then registers sidecar custom tools
     4. Replaces the method on AgentLoop class
     
     Returns:
@@ -41,7 +41,7 @@ def apply_tools_patch() -> str:
     original_register = AgentLoop._register_default_tools
 
     def patched_register_default_tools(self: AgentLoop) -> None:
-        """Wrapper that registers default tools then adds CafeExt custom tools."""
+        """Wrapper that registers default tools then adds sidecar custom tools."""
         original_register(self)
         
         from nanobot.config.loader import load_config
@@ -126,7 +126,7 @@ def apply_tools_patch() -> str:
     patched_register_default_tools._ava_tools_patched = True
     AgentLoop._register_default_tools = patched_register_default_tools
     
-    return "Registered custom tools: claude_code, codex (conditional), image_gen, vision, send_sticker, page_agent, memory"
+    return "Registered custom tools: claude_code, codex (conditional), image_gen, vision, send_sticker, page_agent, gateway_control, memory"
 
 
 register_patch('custom_tools', apply_tools_patch)

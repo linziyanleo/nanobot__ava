@@ -44,6 +44,19 @@
 
 ## P1
 
+### Dream 与 categorized_memory 仍是双真源
+
+- 现状：
+  - 本轮 merge 已并入 upstream `Dream` / `Consolidator` / cron 注册路径，并完成定向 pytest 与 `python -m ava` smoke；
+  - 但 sidecar 现有记忆主链仍是 `categorized_memory + history_summarizer/history_compressor`，没有把 Dream 输出桥接进分类记忆。
+- 风险：
+  - prompt 同时看到 upstream 全局 memory 与 sidecar personal/source memory，容易形成语义重叠或冲突；
+  - 长期继续双轨运行时，memory tool / memory skill / Dream 文件体系会越来越难解释。
+- 后续动作：
+  - 明确哪套记忆是“写入真源”、哪套只负责读取或归档；
+  - 评估是否把 `CategorizedMemoryStore.on_consolidate()` 接到 Dream / Consolidator 输出；
+  - 若短期不统一，至少把 prompt 注入边界和 operator 文档写清楚。
+
 ### 3. `loop_patch` 与上游 hook 体系进入同一热区
 
 - 现状：

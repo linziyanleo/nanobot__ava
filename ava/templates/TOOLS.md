@@ -13,6 +13,8 @@ This file focuses on non-obvious constraints, tool-selection guidance, and sidec
 - `write_file`
 - `edit_file`
 - `list_dir`
+- `glob`
+- `grep`
 - `exec`
 - `web_search`
 - `web_fetch`
@@ -29,6 +31,7 @@ This file focuses on non-obvious constraints, tool-selection guidance, and sidec
 - `vision`
 - `send_sticker`
 - `page_agent`（仅当 `tools.pageAgent.enabled=true`）
+- `gateway_control`
 - `memory`（仅当 `categorized_memory` 已初始化）
 
 ### 不是 tool 的能力
@@ -45,6 +48,8 @@ This file focuses on non-obvious constraints, tool-selection guidance, and sidec
 | 场景 | 推荐工具 |
 |------|----------|
 | 读写本地文件 | `read_file` / `write_file` / `edit_file` / `list_dir` |
+| 按文件名 / 路径模式找文件 | `glob` |
+| 在代码或文本里搜索关键词 / 正则 | `grep` |
 | 跑 shell 命令 | `exec` |
 | 用户发了一个链接想看内容/摘要 | `web_fetch`（首选） |
 | 搜网页或抓静态页面正文 | `web_search` / `web_fetch` |
@@ -117,6 +122,39 @@ edit_file(path: str, old_text: str, new_text: str) -> str
 ```
 list_dir(path: str) -> str
 ```
+
+## Search & Discovery
+
+### glob
+
+按 glob 模式查找文件或目录。
+
+```
+glob(pattern: str, path: str = ".", head_limit: int = 250, offset: int = 0, entry_type: str = "files") -> str
+```
+
+**Notes:**
+
+- 适合按路径模式筛文件，例如 `*.py`、`tests/**/test_*.py`
+- 默认按修改时间倒序返回，优先看到最近改过的文件
+- 默认跳过 `.git`、`node_modules`、`__pycache__` 等噪音目录
+- 只想找“可能在哪个文件”时优先用 `glob`，不要先跑重 shell 命令
+
+### grep
+
+在文件内容中搜索文本或正则。
+
+```
+grep(pattern: str, path: str = ".", glob: str = None, type: str = None, output_mode: str = "files_with_matches", head_limit: int = 250, offset: int = 0) -> str
+```
+
+**Notes:**
+
+- 默认 `output_mode="files_with_matches"`，先返回命中文件路径，适合代码定位
+- 需要看上下文时再切到 `output_mode="content"`，并按需加 `context_before` / `context_after`
+- `fixed_strings=true` 可按纯文本匹配；否则按正则处理
+- 支持 `glob="*.py"` 或 `type="py"` 先收窄搜索范围
+- 会跳过二进制文件和大文件；大规模全文检索优先用它，不要先手写 `exec("grep ...")`
 
 ## Shell Execution
 

@@ -59,7 +59,7 @@ uv run pytest tests/guardrails -q
 
 ## 当前 Patch 全景
 
-> 上次对照：upstream `04a41e31` (2026-04-04)
+> 上次对照：upstream `e21ba5f6` (2026-04-08)
 
 | Patch | 上游触点 | 当前职责 | 热度 | 当前判断 | 最低验证 |
 |-------|----------|----------|------|----------|----------|
@@ -101,9 +101,9 @@ upstream `__init__` 参数 `web_search_config`/`web_proxy` → `web_config`；`s
 
 `patched_init` 用 `original_init(self, *args, **kwargs)` 透传安全。ava 代码中无 `memory_consolidator` 引用。
 
-#### `tools_patch` — 需更新 TOOLS.md
+#### `tools_patch` — 已补 TOOLS.md，但仍需继续防漂移
 
-upstream 在 `_register_default_tools` 新增 `GlobTool`/`GrepTool`、Web 工具条件化（`if self.web_config.enable`）。`original_register(self)` 前缀调用安全。需在 `TOOLS.md` 记录 `grep`/`glob`。
+upstream 在 `_register_default_tools` 新增 `GlobTool`/`GrepTool`、Web 工具条件化（`if self.web_config.enable`）。`original_register(self)` 前缀调用安全。本轮已把 `glob` / `grep` 同步进 `ava/templates/TOOLS.md`，并把 `gateway_control` 注册描述与实际工具面重新对齐；后续仍需持续同步 overlay，避免再次回漂。
 
 ## 当前热区提醒
 

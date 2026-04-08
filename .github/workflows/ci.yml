@@ -95,8 +95,11 @@ jobs:
     - name: Install all dependencies
       run: uv sync --all-extras
 
-    - name: Run tests (upstream + sidecar patches)
-      run: uv run pytest tests/ -q
+    - name: Lint with ruff
+      run: uv run ruff check nanobot --select F401,F841
+
+    - name: Run tests
+      run: uv run pytest tests/
 
   console-ui:
     runs-on: ubuntu-latest
