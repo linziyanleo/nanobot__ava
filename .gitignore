@@ -32,3 +32,6 @@ uv.lock
 
 # Doc
 mydocs/
+
+# node_modules
+*/node_modules/*

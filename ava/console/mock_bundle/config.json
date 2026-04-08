@@ -10,7 +10,7 @@
       "maxTokens": 16384,
       "temperature": 0.7,
       "maxToolIterations": 24,
-      "memoryWindow": 64,
+      "memoryWindow": 200,
       "memoryTier": "default",
       "reasoningEffort": "medium",
       "contextCompression": {

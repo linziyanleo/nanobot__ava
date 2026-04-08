@@ -114,6 +114,7 @@ class VisionTool(Tool):
                         conversation_history="",
                         full_request_payload="",
                         finish_reason=response.finish_reason or "",
+                        model_role="vision",
                     )
                 except Exception as e:
                     logger.debug("Failed to record vision tool token stats: {}", e)
