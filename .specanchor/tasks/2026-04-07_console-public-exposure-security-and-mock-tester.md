@@ -5,7 +5,7 @@ specanchor:
   author: "@codex"
   created: "2026-04-07"
   status: "draft"
-  last_change: "初始化公网暴露开发标准与 mock-only 测试账号任务 spec"
+  last_change: "补齐 mock_tester 的 mock-safe 页面覆盖，收口 chat/bg-tasks/skills/persona 入口与数据面"
   related_modules:
     - ".specanchor/global-patch-spec.md"
   flow_type: "standard"
@@ -260,6 +260,8 @@ specanchor:
 
 - [ ] 当前仅生成 task spec，尚未进入实现。
 - [ ] 本 spec 默认覆盖并替换“直接把 6688 暴露出去”的开发路径。
+- [x] 补齐 `mock_tester` 在 console-ui 中的页面入口，覆盖 `Pages.md` 中的 `chat` / `bg-tasks` / `persona` / `skills` 页面。
+- [x] `chat` / `bg-tasks` / `skills` 路由切换为 mock-safe 行为：mock 数据读取、空态观察页、或禁用会影响真实 runtime 的动作。
 
 ## 6. Review Verdict
 
