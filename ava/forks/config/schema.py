@@ -142,6 +142,7 @@ class TelegramConfig(Base):
     connection_pool_size: int = 32
     pool_timeout: float = 5.0
     streaming: bool = True
+    stream_edit_interval: float = 0.6
     user_typing_timeout: int = 0
 
 
