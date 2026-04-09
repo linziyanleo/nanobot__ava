@@ -2,15 +2,14 @@
 name: tmux
 description: >
   Remote-control tmux sessions for interactive TTY scenarios: sending keystrokes, scraping pane output, running interactive REPLs.
-  Do NOT use tmux to orchestrate coding agents (claude_code/codex) — use their built-in async mode with BackgroundTaskStore instead.
-  Only use tmux when you need interactive terminal control (Ctrl+C, stdin input, multi-pane layout) that BackgroundTaskStore cannot provide.
+  Prefer BackgroundTaskStore-backed coding tools over tmux for agent orchestration.
 metadata: {"nanobot":{"emoji":"🧵","os":["darwin","linux"],"requires":{"bins":["tmux"]}}}
 ---
 
 # tmux Skill
 
 Use tmux only when you need an interactive TTY or direct terminal control.
-For coding tasks, prefer `claude_code` / `codex` tools (via BackgroundTaskStore) over tmux 编排。
+For coding tasks, prefer `claude_code` / `codex` tools via BackgroundTaskStore.
 For non-interactive long-running tasks, prefer `exec` background mode.
 
 ## Quickstart (isolated socket, exec tool)
@@ -70,17 +69,17 @@ To monitor:
 - tmux is supported on macOS/Linux. On Windows, use WSL and install tmux inside WSL.
 - This skill is gated to `darwin`/`linux` and requires `tmux` on PATH.
 
-## Coding Agent 编排
+## Coding Agent Boundary
 
-> **首选方案**：使用 `claude_code` 或 `codex` 工具直接调用。它们通过 BackgroundTaskStore
-> 统一管理任务生命周期、自动完成通知、结果持久化、上下文注入，比 tmux 轮询更可靠。
->
-> 仅在以下场景才考虑 tmux 编排 coding agent：
-> - BackgroundTaskStore 不可用（如独立脚本环境）
-> - 需要交互式控制（发送 Ctrl+C、查看实时终端输出）
-> - 需要 tmux 多窗口布局做并行可视化
+Preferred path: use `claude_code` or `codex` directly. They already integrate with BackgroundTaskStore for lifecycle, result persistence, and status queries.
 
-tmux 编排示例（仅 fallback 场景）：
+Use tmux for coding-agent orchestration only as a fallback when:
+
+- BackgroundTaskStore is unavailable
+- You need interactive control such as `Ctrl+C` or live pane inspection
+- You explicitly need tmux multi-window visualization
+
+Fallback example:
 
 ```bash
 SOCKET="${TMPDIR:-/tmp}/codex-army.sock"
@@ -91,7 +90,7 @@ tmux -S "$SOCKET" new-session -d -s "agent-2"
 tmux -S "$SOCKET" send-keys -t agent-1 "cd /tmp/project1 && codex --full-auto 'Fix bug X'" Enter
 tmux -S "$SOCKET" send-keys -t agent-2 "cd /tmp/project2 && codex --full-auto 'Fix bug Y'" Enter
 
-# 轮询完成（检查 shell 提示符）
+# Poll for completion by checking whether the shell prompt returned.
 for sess in agent-1 agent-2; do
   if tmux -S "$SOCKET" capture-pane -p -t "$sess" -S -3 | grep -q "❯"; then
     echo "$sess: DONE"
@@ -101,10 +100,10 @@ for sess in agent-1 agent-2; do
 done
 ```
 
-**Tips:**
-- 使用独立 git worktree 避免并行分支冲突
-- Codex 需要 `--full-auto` 进行非交互运行
-- 通过 shell 提示符（`❯` 或 `$`）检测完成
+Tips:
+- Use separate git worktrees to avoid branch conflicts
+- Use `--full-auto` for non-interactive Codex runs
+- Detect completion from the shell prompt (`❯` or `$`)
 
 ## Cleanup
 

@@ -25,7 +25,7 @@ Dynamic task (agent executes each time):
 cron(action="add", message="Check HKUDS/nanobot GitHub stars and report", every_seconds=600)
 ```
 
-One-time scheduled task (use **local time** directly — the server parses it in its local timezone):
+One-time scheduled task:
 ```
 cron(action="add", message="Remind me about the meeting", at="2026-03-05T14:30:00", tz="Asia/Shanghai")
 ```
@@ -69,11 +69,13 @@ cron(action="remove", job_id="abc123")
 
 ## Timezone
 
-**IMPORTANT**: Always pass `tz` with the user's IANA timezone (check `Current Time` in system prompt for the timezone abbreviation, then map to IANA — CST → `Asia/Shanghai`, PST → `America/Los_Angeles`, etc.).
+Sidecar convention: prefer passing the user's IANA timezone explicitly.
 
-- For `cron_expr`: `tz` determines when the cron fires.
-- For `at`: `tz` determines how the datetime string is interpreted. Without `tz`, the server's local timezone is used.
-- For `at`, always use the **target local time** directly (e.g. if user says "noon", use `T12:00:00`). Do NOT manually convert to UTC.
+- For `cron_expr`: `tz` decides when the schedule fires.
+- For `at`: `tz` decides how the datetime string is interpreted.
+- For `at`, use the user's target local time directly. Do not pre-convert to UTC yourself.
+
+If the user gives a city or region, map it to an IANA timezone before calling the tool.
 
 ## Task Completion Tracking
 

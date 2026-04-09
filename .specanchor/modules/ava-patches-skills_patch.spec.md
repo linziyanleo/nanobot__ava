@@ -10,7 +10,7 @@ specanchor:
   created: "2026-04-01"
   updated: "2026-04-09"
   last_synced: "2026-04-09"
-  last_change: "按 SpecAnchor 最新 Module Spec 模板重生，合并 legacy spec 与当前代码扫描结果"
+  last_change: "同步 post-merge 技能治理：删除无行为差异 shadow skills，仅保留 sidecar 增量 skill 覆盖"
   status: "active"
   depends_on:
     - "ava/launcher.py"
@@ -26,6 +26,7 @@ specanchor:
 
 ## 2. 业务规则
 - ava/skills/ 优先级高于 nanobot/skills/
+- 同行为 shadow skill 删除后，loader 应自动回退到 nanobot/skills/；当前 sidecar 只保留有增量的 `cron` / `tmux` / `memory` 及 repo 专用 skills
 - .agents/skills/ 可为真实目录或 symlink
 - SQLite 中 enabled = 0 的技能不会出现在 list_skills() 结果中
 - 读取数据库失败时不阻塞主流程，按“无禁用项”降级

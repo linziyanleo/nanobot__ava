@@ -17,8 +17,9 @@ The skill format and metadata structure follow OpenClaw's conventions to maintai
 
 | Skill | Description |
 |-------|-------------|
-| `github` | Interact with GitHub using the `gh` CLI |
-| `weather` | Get weather info using wttr.in and Open-Meteo |
-| `summarize` | Summarize URLs, files, and YouTube videos |
+| `console_ui_dev_loop` | Console UI 前端开发与回归闭环 |
+| `cron` | Schedule reminders and recurring tasks |
+| `diary` | 每日日记生成 |
+| `memory` | Dream 全局记忆 + person memory 边界说明 |
+| `page_agent_test` | 基于 page_agent 的狭义页面测试协议 |
 | `tmux` | Remote-control tmux sessions |
-| `skill-creator` | Create new skills |
