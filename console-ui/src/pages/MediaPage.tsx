@@ -13,7 +13,6 @@ import {
 import { api } from '../api/client';
 import { useAuth } from '../stores/auth';
 import { cn } from '../lib/utils';
-import { useResponsiveMode } from '../hooks/useResponsiveMode';
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -43,9 +42,9 @@ function imageUrl(path: string): string {
   return `/api/media/images/${filename}`;
 }
 
-// ── Masonry Card ──────────────────────────────────────────────────────────
+// ── Grid Card ─────────────────────────────────────────────────────────────
 
-function MasonryCard({
+function GridCard({
   record,
   onSelect,
   onDelete,
@@ -62,16 +61,15 @@ function MasonryCard({
   return (
     <div
       onClick={() => onSelect(record)}
-      className="group cursor-pointer bg-[var(--bg-secondary)] border border-[var(--border)] rounded-xl overflow-hidden hover:border-[var(--accent)] transition-all duration-200 relative mb-3"
-      style={{ breakInside: 'avoid' }}
+      className="group cursor-pointer bg-[var(--bg-secondary)] border border-[var(--border)] rounded-xl overflow-hidden hover:border-[var(--accent)] transition-all duration-200 relative"
     >
       {hasImage ? (
-        <div className={cn('relative', !loaded && 'min-h-[120px] bg-[var(--bg-tertiary)] animate-pulse')}>
+        <div className={cn('relative aspect-[4/3] overflow-hidden', !loaded && 'bg-[var(--bg-tertiary)] animate-pulse')}>
           <img
             src={imageUrl(record.output_images[0])}
             alt={record.prompt}
             className={cn(
-              'w-full h-auto object-cover group-hover:scale-105 transition-transform duration-300',
+              'w-full h-full object-cover group-hover:scale-105 transition-transform duration-300',
               !loaded && 'opacity-0',
             )}
             loading="lazy"
@@ -79,7 +77,7 @@ function MasonryCard({
           />
         </div>
       ) : (
-        <div className="aspect-square flex items-center justify-center bg-[var(--bg-tertiary)]">
+        <div className="aspect-[4/3] flex items-center justify-center bg-[var(--bg-tertiary)]">
           <AlertCircle className="w-8 h-8 text-[var(--danger)] opacity-50" />
         </div>
       )}
@@ -117,7 +115,6 @@ function MasonryCard({
 // ── Media Page ─────────────────────────────────────────────────────────────
 
 export default function MediaPage() {
-  const { isMobile } = useResponsiveMode();
   const [data, setData] = useState<MediaResponse | null>(null);
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState('');
@@ -290,7 +287,7 @@ export default function MediaPage() {
         </div>
       )}
 
-      {/* Image Masonry */}
+      {/* Image Grid */}
       <div className="flex-1 overflow-y-auto min-h-0">
         {data?.records.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-20 text-[var(--text-secondary)]">
@@ -298,16 +295,9 @@ export default function MediaPage() {
             <p className="text-sm">{search ? '没有匹配的记录' : '暂无图片生成记录'}</p>
           </div>
         ) : (
-          <div
-            className="gap-3"
-            style={{
-              columns: isMobile ? 2 : 'auto',
-              columnWidth: isMobile ? undefined : '220px',
-              columnGap: '0.75rem',
-            }}
-          >
+          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3">
             {data?.records.map(record => (
-              <MasonryCard
+              <GridCard
                 key={record.id}
                 record={record}
                 onSelect={setSelected}

@@ -122,11 +122,33 @@ class ClaudeCodeTool(Tool):
             return f"Error: Project directory does not exist: {project}"
 
         if mode == "sync":
-            return await self._execute_sync(prompt, project, session_id)
+            task_id: str | None = None
+            if self._task_store:
+                task_id = self._task_store.submit_sync_task(
+                    origin_session_key=self._session_key,
+                    prompt=prompt,
+                    project_path=project,
+                    task_type="claude_code",
+                )
+
+            parsed, formatted = await self._execute_sync(prompt, project, session_id)
+
+            if task_id and self._task_store:
+                is_error = parsed.get("is_error", False)
+                await self._task_store.complete_sync_task(
+                    task_id,
+                    status="failed" if is_error else "succeeded",
+                    result_text=formatted,
+                    error_message=formatted if is_error else "",
+                    session_id=parsed.get("session_id", ""),
+                )
+
+            return formatted
 
         if not self._task_store:
             logger.warning("claude_code: BackgroundTaskStore not available, falling back to sync")
-            return await self._execute_sync(prompt, project, session_id)
+            _parsed, formatted = await self._execute_sync(prompt, project, session_id)
+            return formatted
 
         timeout = 120 if mode == "fast" else self._timeout
         task_id = self._task_store.submit_coding_task(
@@ -148,11 +170,15 @@ class ClaudeCodeTool(Tool):
         prompt: str,
         project: str,
         session_id: str | None = None,
-    ) -> str:
-        """Execute Claude Code synchronously (blocking)."""
+    ) -> tuple[dict[str, Any], str]:
+        """Execute Claude Code synchronously. Returns (parsed_json, formatted_output)."""
         claude_bin = shutil.which("claude")
         if not claude_bin:
-            return "Error: claude not found in PATH. Install Claude Code CLI globally: npm install -g @anthropic-ai/claude-code"
+            formatted = (
+                "Error: claude not found in PATH. Install Claude Code CLI globally: "
+                "npm install -g @anthropic-ai/claude-code"
+            )
+            return {"is_error": True}, formatted
 
         cmd = self._build_command(prompt, project, "standard", session_id)
         timeout = self._timeout
@@ -161,15 +187,17 @@ class ClaudeCodeTool(Tool):
         stdout, stderr = await self._run_subprocess(cmd, project, timeout)
 
         if stderr and not stdout:
-            return f"Error: Claude Code failed.\n{stderr[:2000]}"
+            formatted = f"Error: Claude Code failed.\n{stderr[:2000]}"
+            return {"is_error": True}, formatted
 
         parsed = self._parse_result(stdout)
         if parsed.get("_parse_error"):
             raw = stdout[:_MAX_OUTPUT_CHARS] if stdout else "(no output)"
-            return f"Claude Code returned non-JSON output:\n{raw}"
+            formatted = f"Claude Code returned non-JSON output:\n{raw}"
+            return {"is_error": True}, formatted
 
         self._record_stats(parsed, prompt)
-        return self._format_output(parsed, "sync")
+        return parsed, self._format_output(parsed, "sync")
 
     async def _execute_background(
         self,
