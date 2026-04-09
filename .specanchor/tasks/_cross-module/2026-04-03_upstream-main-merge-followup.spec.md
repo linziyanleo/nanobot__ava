@@ -9,12 +9,12 @@ specanchor:
   status: "in_progress"
   last_change: "补充 global spec：明确 upstream 集成例外可更新 nanobot/，并记录 ALLOW_NANOBOT_PATCH=1 作为 commit guard 放行参数"
   related_modules:
-    - ".specanchor/modules/schema_patch_spec.md"
-    - ".specanchor/modules/onboard_patch_spec.md"
-    - ".specanchor/modules/channel_patch_spec.md"
-    - ".specanchor/modules/console_patch_spec.md"
-    - ".specanchor/modules/context_patch_spec.md"
-    - ".specanchor/modules/loop_patch_spec.md"
+    - ".specanchor/modules/ava-patches-a_schema_patch.spec.md"
+    - ".specanchor/modules/ava-patches-c_onboard_patch.spec.md"
+    - ".specanchor/modules/ava-patches-channel_patch.spec.md"
+    - ".specanchor/modules/ava-patches-console_patch.spec.md"
+    - ".specanchor/modules/ava-patches-context_patch.spec.md"
+    - ".specanchor/modules/ava-patches-loop_patch.spec.md"
   related_global:
     - ".specanchor/global/architecture.md"
     - ".specanchor/global-patch-spec.md"
@@ -165,7 +165,7 @@ specanchor:
 - [x] Step 5: 跑基线回归：
   - `uv run pytest tests/patches tests/guardrails -q`
   - `uv run pytest tests/agent/test_context_prompt_cache.py tests/agent/test_loop_save_turn.py tests/agent/test_runner.py tests/cli/test_commands.py tests/providers/test_cached_tokens.py tests/providers/test_openai_responses.py tests/test_openai_api.py -q`
-- [x] Step 6: 更新 `ava/UPSTREAM_VERSION`、`.specanchor/patch_map.md`、`.specanchor/TODO.md`、`context_patch_spec.md`、`schema_patch_spec.md`、`loop_patch_spec.md`。
+- [x] Step 6: 更新 `ava/UPSTREAM_VERSION`、`.specanchor/patch_map.md`、`.specanchor/TODO.md`、`ava-patches-context_patch.spec.md`、`ava-patches-a_schema_patch.spec.md`、`ava-patches-loop_patch.spec.md`。
 - [x] Step 7: 运行 `uv run pytest tests/guardrails/test_spec_sync.py -q` 与 `git diff --check`，均通过。
 - [x] Step 8: 尝试运行 `bash scripts/specanchor-check.sh task ...`，发现当前仓库不存在该脚本，无法执行 task freshness 脚本检查。
 - [x] Step 9: 更新 `.specanchor/global/architecture.md` 与 `.specanchor/global-patch-spec.md`，明确 upstream merge / upstream fix 场景可更新 `nanobot/`，并记录 `ALLOW_NANOBOT_PATCH=1 git commit ...` 为受限放行参数。

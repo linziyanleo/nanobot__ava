@@ -7,8 +7,8 @@ specanchor:
   status: "draft"
   last_change: "v1: 综合 supervisor redesign + restart 分析 + Codex 锐评"
   related_modules:
-    - ".specanchor/modules/console_patch_spec.md"
-    - ".specanchor/modules/tools_patch_spec.md"
+    - ".specanchor/modules/ava-patches-console_patch.spec.md"
+    - ".specanchor/modules/ava-patches-tools_patch.spec.md"
   related_tasks:
     - ".specanchor/tasks/2026-04-02_gateway-lifecycle-supervisor-redesign.md"
     - ".specanchor/tasks/2026-04-04_coding-cli-and-self-improvement-loop.md"

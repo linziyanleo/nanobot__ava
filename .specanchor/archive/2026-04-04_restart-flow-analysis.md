@@ -7,7 +7,7 @@ specanchor:
   status: "deprecated"
   last_change: "v2: deprecated — 被 2026-04-04_lifecycle-and-frontend-hotupdate.md 替代"
   related_modules:
-    - ".specanchor/modules/console_patch_spec.md"
+    - ".specanchor/modules/ava-patches-console_patch.spec.md"
   related_global:
     - ".specanchor/global-patch-spec.md"
   superseded_by: ".specanchor/tasks/2026-04-04_lifecycle-and-frontend-hotupdate.md"

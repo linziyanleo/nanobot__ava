@@ -7,10 +7,10 @@ specanchor:
   status: "in_progress"
   last_change: "Execute 完成：session_messages conversation 持久化、active-only load/save、conversation API 与 ChatPage 历史只读视图已落地并通过定向验证"
   related_modules:
-    - ".specanchor/modules/storage_patch_spec.md"
-    - ".specanchor/modules/loop_patch_spec.md"
-    - ".specanchor/modules/console_patch_spec.md"
-    - ".specanchor/modules/commands_spec.md"
+    - ".specanchor/modules/ava-patches-storage_patch.spec.md"
+    - ".specanchor/modules/ava-patches-loop_patch.spec.md"
+    - ".specanchor/modules/ava-patches-console_patch.spec.md"
+    - ".specanchor/modules/ava-agent-commands.spec.md"
   related_tasks:
     - ".specanchor/tasks/_cross-module/2026-04-05_token-stats-jump-after-new.spec.md"
     - ".specanchor/tasks/2026-04-03_console-realtime-dataflow-enhancement.md"
@@ -287,7 +287,7 @@ specanchor:
 - Regression risk: Medium-Low
 - Follow-ups:
   - 若后续要让 ChatPage 一进入某 scene 就预展开所有 session 的 conversation 列表，可再做纯前端体验迭代；本轮先保持“只加载当前选中 session 的 conversation 列表”以收窄改动。
-  - `storage_patch_spec.md` 后续应同步这次的 active-only load/save 合同，避免模块文档继续停留在“整 session 增量 append”表述。
+  - `ava-patches-storage_patch.spec.md` 后续应同步这次的 active-only load/save 合同，避免模块文档继续停留在“整 session 增量 append”表述。
 
 ## 7. Plan-Execution Diff
 

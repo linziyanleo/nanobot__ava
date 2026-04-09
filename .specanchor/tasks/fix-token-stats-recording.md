@@ -7,7 +7,7 @@ specanchor:
   status: "done"
   last_change: "Execute 完成，所有字段修复并验证通过"
   related_modules:
-    - ".specanchor/modules/loop_patch_spec.md"
+    - ".specanchor/modules/ava-patches-loop_patch.spec.md"
   flow_type: "standard"
   writing_protocol: "sdd-riper-one"
   sdd_phase: "PLAN"

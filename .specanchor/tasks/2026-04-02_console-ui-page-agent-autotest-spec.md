@@ -7,12 +7,12 @@ specanchor:
   status: "draft"
   last_change: "补齐 page_agent runtime / console-ui browser page module spec 关联，供 autotest 任务复用"
   related_modules:
-    - ".specanchor/modules/page_agent_runtime_spec.md"
-    - ".specanchor/modules/console_browser_page_spec.md"
-    - ".specanchor/modules/tools_patch_spec.md"
-    - ".specanchor/modules/console_patch_spec.md"
-    - ".specanchor/modules/schema_patch_spec.md"
-    - ".specanchor/modules/loop_patch_spec.md"
+    - ".specanchor/modules/ava-tools-page_agent.spec.md"
+    - ".specanchor/modules/console-ui-src-pages-BrowserPage.spec.md"
+    - ".specanchor/modules/ava-patches-tools_patch.spec.md"
+    - ".specanchor/modules/ava-patches-console_patch.spec.md"
+    - ".specanchor/modules/ava-patches-a_schema_patch.spec.md"
+    - ".specanchor/modules/ava-patches-loop_patch.spec.md"
   flow_type: "standard"
   writing_protocol: "sdd-riper-one"
   sdd_phase: "PLAN"
@@ -69,8 +69,8 @@ specanchor:
 - 规范来源:
   - `AGENTS.md`
   - `.specanchor/global-patch-spec.md`
-  - `.specanchor/modules/tools_patch_spec.md`
-  - `.specanchor/modules/console_patch_spec.md`
+  - `.specanchor/modules/ava-patches-tools_patch.spec.md`
+  - `.specanchor/modules/ava-patches-console_patch.spec.md`
 
 ## 2. Research Findings
 

@@ -85,4 +85,4 @@ FAILED tests/guardrails/test_spec_sync.py::test_module_index_covers_all_patch_fi
 
 - 为 patch 补专项测试
 - 在 `module-index.md` 中登记 patch
-- 若 patch 需要模块 Spec，同时补 `.specanchor/modules/*_spec.md`
+- 若 patch 需要模块 Spec，同时补 `.specanchor/modules/*.spec.md`

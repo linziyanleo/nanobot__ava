@@ -51,9 +51,9 @@
 | `tests/patches/test_bus_patch.py` | 修改 | 对齐 queue API 的现状 |
 | `tests/patches/test_schema_patch.py` | 修改 | 移除对 `voice_model` 的过期断言 |
 | `ava/patches/a_schema_patch.py` | 修改 | 修正文档字符串中的过期字段说明 |
-| `.specanchor/modules/bus_console_listener_spec.md` | 修改 | 对齐 queue API 的 bus module spec |
+| `.specanchor/modules/ava-patches-bus_patch.spec.md` | 修改 | 对齐 queue API 的 bus module spec |
 | `.specanchor/modules/module-index.md` | 修改 | 补齐新增 patch 的索引 |
-| `.specanchor/modules/schema_patch_spec.md` | 修改 | 修正 fork schema 的字段描述 |
+| `.specanchor/modules/ava-patches-a_schema_patch.spec.md` | 修改 | 修正 fork schema 的字段描述 |
 | `.githooks/pre-commit` | 创建 | 版本化 pre-commit hook |
 | `scripts/install-hooks.sh` | 创建 | 安装 `.githooks` 为仓库 hooksPath |
 | `tests/guardrails/test_nanobot_guardrail.py` | 创建 | 校验 hook 脚本和 guardrail 辅助函数 |
@@ -73,7 +73,7 @@
 ### 范围
 
 - 修复 `bus_patch` 测试与实现不一致。
-- 修复 `bus_console_listener_spec.md` 与 queue API 不一致。
+- 修复 `ava-patches-bus_patch.spec.md` 与 queue API 不一致。
 - 修复 `voice_model` 相关的过期测试和注释。
 - 补齐 `.specanchor/modules/module-index.md` 中缺失的 patch 条目。
 - 修正 schema 相关 Spec 中与当前实现不一致的字段描述。
@@ -84,13 +84,13 @@
   - `register_console_listener(session_key)` 返回 `asyncio.Queue`
   - `dispatch_to_console_listener()` 将消息写入队列
   - 移除对 callback 签名的旧断言
-- [x] 更新 `.specanchor/modules/bus_console_listener_spec.md`，将 callback 语义改为 queue 语义
+- [x] 更新 `.specanchor/modules/ava-patches-bus_patch.spec.md`，将 callback 语义改为 queue 语义
 - [x] 将 `tests/patches/test_schema_patch.py` 中 `voice_model` 从扩展字段断言里移除
 - [x] 修正 `ava/patches/a_schema_patch.py` 头部注释，不再宣称 fork 提供 `voice_model`
 - [x] 更新 `.specanchor/modules/module-index.md`：
   - 补充 `ava/patches/skills_patch.py`
   - 补充 `ava/patches/transcription_patch.py`
-- [x] 更新 `.specanchor/modules/schema_patch_spec.md`，移除过期字段说明
+- [x] 更新 `.specanchor/modules/ava-patches-a_schema_patch.spec.md`，移除过期字段说明
 - [x] 运行基线验证：
 
 ```bash

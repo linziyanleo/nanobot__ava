@@ -9,7 +9,7 @@ specanchor:
   status: "draft"
   last_change: "修正 PLAN：将 max_turns 收敛为 interrupted/resumable，移除对 auto_continue 的错误假设"
   related_modules:
-    - ".specanchor/modules/claude_code_tool_spec.md"
+    - ".specanchor/modules/ava-tools-claude_code.spec.md"
   related_global:
     - ".specanchor/global/architecture.md"
   flow_type: "standard"
@@ -42,7 +42,7 @@ specanchor:
 ## 1.1 Context Sources
 
 - Requirement Source: 用户在对话中报告的 bug（后台任务中途标记 SUCCESS）
-- Design Refs: `.specanchor/modules/claude_code_tool_spec.md`
+- Design Refs: `.specanchor/modules/ava-tools-claude_code.spec.md`
 - Chat/Business Refs: 用户对话上下文
 - Extra Context: 用户提到 "cc哥虽然标记SUCCESS，但实际上只是分析了文件结构，说要用Python脚本来做修改，但没真正执行完"
 

@@ -7,8 +7,8 @@ specanchor:
   status: "review"
   last_change: "Execute 完成：合并两个 skill、拆分 Pages.md 为 per-page references、删除 console_ui_regression"
   related_modules:
-    - ".specanchor/modules/page_agent_runtime_spec.md"
-    - ".specanchor/modules/console_browser_page_spec.md"
+    - ".specanchor/modules/ava-tools-page_agent.spec.md"
+    - ".specanchor/modules/console-ui-src-pages-BrowserPage.spec.md"
   related_global:
     - ".specanchor/global/architecture.md"
   related_tasks:

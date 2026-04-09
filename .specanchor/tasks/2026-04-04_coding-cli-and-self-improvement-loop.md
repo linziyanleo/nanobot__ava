@@ -7,11 +7,11 @@ specanchor:
   status: "draft"
   last_change: "v3.8: bg_tasks 不再在存储层截断 result_preview，显示裁剪下放到 frontend"
   related_modules:
-    - ".specanchor/modules/claude_code_tool_spec.md"
-    - ".specanchor/modules/tools_patch_spec.md"
-    - ".specanchor/modules/loop_patch_spec.md"
-    - ".specanchor/modules/bus_console_listener_spec.md"
-    - ".specanchor/modules/context_patch_spec.md"
+    - ".specanchor/modules/ava-tools-claude_code.spec.md"
+    - ".specanchor/modules/ava-patches-tools_patch.spec.md"
+    - ".specanchor/modules/ava-patches-loop_patch.spec.md"
+    - ".specanchor/modules/ava-patches-bus_patch.spec.md"
+    - ".specanchor/modules/ava-patches-context_patch.spec.md"
   related_global:
     - ".specanchor/global-patch-spec.md"
   flow_type: "standard"
@@ -569,7 +569,7 @@ CREATE INDEX IF NOT EXISTS idx_bg_task_events_task ON bg_task_events(task_id);
   - **修改** `.gitignore`：添加 `*.db` 防止数据库文件被追踪
   - **新建** `tests/tools/test_codex.py`：38 个测试全部通过
     - 覆盖：属性 / 上下文 / 命令构建 / JSONL 解析 / 输出格式 / execute 集成 / cancel / stats 记录 / 项目解析 / 配置注入 / patch 集成
-  - **更新** `codex_tool_spec.md`：状态 📋 → ✅
+  - **更新** `ava-tools-codex.spec.md`：状态 📋 → ✅
   - **更新** `module-index.md`：codex 从"计划新增"移到"功能模块（已实现）"
 - [x] 2026-04-04 v3.6: Page Agent 增强 + Token Stats 异常终止 + 浏览器持久化
   - **page_agent token stats 修复**：`loop_patch.py` post-init 遗漏了 `page_agent` 的 `_token_stats` 赋值（构造时为 None，后续未更新）
@@ -611,7 +611,7 @@ CREATE INDEX IF NOT EXISTS idx_bg_task_events_task ON bg_task_events(task_id);
 - Spec coverage: PASS（覆盖 session_key 路由、async_result 落盘、IM 上下文注入、生命周期命令）
 - Behavior check: PASS（针对"架构设计"目标）
 - Regression risk: Low（本次只改 `.specanchor/` 文档）
-- Module Spec 需更新: Yes → `claude_code_tool_spec.md` + `context_patch_spec.md` 需同步
+- Module Spec 需更新: Yes → `ava-tools-claude_code.spec.md` + `ava-patches-context_patch.spec.md` 需同步
 - Open Questions 收敛: 4/5 已决策（持久层选型倾向已定但保留灵活性）
 - Follow-ups:
   - 前置修复 session_key 可独立提交和测试

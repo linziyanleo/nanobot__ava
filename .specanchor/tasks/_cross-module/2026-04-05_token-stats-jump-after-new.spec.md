@@ -7,9 +7,9 @@ specanchor:
   status: "in_progress"
   last_change: "Execute 收尾：修复 legacy DB 升级顺序、补齐 /new conversation_id 分段回归测试，并消除 ChatPage conversation_id 刷新竞态"
   related_modules:
-    - ".specanchor/modules/loop_patch_spec.md"
-    - ".specanchor/modules/storage_patch_spec.md"
-    - ".specanchor/modules/console_patch_spec.md"
+    - ".specanchor/modules/ava-patches-loop_patch.spec.md"
+    - ".specanchor/modules/ava-patches-storage_patch.spec.md"
+    - ".specanchor/modules/ava-patches-console_patch.spec.md"
   related_tasks:
     - ".specanchor/tasks/2026-04-03_console-realtime-dataflow-enhancement.md"
     - ".specanchor/tasks/fix-token-stats-recording.md"
@@ -176,7 +176,7 @@ specanchor:
 - Regression risk: Medium-Low
 - Module Spec 需更新: Yes
 - Follow-ups:
-  - `loop_patch_spec.md` 与 `storage_patch_spec.md` 已同步本次 `conversation_id` / legacy migration contract；若后续再扩展 Token Console 面，建议补独立 module spec
+  - `ava-patches-loop_patch.spec.md` 与 `ava-patches-storage_patch.spec.md` 已同步本次 `conversation_id` / legacy migration contract；若后续再扩展 Token Console 面，建议补独立 module spec
 
 ## 7. Plan-Execution Diff
 

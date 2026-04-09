@@ -7,8 +7,8 @@ specanchor:
   status: "in_progress"
   last_change: "Spec 初稿"
   related_modules:
-    - ".specanchor/modules/page_agent_runtime_spec.md"
-    - ".specanchor/modules/tools_patch_spec.md"
+    - ".specanchor/modules/ava-tools-page_agent.spec.md"
+    - ".specanchor/modules/ava-patches-tools_patch.spec.md"
   related_tasks:
     - ".specanchor/tasks/2026-04-03_generic-page-agent-tool.md"
     - ".specanchor/tasks/_cross-module/2026-04-07_page-agent-memory-hardening.spec.md"

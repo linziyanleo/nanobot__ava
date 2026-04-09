@@ -9,9 +9,9 @@ specanchor:
   status: "in_progress"
   last_change: "完成真实 ~/.nanobot refresh + wizard no-change 实机回归：兼容字段保留、新结构补齐，随后已恢复原 config.json/extra_config.json"
   related_modules:
-    - ".specanchor/modules/schema_patch_spec.md"
-    - ".specanchor/modules/config_patch_spec.md"
-    - ".specanchor/modules/onboard_patch_spec.md"
+    - ".specanchor/modules/ava-patches-a_schema_patch.spec.md"
+    - ".specanchor/modules/ava-patches-b_config_patch.spec.md"
+    - ".specanchor/modules/ava-patches-c_onboard_patch.spec.md"
   related_global:
     - ".specanchor/global/architecture.md"
     - ".specanchor/global-patch-spec.md"
@@ -49,8 +49,8 @@ specanchor:
 - Design Refs:
   - `.specanchor/global/architecture.md`
   - `.specanchor/global-patch-spec.md`
-  - `.specanchor/modules/schema_patch_spec.md`
-  - `.specanchor/modules/config_patch_spec.md`
+  - `.specanchor/modules/ava-patches-a_schema_patch.spec.md`
+  - `.specanchor/modules/ava-patches-b_config_patch.spec.md`
 - Chat/Business Refs:
   - `docs/superpowers/plans/2026-04-01-engineering-guardrails.md`
 - Extra Context:
@@ -165,7 +165,7 @@ specanchor:
   - 增加 patched runtime 下的 `save_config()` / `onboard refresh` 结构断言
 - `tests/guardrails/test_schema_drift.py`
   - 更新 drift 基线，使其反映新的继承式事实，移除已不再需要的“缺失字段例外”
-- `.specanchor/modules/schema_patch_spec.md`
+- `.specanchor/modules/ava-patches-a_schema_patch.spec.md`
   - 将模块职责从“完整替换手拷 fork”更新为“继承上游 schema 的 fork 注入”
 
 ### 4.2 Signatures
@@ -191,7 +191,7 @@ specanchor:
 - [x] Step 1: 将 `ava/forks/config/schema.py` 从“手拷上游”改为“继承上游 + 最小 sidecar override”，恢复 `ProvidersConfig` / `MCPServerConfig` / `WebSearchConfig` / `ChannelsConfig` 的共享结构。
 - [x] Step 2: 在 `ava/patches/a_schema_patch.py` 注入 `_ava_upstream_schema`，确保 fork 执行期可直接继承已加载的上游 schema，而不是反向导入自己。
 - [x] Step 3: 更新 `tests/patches/test_schema_patch.py`、`tests/config/test_config_migration.py`、`tests/guardrails/test_schema_drift.py`，补上 patched runtime 的序列化与 onboard refresh 断言。
-- [x] Step 4: 更新 `.specanchor/modules/schema_patch_spec.md`，将模块职责同步为“继承式 fork 注入”。
+- [x] Step 4: 更新 `.specanchor/modules/ava-patches-a_schema_patch.spec.md`，将模块职责同步为“继承式 fork 注入”。
 - [x] Step 5: 运行定向验证：
   - `uv run pytest tests/patches/test_schema_patch.py tests/config/test_config_migration.py tests/guardrails/test_schema_drift.py -q`
   - `uv run pytest tests/patches/test_config_patch.py tests/guardrails/test_spec_sync.py -q`
@@ -231,7 +231,7 @@ specanchor:
 - Spec coverage: 已覆盖 Plan 4.3 的 1-5 项，并补齐了真实 `~/.nanobot` 的 refresh + wizard no-change 回归。
 - Behavior check: 旧 sidecar 配置样本回归、真实 `~/.nanobot` refresh 回归、真实 `~/.nanobot` wizard no-change 回归均已通过；`Config.model_validate(...)` / `model_dump(...)` 不再吞掉 `gateway.console` / `heartbeat.phrase1/phrase2` / plugin channel / web search provider/baseUrl 等 fork 字段。
 - Regression risk: 低。refresh 与 wizard 保存路径都已有兼容写回层、schema 前向引用修复、定向测试和真实家目录回归保护；当前未再观察到 overlay 固化或旧 sidecar 字段收缩。
-- Module Spec 需更新: 已完成，见 `.specanchor/modules/schema_patch_spec.md`、`.specanchor/modules/onboard_patch_spec.md`
+- Module Spec 需更新: 已完成，见 `.specanchor/modules/ava-patches-a_schema_patch.spec.md`、`.specanchor/modules/ava-patches-c_onboard_patch.spec.md`
 - Follow-ups: 如需继续扩大覆盖，下一步可以补“进入 wizard 子菜单后修改单个字段再保存”的真实交互回归；当前 no-change/save-exit 链路已经闭环。
 
 ## 7. Plan-Execution Diff

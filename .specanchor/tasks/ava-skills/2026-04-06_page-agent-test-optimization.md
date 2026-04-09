@@ -7,8 +7,8 @@ specanchor:
   status: "archived"
   last_change: "归档：当前 spec 被 console_ui_dev_loop 闭环 spec 替代，不再作为执行入口"
   related_modules:
-    - ".specanchor/modules/page_agent_runtime_spec.md"
-    - ".specanchor/modules/tools_patch_spec.md"
+    - ".specanchor/modules/ava-tools-page_agent.spec.md"
+    - ".specanchor/modules/ava-patches-tools_patch.spec.md"
   related_global:
     - ".specanchor/global/architecture.md"
     - ".specanchor/global-patch-spec.md"
@@ -310,7 +310,7 @@ repair:
 - Spec coverage: PASS
 - Behavior check: N/A（本次只产出方案，未进入 Execute）
 - Regression risk: Low（当前仅新增 task spec）
-- Module Spec 需更新: No（当前问题主要在 skill 协议层；若后续修改 `page_agent` 返回 contract，再回看 `page_agent_runtime_spec.md`）
+- Module Spec 需更新: No（当前问题主要在 skill 协议层；若后续修改 `page_agent` 返回 contract，再回看 `ava-tools-page_agent.spec.md`）
 - Follow-ups:
   - 先实施 `page_agent_test` 收口，再同步 `console_ui_regression`
   - benchmark 结果应验证“减少不必要的 vision 调用”和“默认不越权修复”是否真的生效

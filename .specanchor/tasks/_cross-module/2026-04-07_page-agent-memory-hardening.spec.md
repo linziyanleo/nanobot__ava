@@ -7,11 +7,11 @@ specanchor:
   status: "in_progress"
   last_change: "Execute 完成：page_agent/runner/bg_tasks/loop_patch 内存硬化已落地，定向验证通过（83 passed）"
   related_modules:
-    - ".specanchor/modules/page_agent_runtime_spec.md"
-    - ".specanchor/modules/loop_patch_spec.md"
-    - ".specanchor/modules/claude_code_tool_spec.md"
-    - ".specanchor/modules/tools_patch_spec.md"
-    - ".specanchor/modules/console_browser_page_spec.md"
+    - ".specanchor/modules/ava-tools-page_agent.spec.md"
+    - ".specanchor/modules/ava-patches-loop_patch.spec.md"
+    - ".specanchor/modules/ava-tools-claude_code.spec.md"
+    - ".specanchor/modules/ava-patches-tools_patch.spec.md"
+    - ".specanchor/modules/console-ui-src-pages-BrowserPage.spec.md"
   related_tasks:
     - ".specanchor/tasks/2026-04-03_generic-page-agent-tool.md"
     - ".specanchor/tasks/2026-04-04_lifecycle-and-frontend-hotupdate.md"
@@ -95,9 +95,9 @@ specanchor:
 
 - Requirement Source: 用户要求“检查当前 patch 是否有内存泄漏问题，以及 page agent 相关流程的内存问题；生成修复以上主要问题的 task spec”
 - Design Refs:
-  - `.specanchor/modules/page_agent_runtime_spec.md`
-  - `.specanchor/modules/loop_patch_spec.md`
-  - `.specanchor/modules/claude_code_tool_spec.md`
+  - `.specanchor/modules/ava-tools-page_agent.spec.md`
+  - `.specanchor/modules/ava-patches-loop_patch.spec.md`
+  - `.specanchor/modules/ava-tools-claude_code.spec.md`
 - Code Refs:
   - `ava/tools/page_agent.py`
   - `console-ui/e2e/page-agent-runner.mjs`
@@ -234,11 +234,11 @@ specanchor:
   - 补 `_finished` pruning 行为测试
 - `tests/patches/test_loop_patch.py`
   - 补 weakref 生命周期行为测试
-- `.specanchor/modules/page_agent_runtime_spec.md`
+- `.specanchor/modules/ava-tools-page_agent.spec.md`
   - 同步 session retention / cache cleanup 行为
-- `.specanchor/modules/loop_patch_spec.md`
+- `.specanchor/modules/ava-patches-loop_patch.spec.md`
   - 同步 `_agent_loop_ref` 生命周期语义
-- `.specanchor/modules/claude_code_tool_spec.md`
+- `.specanchor/modules/ava-tools-claude_code.spec.md`
   - 同步 `BackgroundTaskStore` 的 in-memory retention policy
 
 ### 4.2 Signatures

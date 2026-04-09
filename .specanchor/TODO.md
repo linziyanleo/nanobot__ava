@@ -8,7 +8,7 @@
 ### 1. `context_patch` / `loop_patch` 配置读取口径漂移
 
 - 现状：
-  - [context_patch_spec.md](./modules/context_patch_spec.md) 已明确写出，当前实现仍通过旧的 `history_compressor.*` 路径读取参数并带默认回退。
+  - [ava-patches-context_patch.spec.md](./modules/ava-patches-context_patch.spec.md) 已明确写出，当前实现仍通过旧的 `history_compressor.*` 路径读取参数并带默认回退。
   - 实际设计目标是读取 `config.agents.defaults.context_compression` / `history_summarizer`。
 - 风险：
   - spec 和代码会继续漂；
@@ -16,7 +16,7 @@
 - 后续动作：
   - 对齐 `loop_patch.py` 的参数读取路径；
   - 同步更新 `tests/patches/test_context_patch.py`、`tests/patches/test_loop_patch.py`；
-  - 确认 `context_patch_spec.md` 从“现状说明”切回“实现即规范”。
+  - 确认 `ava-patches-context_patch.spec.md` 从“现状说明”切回“实现即规范”。
 
 ### 2. fork schema 与 upstream schema 的残余差异需要持续收敛
 

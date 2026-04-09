@@ -7,12 +7,12 @@ specanchor:
   status: "review"
   last_change: "已实现 v1 最小闭环资产：新增 console_ui_dev_loop skill、page_agent JSON 输出、skill 收口与定向测试"
   related_modules:
-    - ".specanchor/modules/claude_code_tool_spec.md"
-    - ".specanchor/modules/codex_tool_spec.md"
-    - ".specanchor/modules/page_agent_runtime_spec.md"
-    - ".specanchor/modules/console_browser_page_spec.md"
-    - ".specanchor/modules/loop_patch_spec.md"
-    - ".specanchor/modules/tools_patch_spec.md"
+    - ".specanchor/modules/ava-tools-claude_code.spec.md"
+    - ".specanchor/modules/ava-tools-codex.spec.md"
+    - ".specanchor/modules/ava-tools-page_agent.spec.md"
+    - ".specanchor/modules/console-ui-src-pages-BrowserPage.spec.md"
+    - ".specanchor/modules/ava-patches-loop_patch.spec.md"
+    - ".specanchor/modules/ava-patches-tools_patch.spec.md"
   related_global:
     - ".specanchor/global/architecture.md"
     - ".specanchor/global-patch-spec.md"
@@ -450,8 +450,8 @@ page_agent(
 - [x] Step 3: 根据用户选择，将 v1 收敛为 `claude_code sync + page_agent structured output`
 - [x] Step 4: 为 `codex` 补 Phase B TODO，明确本阶段不进入主路径
 - [x] Step 5: 同步 module spec TODO
-  - `page_agent_runtime_spec.md` 已补 v1 结构化输出规划
-  - `codex_tool_spec.md` 已补 Phase B 进入主路径前置条件
+  - `ava-tools-page_agent.spec.md` 已补 v1 结构化输出规划
+  - `ava-tools-codex.spec.md` 已补 Phase B 进入主路径前置条件
 - [x] Step 6: 按用户要求补入 `sdd-riper-one` 风格测试任务机制
   - Round 0 先生成 `testing_task + master_checklist`
   - 每轮返回 `completed/pending/deprecated` 视图
@@ -462,7 +462,7 @@ page_agent(
   - `execute / screenshot / get_page_info` 新增 JSON 字符串输出
 - [x] Step 9: 新建 `console_ui_dev_loop` skill 与 references/evals
 - [x] Step 10: 收缩 `page_agent_test` 与 `console_ui_regression` 的 user-facing 定位
-- [x] Step 11: 同步 `ava/templates/TOOLS.md` 与 `page_agent_runtime_spec.md`
+- [x] Step 11: 同步 `ava/templates/TOOLS.md` 与 `ava-tools-page_agent.spec.md`
 - [x] Step 12: 完成定向验证
   - `uv run pytest tests/tools/test_page_agent.py -q`
   - `git diff --check`
@@ -473,7 +473,7 @@ page_agent(
 - Spec coverage: PASS
 - Behavior check: PASS（`page_agent` JSON contract 已落地，skill 资产已创建，定向测试通过）
 - Regression risk: Low（文本协议保持兼容；新增 JSON 输出为可选参数）
-- Module Spec 需更新: 已同步实现（`page_agent_runtime_spec.md` 已从 TODO 更新为已实现 contract；`codex_tool_spec.md` 仍保留 Phase B TODO）
+- Module Spec 需更新: 已同步实现（`ava-tools-page_agent.spec.md` 已从 TODO 更新为已实现 contract；`ava-tools-codex.spec.md` 仍保留 Phase B TODO）
 - Follow-ups:
   - 以本 spec 作为唯一执行入口
   - `console_ui_dev_loop` 实现时已先落地 `testing_task` 与 checklist 生命周期，再补 verifier prompt

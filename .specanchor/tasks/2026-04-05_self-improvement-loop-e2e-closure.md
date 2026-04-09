@@ -8,10 +8,10 @@ specanchor:
   sdd_phase: "REVIEW"
   last_change: "v4: Execute done — all 12 items implemented, 37 tests passing"
   related_modules:
-    - ".specanchor/modules/claude_code_tool_spec.md"
-    - ".specanchor/modules/tools_patch_spec.md"
-    - ".specanchor/modules/loop_patch_spec.md"
-    - ".specanchor/modules/context_patch_spec.md"
+    - ".specanchor/modules/ava-tools-claude_code.spec.md"
+    - ".specanchor/modules/ava-patches-tools_patch.spec.md"
+    - ".specanchor/modules/ava-patches-loop_patch.spec.md"
+    - ".specanchor/modules/ava-patches-context_patch.spec.md"
   related_tasks:
     - ".specanchor/tasks/2026-04-04_coding-cli-and-self-improvement-loop.md"
     - ".specanchor/tasks/2026-04-04_lifecycle-and-frontend-hotupdate.md"

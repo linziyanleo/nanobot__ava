@@ -7,8 +7,8 @@ specanchor:
   status: "in_progress"
   last_change: "Execute 阶段：修复 page-agent runner 的 bridge 重复注册与 demo bundle 导出读取错误，补充 runner contract 测试"
   related_modules:
-    - ".specanchor/modules/page_agent_runtime_spec.md"
-    - ".specanchor/modules/console_browser_page_spec.md"
+    - ".specanchor/modules/ava-tools-page_agent.spec.md"
+    - ".specanchor/modules/console-ui-src-pages-BrowserPage.spec.md"
   flow_type: "standard"
   writing_protocol: "sdd-riper-one"
   sdd_phase: "EXECUTE"
@@ -51,8 +51,8 @@ specanchor:
   - 用户希望在 Chat 页面中对 page_agent 的工具调用有更好的可视化展示
   - 用户希望有桌面环境时直接弹出浏览器窗口，可以实时观看 AI 操作
 - Design Refs:
-  - `.specanchor/modules/page_agent_runtime_spec.md`
-  - `.specanchor/modules/console_browser_page_spec.md`
+  - `.specanchor/modules/ava-tools-page_agent.spec.md`
+  - `.specanchor/modules/console-ui-src-pages-BrowserPage.spec.md`
 - Code Refs:
   - `console-ui/src/pages/ChatPage/ToolCallBlock.tsx` — 现有工具调用渲染（claude_code、media tools 的专属渲染模式）
   - `ava/tools/page_agent.py` — 工具实现，返回文本格式
@@ -395,7 +395,7 @@ function parsePageAgentResult(text: string): PageAgentResult | null {
 | `console-ui/src/pages/ChatPage/ToolCallBlock.tsx` | 修改 | `parsePageAgentResult` + page_agent 专属渲染（emerald 主色调） |
 | `console-ui/src/components/layout/navItems.ts` | 修改 | 暂时隐藏 BrowserPage 导航入口 |
 | `ava/skills/console_ui_regression/SKILL.md` | 修改 | 同步更新 execute 返回格式文档 |
-| `.specanchor/modules/page_agent_runtime_spec.md` | 修改 | 更新 execute 返回格式、runner 响应字段、测试要点 |
+| `.specanchor/modules/ava-tools-page_agent.spec.md` | 修改 | 更新 execute 返回格式、runner 响应字段、测试要点 |
 
 ## 5. Implementation Checklist
 
@@ -407,7 +407,7 @@ function parsePageAgentResult(text: string): PageAgentResult | null {
 - [x] 6. 实现 Loading 状态：统一 "Browsing..." + spinner（不区分 headed/headless）
 - [x] 7. 更新 `ava/skills/console_ui_regression/SKILL.md` 格式文档
 - [x] 8. 隐藏 BrowserPage 导航入口（`navItems.ts`）
-- [x] 9. 更新 `page_agent_runtime_spec.md` Module Spec
+- [x] 9. 更新 `ava-tools-page_agent.spec.md` Module Spec
 - [ ] 10. 编写测试：`_do_execute` 成功/失败/TIMEOUT 返回格式
 - [ ] 11. 编写测试：`parsePageAgentResult` 正则解析正确性（含旧格式降级）
 - [ ] 12. 端到端验证：Chat 页面显示专属卡片
@@ -464,7 +464,7 @@ function parsePageAgentResult(text: string): PageAgentResult | null {
   3. `ToolCallBlock.tsx`：`parsePageAgentResult()` + page_agent 专属渲染分支（emerald 主色调、状态 badge、URL 可点击）
   4. `navItems.ts`：隐藏 BrowserPage 导航入口
   5. `SKILL.md`：同步格式文档
-  6. `page_agent_runtime_spec.md`：更新 execute 返回格式、runner 响应字段说明、测试要点
+  6. `ava-tools-page_agent.spec.md`：更新 execute 返回格式、runner 响应字段说明、测试要点
  - `2026-04-04` Bugfix：
    1. `page-agent-runner.mjs`：bridge 注册状态改存到 session 侧，避免导航后重复 `page.exposeFunction("__paOnActivity")`
    2. `page-agent-runner.mjs`：按 `page-agent.demo.js` 的真实导出形状读取 `window.PageAgent` 构造器，不再误读 `PageAgentCore/PageController`

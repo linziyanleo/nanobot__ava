@@ -7,10 +7,10 @@ specanchor:
   status: "in_progress"
   last_change: "Execute：Token Stats 拆分全局审计/单 Session 调试模式，单 Session 默认按 turn 簇展示并支持调用条目展开"
   related_modules:
-    - ".specanchor/modules/loop_patch_spec.md"
-    - ".specanchor/modules/bus_console_listener_spec.md"
-    - ".specanchor/modules/console_patch_spec.md"
-    - ".specanchor/modules/storage_patch_spec.md"
+    - ".specanchor/modules/ava-patches-loop_patch.spec.md"
+    - ".specanchor/modules/ava-patches-bus_patch.spec.md"
+    - ".specanchor/modules/ava-patches-console_patch.spec.md"
+    - ".specanchor/modules/ava-patches-storage_patch.spec.md"
     - ".specanchor/global/global-patch-spec.md"
   flow_type: "standard"
   writing_protocol: "sdd-riper-one"
@@ -53,9 +53,9 @@ specanchor:
   - 用户反馈：Telegram 消息到达后 `_process_message` 日志已输出，但消息未写入 nanobot.db，Chat 页面无法同步
   - 用户要求：消息到达时立即在 Chat 页面显示 + Processing 状态；Token Stats 立即记录用户消息和完整上下文
 - Design Refs:
-  - `.specanchor/modules/loop_patch_spec.md`
-  - `.specanchor/modules/bus_console_listener_spec.md`
-  - `.specanchor/modules/storage_patch_spec.md`
+  - `.specanchor/modules/ava-patches-loop_patch.spec.md`
+  - `.specanchor/modules/ava-patches-bus_patch.spec.md`
+  - `.specanchor/modules/ava-patches-storage_patch.spec.md`
   - `.specanchor/tasks/fix-token-stats-recording.md`
 - Code Refs:
   - `ava/patches/loop_patch.py` — 当前 token 统计拦截逻辑
@@ -98,7 +98,7 @@ T5  sessions.save → storage_patch.patched_save → INSERT session_messages + c
 
 **文件**：`ava/patches/bus_patch.py`
 
-**为什么不新建 `event_bus.py`**：bus_patch 已经为 MessageBus 实现了按 `session_key` 管理 listener queue 的基础设施（`register_console_listener` / `unregister_console_listener`），参见 `bus_console_listener_spec.md`。新建独立 Event Bus 等于造第二套 session event system，增加维护负担且两套机制的生命周期管理容易冲突。
+**为什么不新建 `event_bus.py`**：bus_patch 已经为 MessageBus 实现了按 `session_key` 管理 listener queue 的基础设施（`register_console_listener` / `unregister_console_listener`），参见 `ava-patches-bus_patch.spec.md`。新建独立 Event Bus 等于造第二套 session event system，增加维护负担且两套机制的生命周期管理容易冲突。
 
 在现有 `apply_bus_patch()` 中追加 3 个方法注入：
 

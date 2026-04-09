@@ -7,10 +7,10 @@ specanchor:
   status: "draft"
   last_change: "补齐 page_agent runtime / console-ui browser page module spec，并按当前实现修正文档引用"
   related_modules:
-    - ".specanchor/modules/page_agent_runtime_spec.md"
-    - ".specanchor/modules/console_browser_page_spec.md"
-    - ".specanchor/modules/tools_patch_spec.md"
-    - ".specanchor/modules/schema_patch_spec.md"
+    - ".specanchor/modules/ava-tools-page_agent.spec.md"
+    - ".specanchor/modules/console-ui-src-pages-BrowserPage.spec.md"
+    - ".specanchor/modules/ava-patches-tools_patch.spec.md"
+    - ".specanchor/modules/ava-patches-a_schema_patch.spec.md"
   related_tasks:
     - ".specanchor/tasks/2026-04-02_console-ui-page-agent-autotest-spec.md"
   flow_type: "standard"
