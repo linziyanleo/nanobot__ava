@@ -2,7 +2,7 @@ import { useEffect, useState, useCallback, useRef } from 'react'
 import Editor from '@monaco-editor/react'
 import {
   Wrench, Puzzle, Plus, RefreshCw, Save, GitBranch, FolderOpen, Trash2, X,
-  Package, Pencil, Upload, Bot,
+  Package, Pencil, Upload, Bot, ExternalLink,
 } from 'lucide-react'
 import { api } from '../api/client'
 import { useAuth } from '../stores/auth'
@@ -667,16 +667,27 @@ function SkillCard({
             </span>
           )}
         </div>
-        {onDelete && (
-          <button
-            onClick={onDelete}
-            disabled={deleting}
-            title="删除"
-            className="p-1 rounded text-[var(--text-secondary)] hover:text-[var(--danger)] hover:bg-[var(--danger)]/10 opacity-0 group-hover:opacity-100 transition-all"
-          >
-            <Trash2 className="w-3.5 h-3.5" />
-          </button>
-        )}
+        <div className="flex items-center gap-1">
+          {skill.install_method === 'git' && skill.git_url && (
+            <button
+              onClick={() => window.open(skill.git_url!, '_blank')}
+              title="打开来源仓库"
+              className="p-1 rounded text-[var(--text-secondary)] hover:text-[var(--accent)] hover:bg-[var(--accent)]/10 opacity-0 group-hover:opacity-100 transition-all"
+            >
+              <ExternalLink className="w-3.5 h-3.5" />
+            </button>
+          )}
+          {onDelete && (
+            <button
+              onClick={onDelete}
+              disabled={deleting}
+              title="删除"
+              className="p-1 rounded text-[var(--text-secondary)] hover:text-[var(--danger)] hover:bg-[var(--danger)]/10 opacity-0 group-hover:opacity-100 transition-all"
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+            </button>
+          )}
+        </div>
       </div>
     </div>
   )

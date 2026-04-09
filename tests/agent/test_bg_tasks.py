@@ -24,6 +24,7 @@ class TestTaskSnapshot:
         assert d["task_id"] == "abc123"
         assert d["task_type"] == "coding"
         assert d["origin_session_key"] == "console:sess1"
+        assert d["execution_mode"] == "async"
         assert isinstance(d["timeline"], list)
 
 
@@ -802,3 +803,117 @@ class TestOnCompleteWithContinuation:
         call_kwargs = mock_loop.process_direct.call_args
         assert call_kwargs is not None
         assert "TAIL_MARKER" in call_kwargs.args[0]
+
+
+class TestSyncLifecycle:
+    @pytest.mark.asyncio
+    async def test_submit_and_complete_sync_task(self):
+        store = BackgroundTaskStore()
+
+        task_id = store.submit_sync_task(
+            origin_session_key="console:s1",
+            prompt="Implement sync visibility",
+            project_path="/tmp/project",
+            task_type="claude_code",
+        )
+
+        status = store.get_status(task_id=task_id)
+        assert status["total"] == 1
+        assert status["tasks"][0]["execution_mode"] == "sync"
+        assert task_id in store._active
+
+        await store.complete_sync_task(
+            task_id,
+            status="succeeded",
+            result_text="sync done",
+            session_id="sync-session",
+        )
+
+        assert task_id in store._finished
+        snap = store._finished[task_id]
+        assert snap.status == "succeeded"
+        assert snap.execution_mode == "sync"
+        assert snap.result_preview == "sync done"
+        assert snap.cli_session_id == "sync-session"
+
+    @pytest.mark.asyncio
+    async def test_complete_sync_task_has_no_session_bus_or_continuation_side_effects(self):
+        mock_session = MagicMock()
+        mock_session.messages = []
+        mock_sessions = MagicMock()
+        mock_sessions.get_or_create.return_value = mock_session
+        mock_sessions.save = MagicMock()
+
+        mock_bus = MagicMock()
+        mock_bus.publish_outbound = AsyncMock()
+
+        mock_loop = MagicMock()
+        mock_loop.sessions = mock_sessions
+        mock_loop.bus = mock_bus
+
+        store = BackgroundTaskStore()
+        store.set_agent_loop(mock_loop)
+
+        task_id = store.submit_sync_task(
+            origin_session_key="console:s1",
+            prompt="No side effects",
+            project_path="/tmp/project",
+            task_type="claude_code",
+        )
+        store._active[task_id].auto_continue = True
+
+        with patch.object(store, "_trigger_continuation", new=AsyncMock()) as mock_continue:
+            await store.complete_sync_task(
+                task_id,
+                status="failed",
+                result_text="[Claude Code ERROR]\n...",
+                error_message="[Claude Code ERROR]\n...",
+            )
+
+        assert mock_session.messages == []
+        mock_sessions.get_or_create.assert_not_called()
+        mock_sessions.save.assert_not_called()
+        mock_bus.publish_outbound.assert_not_called()
+        mock_continue.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_cancel_running_sync_task_returns_not_found(self):
+        store = BackgroundTaskStore()
+        task_id = store.submit_sync_task(
+            origin_session_key="console:s1",
+            prompt="Sync tasks are inline",
+            project_path="/tmp/project",
+            task_type="claude_code",
+        )
+
+        result = await store.cancel(task_id)
+        assert "not found" in result.lower()
+
+    @pytest.mark.asyncio
+    async def test_sync_task_persists_execution_mode_to_db_and_history(self, tmp_path):
+        from ava.storage import Database
+
+        db = Database(tmp_path / "bg-tasks.db")
+        store = BackgroundTaskStore(db=db)
+
+        task_id = store.submit_sync_task(
+            origin_session_key="console:s1",
+            prompt="Persist sync task",
+            project_path="/tmp/project",
+            task_type="claude_code",
+        )
+        await store.complete_sync_task(
+            task_id,
+            status="succeeded",
+            result_text="persisted",
+            session_id="sync-session",
+        )
+
+        reloaded = BackgroundTaskStore(db=Database(tmp_path / "bg-tasks.db"))
+        status = reloaded.get_status(task_id=task_id)
+        assert status["total"] == 1
+        assert status["tasks"][0]["execution_mode"] == "sync"
+
+        history = reloaded.query_history()
+        matched = next(task for task in history["tasks"] if task["task_id"] == task_id)
+        assert matched["execution_mode"] == "sync"

@@ -52,6 +52,7 @@ class TaskSnapshot:
     project_path: str = ""
     cli_session_id: str = ""
     auto_continue: bool = False
+    execution_mode: Literal["async", "sync"] = "async"
 
     def to_dict(self) -> dict[str, Any]:
         d = asdict(self)
@@ -94,6 +95,7 @@ class BackgroundTaskStore:
                     finished_at REAL,
                     result_preview TEXT,
                     error_message TEXT,
+                    execution_mode TEXT NOT NULL DEFAULT 'async',
                     extra TEXT
                 )
             """)
@@ -114,6 +116,12 @@ class BackgroundTaskStore:
                 "CREATE INDEX IF NOT EXISTS idx_bg_task_events_task "
                 "ON bg_task_events(task_id)"
             )
+            try:
+                self._db.execute(
+                    "ALTER TABLE bg_tasks ADD COLUMN execution_mode TEXT NOT NULL DEFAULT 'async'"
+                )
+            except Exception:
+                pass
             self._db.commit()
         except Exception as exc:
             logger.warning("BackgroundTaskStore: failed to create tables: {}", exc)
@@ -204,6 +212,66 @@ class BackgroundTaskStore:
         task = asyncio.create_task(_run())
         self._tasks[task_id] = task
         return task_id
+
+    def submit_sync_task(
+        self,
+        *,
+        origin_session_key: str,
+        prompt: str,
+        project_path: str,
+        task_type: str = "coding",
+    ) -> str:
+        """Register a sync task. Caller executes it inline and reports completion."""
+        task_id = uuid.uuid4().hex[:12]
+        now = time.time()
+        snapshot = TaskSnapshot(
+            task_id=task_id,
+            task_type=task_type,
+            origin_session_key=origin_session_key,
+            status="running",
+            prompt_preview=prompt[:200],
+            project_path=project_path,
+            started_at=now,
+            timeline=[
+                TimelineEvent(timestamp=now, event="submitted", detail=prompt[:100]),
+                TimelineEvent(timestamp=now, event="started", detail="sync mode"),
+            ],
+            execution_mode="sync",
+        )
+        self._active[task_id] = snapshot
+        self._persist_task(snapshot, full_prompt=prompt)
+        self._persist_event(task_id, "submitted", prompt[:100])
+        self._persist_event(task_id, "started", "sync mode")
+        return task_id
+
+    async def complete_sync_task(
+        self,
+        task_id: str,
+        *,
+        status: Literal["succeeded", "failed"],
+        result_text: str = "",
+        error_message: str = "",
+        session_id: str = "",
+    ) -> None:
+        """Persist a sync task result without session writes, outbound notifications, or continuation."""
+        snapshot = self._active.get(task_id)
+        if not snapshot:
+            return
+
+        now = time.time()
+        snapshot.status = status
+        snapshot.finished_at = now
+        snapshot.elapsed_ms = int((now - (snapshot.started_at or now)) * 1000)
+        snapshot.result_preview = result_text
+        snapshot.error_message = error_message
+        snapshot.cli_session_id = session_id
+
+        event_name = "succeeded" if status == "succeeded" else "failed"
+        self._record_event(task_id, event_name, (result_text or error_message)[:100])
+        self._update_task_status(task_id, status, snapshot, full_result=result_text)
+
+        self._finished[task_id] = self._active.pop(task_id, snapshot)
+        self._prune_finished()
 
     def record_event(
         self, task_id: str, event: str, detail: str = "",
@@ -568,7 +636,10 @@ class BackgroundTaskStore:
             return
         try:
             import json
-            extra: dict[str, Any] = {"cli_session_id": snapshot.cli_session_id}
+            extra: dict[str, Any] = {
+                "cli_session_id": snapshot.cli_session_id,
+                "execution_mode": snapshot.execution_mode,
+            }
             if full_prompt:
                 extra["full_prompt"] = full_prompt
             if full_result:
@@ -577,14 +648,15 @@ class BackgroundTaskStore:
                 """INSERT OR REPLACE INTO bg_tasks
                    (task_id, task_type, origin_session_key, status,
                     prompt_preview, project_path, started_at, finished_at,
-                    result_preview, error_message, extra)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    result_preview, error_message, execution_mode, extra)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
                     snapshot.task_id, snapshot.task_type,
                     snapshot.origin_session_key, snapshot.status,
                     snapshot.prompt_preview, snapshot.project_path,
                     snapshot.started_at, snapshot.finished_at,
                     snapshot.result_preview, snapshot.error_message,
+                    snapshot.execution_mode,
                     json.dumps(extra),
                 ),
             )
@@ -612,13 +684,14 @@ class BackgroundTaskStore:
                     except Exception:
                         pass
                 extra["cli_session_id"] = snapshot.cli_session_id
+                extra["execution_mode"] = snapshot.execution_mode
                 if full_result:
                     extra["full_result"] = full_result
                 self._db.execute(
                     """UPDATE bg_tasks SET status=?, finished_at=?,
-                       result_preview=?, error_message=?, extra=? WHERE task_id=?""",
+                       result_preview=?, error_message=?, execution_mode=?, extra=? WHERE task_id=?""",
                     (status, snapshot.finished_at, snapshot.result_preview,
-                     snapshot.error_message, _json.dumps(extra), task_id),
+                     snapshot.error_message, snapshot.execution_mode, _json.dumps(extra), task_id),
                 )
             else:
                 self._db.execute(
@@ -678,7 +751,7 @@ class BackgroundTaskStore:
             row = self._db.fetchone(
                 """SELECT task_id, task_type, origin_session_key, status,
                           prompt_preview, project_path, started_at, finished_at,
-                          result_preview, error_message, extra
+                          result_preview, error_message, execution_mode, extra
                    FROM bg_tasks
                    WHERE task_id=?""",
                 (task_id,),
@@ -708,6 +781,8 @@ class BackgroundTaskStore:
             error_message=self._row_val(row, "error_message"),
             project_path=self._row_val(row, "project_path"),
             cli_session_id=extra.get("cli_session_id", ""),
+            execution_mode=self._row_val(row, "execution_mode", None)
+            or extra.get("execution_mode", "async"),
         )
 
     @staticmethod
@@ -746,37 +821,13 @@ class BackgroundTaskStore:
             rows = self._db.fetchall(
                 f"""SELECT task_id, task_type, origin_session_key, status,
                            prompt_preview, project_path, started_at, finished_at,
-                           result_preview, error_message, extra
+                           result_preview, error_message, execution_mode, extra
                     FROM bg_tasks {where}
                     ORDER BY started_at DESC
                     LIMIT ? OFFSET ?""",
                 tuple(params),
             )
-            rv = self._row_val
-            tasks = []
-            for r in rows:
-                extra = self._load_extra_json(rv(r, "extra", "{}"))
-                started = rv(r, "started_at", None)
-                finished = rv(r, "finished_at", None)
-                elapsed = int((finished - started) * 1000) if started and finished else 0
-                tasks.append({
-                    "task_id": r["task_id"],
-                    "task_type": r["task_type"],
-                    "origin_session_key": r["origin_session_key"],
-                    "status": r["status"],
-                    "prompt_preview": rv(r, "prompt_preview"),
-                    "started_at": started,
-                    "finished_at": finished,
-                    "elapsed_ms": elapsed,
-                    "result_preview": rv(r, "result_preview"),
-                    "error_message": rv(r, "error_message"),
-                    "project_path": rv(r, "project_path"),
-                    "cli_session_id": extra.get("cli_session_id", ""),
-                    "phase": "",
-                    "last_tool_name": "",
-                    "todo_summary": None,
-                    "timeline": [],
-                })
+            tasks = [self._snapshot_from_db_row(r).to_dict() for r in rows]
             return {"tasks": tasks, "total": total, "page": page, "page_size": page_size}
         except Exception as exc:
             logger.warning("BackgroundTaskStore: query_history failed: {}", exc)

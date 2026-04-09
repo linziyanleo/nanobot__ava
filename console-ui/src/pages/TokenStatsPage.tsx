@@ -1115,7 +1115,7 @@ export default function TokenStatsPage() {
                   type="text"
                   value={filterProvider}
                   onChange={e => setFilterProvider(e.target.value)}
-                  placeholder="yunwu"
+                  placeholder="openai"
                   className="w-full px-2.5 py-1.5 rounded-lg bg-[var(--bg-primary)] border border-[var(--border)] text-xs text-[var(--text-primary)] placeholder:text-[var(--text-secondary)]/50 focus:border-[var(--accent)] outline-none"
                 />
               </div>

@@ -133,7 +133,7 @@ export default function DashboardPage() {
   }, [countdown])
 
   const handleRestart = async (force = false) => {
-    if (!window.confirm(`Restart gateway${force ? ' (force)' : ''}?`)) return
+    if (!window.confirm(`重启网关${force ? '（强制）' : ''}？`)) return
     setRestarting(true)
     setGwMessage(null)
     try {
@@ -143,16 +143,16 @@ export default function DashboardPage() {
         body: JSON.stringify({ delay_ms: delayMs, force }),
       })
       setCountdown(Math.ceil(delayMs / 1000) + 5)
-      setGwMessage({ type: 'success', text: `Gateway restart scheduled in ${delayMs / 1000}s.` })
+      setGwMessage({ type: 'success', text: `网关重启已调度，${delayMs / 1000}s 后执行。` })
     } catch (err: unknown) {
-      setGwMessage({ type: 'error', text: err instanceof Error ? err.message : 'Restart failed' })
+      setGwMessage({ type: 'error', text: err instanceof Error ? err.message : '重启失败' })
     } finally {
       setRestarting(false)
     }
   }
 
   const handleRebuild = async () => {
-    if (!window.confirm('Rebuild console UI now?')) return
+    if (!window.confirm('立即重新构建控制台界面？')) return
     setRebuilding(true)
     setGwMessage(null)
     try {
@@ -160,12 +160,12 @@ export default function DashboardPage() {
         method: 'POST',
       })
       if (res.success) {
-        setGwMessage({ type: 'success', text: `Console UI rebuilt in ${res.duration_ms}ms.` })
+        setGwMessage({ type: 'success', text: `界面重新构建完成，耗时 ${res.duration_ms}ms。` })
       } else {
-        setGwMessage({ type: 'error', text: `Rebuild failed: ${res.error}` })
+        setGwMessage({ type: 'error', text: `重新构建失败：${res.error}` })
       }
     } catch (err: unknown) {
-      setGwMessage({ type: 'error', text: err instanceof Error ? err.message : 'Rebuild failed' })
+      setGwMessage({ type: 'error', text: err instanceof Error ? err.message : '重新构建失败' })
     } finally {
       setRebuilding(false)
     }
@@ -177,7 +177,7 @@ export default function DashboardPage() {
           icon: Settings,
           label: '配置',
           value: 'Mock Config',
-          sub: 'Edit only mock config files',
+          sub: '仅编辑模拟配置文件',
           color: 'text-[var(--accent)]',
           onClick: () => navigate('/config'),
         },
@@ -185,7 +185,7 @@ export default function DashboardPage() {
           icon: Timer,
           label: '定时任务',
           value: 'Mock Cron',
-          sub: 'Cron jobs live under mock_data',
+          sub: '定时任务在模拟数据目录下',
           color: 'text-cyan-400',
           onClick: () => navigate('/tasks'),
         },
@@ -193,7 +193,7 @@ export default function DashboardPage() {
           icon: Cpu,
           label: '后台任务',
           value: 'Mock Tasks',
-          sub: 'Observe empty/mock-safe task states',
+          sub: '查看空/模拟安全的任务状态',
           color: 'text-blue-400',
           onClick: () => navigate('/bg-tasks'),
         },
@@ -201,7 +201,7 @@ export default function DashboardPage() {
           icon: Brain,
           label: '记忆',
           value: 'Mock Memory',
-          sub: 'Preview persona and memory documents',
+          sub: '预览人设和记忆文档',
           color: 'text-amber-400',
           onClick: () => navigate('/memory'),
         },
@@ -209,7 +209,7 @@ export default function DashboardPage() {
           icon: Image,
           label: '生成图片',
           value: 'Mock Media',
-          sub: 'Gallery stays inside mock_data',
+          sub: '图片库限定在模拟数据目录内',
           color: 'text-emerald-400',
           onClick: () => navigate('/media'),
         },
@@ -217,7 +217,7 @@ export default function DashboardPage() {
           icon: UserCog,
           label: '人设',
           value: 'Mock Persona',
-          sub: 'Edit workspace identity files in sandbox',
+          sub: '在沙盒中编辑工作区身份文件',
           color: 'text-violet-400',
           onClick: () => navigate('/persona'),
         },
@@ -225,7 +225,7 @@ export default function DashboardPage() {
           icon: Hammer,
           label: '技能和工具',
           value: 'Mock Skills',
-          sub: 'Inspect tool registry and mock TOOLS.md',
+          sub: '查看工具注册表和模拟 TOOLS.md',
           color: 'text-fuchsia-400',
           onClick: () => navigate('/skills'),
         },
@@ -233,7 +233,7 @@ export default function DashboardPage() {
           icon: MessageSquare,
           label: '聊天',
           value: 'Mock Chat',
-          sub: 'Browse seeded mock conversations safely',
+          sub: '安全浏览预置的模拟对话',
           color: 'text-pink-400',
           onClick: () => navigate('/chat'),
         },
@@ -241,7 +241,7 @@ export default function DashboardPage() {
           icon: BarChart3,
           label: 'Token 统计',
           value: 'Mock Stats',
-          sub: 'Token charts come from mock.nanobot.db',
+          sub: 'Token 图表来自模拟数据库',
           color: 'text-sky-400',
           onClick: () => navigate('/tokens'),
         },
@@ -249,33 +249,33 @@ export default function DashboardPage() {
     : [
         {
           icon: Settings,
-          label: 'Config',
-          value: 'Config',
-          sub: 'Edit gateway and console configuration',
+          label: '配置',
+          value: '配置',
+          sub: '编辑网关和控制台配置',
           color: 'text-[var(--accent)]',
           onClick: () => navigate('/config'),
         },
         {
           icon: Brain,
-          label: 'Memory',
-          value: 'Memory',
-          sub: 'Browse global and personal memory files',
+          label: '记忆',
+          value: '记忆',
+          sub: '浏览全局和个人记忆文件',
           color: 'text-amber-400',
           onClick: () => navigate('/memory'),
         },
         {
           icon: UserCog,
-          label: 'Persona',
-          value: 'Persona',
-          sub: 'Inspect core agent identity files',
+          label: '人设',
+          value: '人设',
+          sub: '查看核心 Agent 身份文件',
           color: 'text-emerald-400',
           onClick: () => navigate('/persona'),
         },
         {
           icon: MessageSquare,
-          label: 'Chat',
-          value: 'Chat',
-          sub: 'Open live agent sessions and debugging flows',
+          label: '聊天',
+          value: '聊天',
+          sub: '打开实时 Agent 会话和调试流程',
           color: 'text-fuchsia-400',
           onClick: () => navigate('/chat'),
         },
@@ -293,7 +293,7 @@ export default function DashboardPage() {
           <div className="flex items-start gap-3">
             <Shield className="mt-0.5 h-5 w-5 text-amber-400" />
             <div>
-              <p className="text-sm font-semibold text-amber-300">MOCK SANDBOX</p>
+              <p className="text-sm font-semibold text-amber-300">模拟沙盒</p>
               <p className="mt-1 text-sm text-amber-100/80">
                 当前账号只能读取和编辑 `~/.nanobot/console/mock_data/`。真实 workspace、真实 `~/.nanobot`、live agent
                 执行与 gateway 控制都不会暴露给这个账号；聊天与后台任务页面也只展示 mock-safe 数据或空态。
@@ -342,7 +342,7 @@ export default function DashboardPage() {
         <div className="mb-4 flex items-center gap-3 rounded-xl border border-[var(--warning)]/20 bg-[var(--warning)]/10 p-4">
           <AlertTriangle className="h-5 w-5 text-[var(--warning)]" />
           <div>
-            <p className="text-sm font-medium text-[var(--warning)]">Gateway restart pending</p>
+            <p className="text-sm font-medium text-[var(--warning)]">网关重启等待中</p>
             <p className="text-xs text-[var(--text-secondary)]">预计约 {countdown}s 后重新连接。</p>
           </div>
         </div>
@@ -395,19 +395,19 @@ export default function DashboardPage() {
             </div>
             <div>
               <h2 className="flex items-center gap-2 text-sm font-semibold">
-                {status?.running ? 'Gateway online' : 'Gateway offline'}
+                {status?.running ? '网关在线' : '网关离线'}
                 <button
                   onClick={loadStatus}
                   className="rounded p-1 text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)]"
-                  title="Refresh status"
+                  title="刷新状态"
                 >
                   <RefreshCw className="h-3.5 w-3.5" />
                 </button>
               </h2>
               <p className="text-[10px] text-[var(--text-secondary)]">
                 {status?.running
-                  ? `PID ${status.pid ?? '-'} · uptime ${shortUptime(status.uptime_seconds)} · port ${status.gateway_port ?? '-'}`
-                  : 'No running gateway detected'}
+                  ? `PID ${status.pid ?? '-'} · 运行 ${shortUptime(status.uptime_seconds)} · 端口 ${status.gateway_port ?? '-'}`
+                  : '未检测到运行中的网关'}
               </p>
             </div>
           </div>
@@ -420,7 +420,7 @@ export default function DashboardPage() {
                 className="flex items-center gap-1 rounded-lg bg-[var(--accent)] px-2.5 py-1.5 text-[11px] font-medium text-white disabled:opacity-50 hover:bg-[var(--accent)]/80"
               >
                 {rebuilding ? <Loader2 className="h-3 w-3 animate-spin" /> : <Hammer className="h-3 w-3" />}
-                {isMobile ? '' : rebuilding ? 'Building...' : 'Rebuild UI'}
+                {isMobile ? '' : rebuilding ? '构建中...' : '重新构建'}
               </button>
               <button
                 onClick={() => handleRestart(false)}
@@ -428,7 +428,7 @@ export default function DashboardPage() {
                 className="flex items-center gap-1 rounded-lg bg-[var(--warning)] px-2.5 py-1.5 text-[11px] font-medium text-black disabled:opacity-50 hover:bg-[var(--warning)]/80"
               >
                 <RefreshCw className="h-3 w-3" />
-                {isMobile ? '' : restarting ? 'Scheduling...' : 'Restart'}
+                {isMobile ? '' : restarting ? '调度中...' : '重启'}
               </button>
               <button
                 onClick={() => handleRestart(true)}
@@ -436,7 +436,7 @@ export default function DashboardPage() {
                 className="flex items-center gap-1 rounded-lg bg-[var(--danger)] px-2.5 py-1.5 text-[11px] font-medium text-white disabled:opacity-50 hover:bg-[var(--danger)]/80"
               >
                 <Power className="h-3 w-3" />
-                {isMobile ? '' : 'Force'}
+                {isMobile ? '' : '强制'}
               </button>
             </div>
           )}
@@ -444,23 +444,23 @@ export default function DashboardPage() {
 
         <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
           <div className="rounded-lg bg-[var(--bg-primary)] p-3">
-            <p className="mb-0.5 text-[10px] text-[var(--text-secondary)]">Status</p>
+            <p className="mb-0.5 text-[10px] text-[var(--text-secondary)]">状态</p>
             <p
               className={`text-sm font-semibold ${status?.running ? 'text-[var(--success)]' : 'text-[var(--danger)]'}`}
             >
-              {status?.running ? 'Online' : 'Offline'}
+              {status?.running ? '在线' : '离线'}
             </p>
           </div>
           <div className="rounded-lg bg-[var(--bg-primary)] p-3">
-            <p className="mb-0.5 text-[10px] text-[var(--text-secondary)]">Gateway Port</p>
+            <p className="mb-0.5 text-[10px] text-[var(--text-secondary)]">网关端口</p>
             <p className="text-sm font-semibold">{status?.gateway_port ?? '-'}</p>
           </div>
           <div className="rounded-lg bg-[var(--bg-primary)] p-3">
-            <p className="mb-0.5 text-[10px] text-[var(--text-secondary)]">Console Port</p>
+            <p className="mb-0.5 text-[10px] text-[var(--text-secondary)]">控制台端口</p>
             <p className="text-sm font-semibold">{status?.console_port ?? '-'}</p>
           </div>
           <div className="rounded-lg bg-[var(--bg-primary)] p-3">
-            <p className="mb-0.5 text-[10px] text-[var(--text-secondary)]">Uptime</p>
+            <p className="mb-0.5 text-[10px] text-[var(--text-secondary)]">运行时长</p>
             <p className="text-sm font-semibold">{formatUptime(status?.uptime_seconds ?? null)}</p>
           </div>
         </div>
@@ -468,28 +468,28 @@ export default function DashboardPage() {
         {status && (
           <div className="mt-3 grid grid-cols-2 gap-3 md:grid-cols-4">
             <div className="rounded-lg bg-[var(--bg-primary)] p-3">
-              <p className="mb-0.5 text-[10px] text-[var(--text-secondary)]">Supervisor</p>
+              <p className="mb-0.5 text-[10px] text-[var(--text-secondary)]">监管进程</p>
               <p className="flex items-center gap-1 text-sm font-semibold">
                 <Shield
                   className={`h-3 w-3 ${status.supervised ? 'text-[var(--success)]' : 'text-[var(--text-secondary)]'}`}
                 />
-                {status.supervised ? (status.supervisor ?? 'enabled') : 'none'}
+                {status.supervised ? (status.supervisor ?? '已启用') : '无'}
               </p>
             </div>
             <div className="rounded-lg bg-[var(--bg-primary)] p-3">
-              <p className="mb-0.5 text-[10px] text-[var(--text-secondary)]">Boot Generation</p>
+              <p className="mb-0.5 text-[10px] text-[var(--text-secondary)]">启动代数</p>
               <p className="text-sm font-semibold">#{status.boot_generation}</p>
             </div>
             <div className="rounded-lg bg-[var(--bg-primary)] p-3">
-              <p className="mb-0.5 text-[10px] text-[var(--text-secondary)]">UI Version</p>
+              <p className="mb-0.5 text-[10px] text-[var(--text-secondary)]">界面版本</p>
               <p className="font-mono text-sm font-semibold">{currentVersion?.hash?.slice(0, 8) ?? '-'}</p>
             </div>
             <div className="rounded-lg bg-[var(--bg-primary)] p-3">
-              <p className="mb-0.5 text-[10px] text-[var(--text-secondary)]">Restart State</p>
+              <p className="mb-0.5 text-[10px] text-[var(--text-secondary)]">重启状态</p>
               <p
                 className={`text-sm font-semibold ${status.restart_pending ? 'text-[var(--warning)]' : 'text-[var(--text-secondary)]'}`}
               >
-                {status.restart_pending ? 'Pending' : 'Stable'}
+                {status.restart_pending ? '等待重启' : '稳定'}
               </p>
             </div>
           </div>
@@ -506,7 +506,7 @@ export default function DashboardPage() {
               <h2 className="text-sm font-semibold">后台任务</h2>
               <span className="inline-flex items-center gap-1 rounded-full bg-blue-500/10 px-2 py-0.5 text-xs font-medium text-blue-400">
                 <Loader2 className="h-3 w-3 animate-spin" />
-                {activeTasks.running} running
+                {activeTasks.running} 运行中
               </span>
             </div>
             <button
@@ -550,23 +550,23 @@ export default function DashboardPage() {
       <div className="rounded-xl border border-[var(--border)] bg-[var(--bg-secondary)] p-5">
         <div className="mb-3 flex items-center gap-2">
           <Activity className="h-4 w-4 text-[var(--accent)]" />
-          <h2 className="text-sm font-semibold">Quick Info</h2>
+          <h2 className="text-sm font-semibold">快捷信息</h2>
         </div>
         <div className="grid grid-cols-2 gap-4 text-sm md:grid-cols-4">
           <div>
-            <p className="text-[var(--text-secondary)]">Role</p>
+            <p className="text-[var(--text-secondary)]">角色</p>
             <p className="font-medium capitalize">{user?.role}</p>
           </div>
           <div>
-            <p className="text-[var(--text-secondary)]">Mode</p>
-            <p className="font-medium">{mockMode ? 'mock sandbox' : 'live runtime'}</p>
+            <p className="text-[var(--text-secondary)]">模式</p>
+            <p className="font-medium">{mockMode ? '模拟沙盒' : '实时运行'}</p>
           </div>
           <div>
-            <p className="text-[var(--text-secondary)]">Gateway</p>
+            <p className="text-[var(--text-secondary)]">网关</p>
             <p className="font-medium">{status?.gateway_port ?? 'N/A'}</p>
           </div>
           <div>
-            <p className="text-[var(--text-secondary)]">Console</p>
+            <p className="text-[var(--text-secondary)]">控制台</p>
             <p className="font-medium">{status?.console_port ?? 'N/A'}</p>
           </div>
         </div>
