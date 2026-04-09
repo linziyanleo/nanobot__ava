@@ -88,6 +88,49 @@ def _is_new_command(raw: str) -> bool:
     return (stripped[1:].split() or [""])[0] == "new"
 
 
+def _split_session_key(session_key: str | None) -> tuple[str | None, str | None]:
+    if not session_key or ":" not in session_key:
+        return None, None
+    return session_key.split(":", 1)
+
+
+def _get_latest_history_entry(store, previous_cursor: int | None) -> str:
+    try:
+        last_entry = store._read_last_entry()
+    except Exception:
+        return ""
+
+    if not isinstance(last_entry, dict):
+        return ""
+
+    cursor = last_entry.get("cursor")
+    if isinstance(previous_cursor, int) and isinstance(cursor, int) and cursor <= previous_cursor:
+        return ""
+
+    content = last_entry.get("content")
+    return content if isinstance(content, str) else ""
+
+
+def _sync_categorized_memory(consolidator, session_key: str | None, history_entry: str) -> None:
+    if not session_key or not history_entry:
+        return
+
+    channel, chat_id = _split_session_key(session_key)
+    if not channel or not chat_id:
+        return
+
+    loop_ref = getattr(consolidator, "_ava_agent_loop_ref", None)
+    loop = loop_ref() if loop_ref else None
+    categorized_memory = getattr(loop, "categorized_memory", None) if loop else None
+    if categorized_memory is None:
+        return
+
+    try:
+        categorized_memory.on_consolidate(channel, chat_id, history_entry, "")
+    except Exception as exc:
+        logger.warning("Failed to sync categorized memory for {}: {}", session_key, exc)
+
+
 def _register_bg_task_commands(router, bg_store) -> None:
     """Register /task, /task_cancel, /cc_status into upstream CommandRouter."""
     from nanobot.bus.events import OutboundMessage
@@ -167,6 +210,7 @@ def _register_bg_task_commands(router, bg_store) -> None:
 
 def apply_loop_patch() -> str:
     from nanobot.agent.loop import AgentLoop
+    from nanobot.agent.memory import Consolidator
 
     required_methods = [
         "__init__",
@@ -227,6 +271,12 @@ def apply_loop_patch() -> str:
         except Exception as exc:
             logger.warning("Failed to init CategorizedMemoryStore: {}", exc)
             self.categorized_memory = None
+
+        try:
+            if hasattr(self, "consolidator"):
+                self.consolidator._ava_agent_loop_ref = weakref.ref(self)
+        except Exception as exc:
+            logger.warning("Failed to attach AgentLoop ref to Consolidator: {}", exc)
 
         # HistorySummarizer — 旧轮次摘要压缩
         try:
@@ -340,6 +390,46 @@ def apply_loop_patch() -> str:
 
     patched_init._ava_loop_patched = True
     AgentLoop.__init__ = patched_init
+
+    # ------------------------------------------------------------------
+    # 1b. Patch Consolidator so session-key-aware turns can sync their
+    #     archived summary into categorized_memory after append_history().
+    # ------------------------------------------------------------------
+    original_archive = Consolidator.archive
+    original_maybe_consolidate = Consolidator.maybe_consolidate_by_tokens
+
+    async def patched_archive(self, messages):
+        previous_cursor = None
+        if getattr(self, "_ava_current_session_key", None):
+            try:
+                last_entry = self.store._read_last_entry()
+                if isinstance(last_entry, dict):
+                    previous_cursor = last_entry.get("cursor")
+            except Exception:
+                previous_cursor = None
+
+        result = await original_archive(self, messages)
+        if result:
+            history_entry = _get_latest_history_entry(self.store, previous_cursor)
+            _sync_categorized_memory(
+                self,
+                getattr(self, "_ava_current_session_key", None),
+                history_entry,
+            )
+        return result
+
+    async def patched_maybe_consolidate_by_tokens(self, session):
+        previous_session_key = getattr(self, "_ava_current_session_key", None)
+        self._ava_current_session_key = getattr(session, "key", None)
+        try:
+            return await original_maybe_consolidate(self, session)
+        finally:
+            self._ava_current_session_key = previous_session_key
+
+    patched_archive._ava_loop_patched = True
+    patched_maybe_consolidate_by_tokens._ava_loop_patched = True
+    Consolidator.archive = patched_archive
+    Consolidator.maybe_consolidate_by_tokens = patched_maybe_consolidate_by_tokens
 
     # ------------------------------------------------------------------
     # 2. Patch _set_tool_context to propagate channel/chat_id/session_key

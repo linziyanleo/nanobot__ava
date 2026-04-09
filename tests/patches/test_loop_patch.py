@@ -9,6 +9,7 @@ import weakref
 import pytest
 
 from nanobot.agent.loop import AgentLoop
+from nanobot.agent.memory import Consolidator
 
 
 @pytest.fixture(autouse=True)
@@ -19,12 +20,16 @@ def _restore_agent_loop():
     orig_run_agent_loop = AgentLoop._run_agent_loop
     orig_save_turn = AgentLoop._save_turn
     orig_process = AgentLoop._process_message
+    orig_archive = Consolidator.archive
+    orig_maybe_consolidate = Consolidator.maybe_consolidate_by_tokens
     yield
     AgentLoop.__init__ = orig_init
     AgentLoop._set_tool_context = orig_set_tool_context
     AgentLoop._run_agent_loop = orig_run_agent_loop
     AgentLoop._save_turn = orig_save_turn
     AgentLoop._process_message = orig_process
+    Consolidator.archive = orig_archive
+    Consolidator.maybe_consolidate_by_tokens = orig_maybe_consolidate
 
 
 class TestLoopPatch:

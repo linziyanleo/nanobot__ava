@@ -10,7 +10,7 @@ specanchor:
   created: "2026-03-26"
   updated: "2026-04-09"
   last_synced: "2026-04-09"
-  last_change: "按 SpecAnchor 最新 Module Spec 模板重生，合并 legacy spec 与当前代码扫描结果"
+  last_change: "补充 USER.md + MEMORY.md + Personal Memory 三层去重契约，Personal Memory 仅在去重后注入"
   status: "active"
   depends_on:
     - "ava/launcher.py"
@@ -23,6 +23,7 @@ specanchor:
 
 ## 1. 模块职责
 - 拦截 `ContextBuilder.build_messages()`，在发送给 LLM 之前执行历史摘要、历史压缩和分类记忆注入。
+- 在注入 Personal Memory 前，对 `USER.md` + `memory/MEMORY.md` + Personal Memory 做保守去重，避免高置信度重复段落再次进入 system prompt。
 - 保留无 LLM 开销的同步处理路径，避免把短期聚焦机制依赖到额外模型调用。
 - 对非 Claude provider 补齐 trailing assistant / 协议兼容清洗。
 
@@ -68,6 +69,7 @@ specanchor:
 
 ## 5. 已知约束 & 技术债
 - [ ] 二次 apply 必须返回 `skipped`，不能重复包装 `build_messages` 和 provider 清洗逻辑。
+- [ ] 当前去重策略只做高置信度完全匹配；如果未来要支持更细粒度冲突检测，需要单独扩展而不是在注入点上做模糊匹配。
 
 ## 6. TODO
 - [ ] 代码行为变化后同步更新接口表、关键文件表和 module-index @ZiyanLin

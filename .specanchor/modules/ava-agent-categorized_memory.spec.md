@@ -10,7 +10,7 @@ specanchor:
   created: "2026-03-26"
   updated: "2026-04-09"
   last_synced: "2026-04-09"
-  last_change: "按 SpecAnchor 最新 Module Spec 模板重生，合并 legacy spec 与当前代码扫描结果"
+  last_change: "明确全局/个人记忆边界：Consolidator 归档后桥接 person sync，Dream 继续只管理全局文件"
   status: "active"
   depends_on:
     - "nanobot/utils/helpers.py"
@@ -30,8 +30,10 @@ specanchor:
 
 ## 2. 业务规则
 - loop_patch 会在 AgentLoop 初始化后尝试创建 `self.categorized_memory`，失败时降级为 `None`
+- loop_patch 会在 `Consolidator` 归档成功后，通过 `session.key` + 新写入的 history entry 调用 `on_consolidate()`；身份无法解析时优雅降级为 no-op
 - context_patch 仅在 `categorized_memory` 可用时向系统提示词注入个人记忆，缺失时不阻塞消息构建
 - tools_patch 仅在 `categorized_memory` 已初始化时注册 `MemoryTool`
+- Dream 继续只维护 `SOUL.md` / `USER.md` / `memory/MEMORY.md`，不负责 person memory 同步
 - `identity_map.yaml` 缺失、身份无法解析或持久化失败时必须优雅降级，不能影响主对话链路
 
 ## 3. 对外接口契约
@@ -64,6 +66,7 @@ specanchor:
 - [ ] 当前接入依赖 `loop_patch`、`context_patch` 与 `tools_patch` 的协同；任一链路改名都要同步更新 Spec。
 - [ ] `identity_map.yaml` 仍是运行时外部依赖，工作区缺少映射文件时只能退化为无个性化记忆。
 - [ ] 记忆注入文案与 `MemoryTool` 行为尚未抽成统一契约，后续若调整提示词格式需要同步 console / task spec。
+- [ ] 当前 person sync 只覆盖 Consolidator 路径；若未来要求 Dream 也写 person memory，必须先扩展 history/schema contract。
 
 ## 6. TODO
 - [ ] 按当前 task / execute 计划补齐尚未闭环的实现与验证。 @ZiyanLin

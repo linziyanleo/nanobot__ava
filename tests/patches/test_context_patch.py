@@ -57,6 +57,7 @@ class TestContextPatch:
         mock_loop.history_summarizer = mock_summarizer
         mock_loop.history_compressor = None
         mock_loop.categorized_memory = None
+        mock_loop.bg_tasks = None
 
         ctx = _make_mock_ctx(_agent_loop=mock_loop)
         history = [{"role": "user", "content": "old"}, {"role": "assistant", "content": "reply"}]
@@ -73,6 +74,7 @@ class TestContextPatch:
         mock_loop.history_summarizer = None
         mock_loop.history_compressor = mock_compressor
         mock_loop.categorized_memory = None
+        mock_loop.bg_tasks = None
 
         ctx = _make_mock_ctx(_agent_loop=mock_loop)
         ctx.build_messages([{"role": "user", "content": "old"}], "new", channel="tg", chat_id="123")
@@ -83,17 +85,44 @@ class TestContextPatch:
         apply_context_patch()
 
         mock_cat_mem = MagicMock()
-        mock_cat_mem.get_combined_context.return_value = "用户偏好：喜欢猫咪"
+        mock_cat_mem.get_combined_context.return_value = "## Personal Memory (Alice)\n- 用户偏好：喜欢猫咪"
         mock_loop = MagicMock()
         mock_loop.history_summarizer = None
         mock_loop.history_compressor = None
         mock_loop.categorized_memory = mock_cat_mem
+        mock_loop.bg_tasks = None
 
         ctx = _make_mock_ctx(_agent_loop=mock_loop)
         messages = ctx.build_messages([], "hi", channel="tg", chat_id="123")
         assert messages[0]["role"] == "system"
         assert "Personal Memory" in messages[0]["content"]
         assert "猫咪" in messages[0]["content"]
+
+    def test_memory_deduplicated_against_existing_system_prompt(self):
+        from ava.patches.context_patch import _deduplicate_memory
+
+        system_prompt = """
+## USER.md
+
+- 喜欢猫咪
+- 偏好中文
+
+## Memory
+
+- 当前在做 Dream 合并
+""".strip()
+        personal_memory = """
+## Personal Memory (Alice)
+- 喜欢猫咪
+- 当前在做 Dream 合并
+- 喜欢乌龙茶
+""".strip()
+
+        deduped = _deduplicate_memory(system_prompt, personal_memory)
+        assert "喜欢乌龙茶" in deduped
+        assert "喜欢猫咪" not in deduped
+        assert "当前在做 Dream 合并" not in deduped
+        assert "Personal Memory" in deduped
 
     def test_no_loop_ref_passthrough(self):
         from ava.patches.context_patch import apply_context_patch

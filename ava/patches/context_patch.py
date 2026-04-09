@@ -21,6 +21,8 @@ Depends on loop_patch having set self.context._agent_loop on the ContextBuilder.
 
 from __future__ import annotations
 
+import re
+
 from loguru import logger
 
 from ava.launcher import register_patch
@@ -29,6 +31,49 @@ from ava.launcher import register_patch
 def _is_claude_provider(provider) -> bool:
     """Return True if the provider is Anthropic/Claude-based."""
     return type(provider).__name__ == "AnthropicProvider"
+
+
+_LIST_ITEM_RE = re.compile(r"^([-*+]|\d+\.)\s+")
+
+
+def _normalize_memory_text(text: str) -> str:
+    """Normalize markdown-ish text for lightweight duplicate detection."""
+    return " ".join((text or "").replace("\r", "\n").split())
+
+
+def _deduplicate_memory(system_prompt: str, personal_memory: str) -> str:
+    """Drop personal-memory blocks that already exist in the system prompt."""
+    normalized_system = _normalize_memory_text(system_prompt)
+    blocks = re.split(r"\n\s*\n+", (personal_memory or "").strip())
+    kept_blocks: list[str] = []
+
+    for block in blocks:
+        raw_lines = [line.rstrip() for line in block.splitlines()]
+        meaningful_lines = [line for line in raw_lines if line.strip()]
+        if not meaningful_lines:
+            continue
+
+        heading_lines: list[str] = []
+        content_lines = list(meaningful_lines)
+        while content_lines and content_lines[0].lstrip().startswith("#"):
+            heading_lines.append(content_lines.pop(0))
+
+        if content_lines and all(_LIST_ITEM_RE.match(line.lstrip()) for line in content_lines):
+            unique_lines = [
+                line for line in content_lines
+                if _normalize_memory_text(line) not in normalized_system
+            ]
+            if unique_lines:
+                kept_blocks.append("\n".join([*heading_lines, *unique_lines]).strip())
+            continue
+
+        compare_text = "\n".join(content_lines).strip() or "\n".join(meaningful_lines).strip()
+        if compare_text and _normalize_memory_text(compare_text) in normalized_system:
+            continue
+
+        kept_blocks.append("\n".join(meaningful_lines).strip())
+
+    return "\n\n".join(block for block in kept_blocks if block).strip()
 
 
 def sanitize_messages(messages: list[dict]) -> list[dict]:
@@ -119,7 +164,9 @@ def apply_context_patch() -> str:
             try:
                 memory_ctx = cat_mem.get_combined_context(channel, chat_id)
                 if memory_ctx and messages and messages[0]["role"] == "system":
-                    messages[0]["content"] += f"\n\n# Personal Memory\n\n{memory_ctx}"
+                    deduped_memory = _deduplicate_memory(messages[0]["content"], memory_ctx)
+                    if deduped_memory:
+                        messages[0]["content"] += f"\n\n{deduped_memory}"
             except Exception as exc:
                 logger.warning("CategorizedMemory injection failed: {}", exc)
 

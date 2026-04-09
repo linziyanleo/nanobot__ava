@@ -10,7 +10,7 @@ specanchor:
   created: "2026-03-26"
   updated: "2026-04-09"
   last_synced: "2026-04-09"
-  last_change: "按 SpecAnchor 最新 Module Spec 模板重生，合并 legacy spec 与当前代码扫描结果"
+  last_change: "补充 Consolidator session-key bridge：在 maybe_consolidate_by_tokens/archive 出口同步 categorized_memory.on_consolidate()"
   status: "active"
   depends_on:
     - "ava/launcher.py"
@@ -25,6 +25,7 @@ specanchor:
 - **Token 统计**：包装 _run_agent_loop（拦截 provider 调用获取原始 usage）和 _process_message（每轮记录完整字段）
 - **Conversation 分段**：为同一 session_key 下的逻辑新会话维护 session.metadata["conversation_id"]；/new 前置轮换新 id，后续 turn 在该 conversation 内重新从 0 编号
 - **Phase 0 预记录**：在 patched_run_agent_loop 开头（LLM 调用前）写入 pending 状态的 token_usage 记录，首次 LLM 调用完成后 UPDATE 填入真实数值
+- **Consolidator 桥接**：包装 `Consolidator.maybe_consolidate_by_tokens()` / `archive()`，在归档成功后把新写入的 history entry 同步到 `categorized_memory.on_consolidate()`
 
 ## 2. 业务规则
 - 保留原始方法引用并打 patched 标记，重复 apply 不得产生副作用
@@ -62,12 +63,14 @@ specanchor:
 
 ## 4. 模块内约定
 - nanobot.agent.loop.AgentLoop
+- nanobot.agent.memory.Consolidator
 - nanobot.utils.helpers.estimate_prompt_tokens（当轮 token 估算）
 - ava.storage.Database
 - ava.console.services.token_stats_service.TokenStatsCollector
 
 ## 5. 已知约束 & 技术债
 - [ ] `AgentLoop._save_turn` 的包装仍承担 skip 与 compressed history 对齐修正，后续上游改签名时要优先复核这里。
+- [ ] `Consolidator.archive()` 当前返回 `bool` 而不是摘要文本；bridge 通过读取新增的 history.jsonl 末条记录获取 `history_entry`，后续若上游改返回值可考虑收窄这层补丁。
 - [ ] return Database(get_data_dir() / "nanobot.db") # fallback
 - [ ] 执行顺序：loop_patch（l）先于 storage_patch（s），首次用 fallback db，storage_patch 运行后通过 set_shared_db() 替换为共享 db。
 
