@@ -5,6 +5,8 @@
 ``zenmux/...`` 原样发送给 OpenAI-compatible 网关。
 修改后行为: 对缺少 spec 的 sidecar provider，在真正发请求前剥离模型前缀，
 从而兼容旧版 ``.nanobot`` 配置里的 ``yunwu/...`` / ``zenmux/...`` 写法。
+
+DEPRECATION: 待 sidecar 网关配置全部迁移到 ProviderSpec 后删除本 patch。
 """
 
 from __future__ import annotations
@@ -58,6 +60,7 @@ def apply_provider_prefix_patch() -> str:
         reasoning_effort,
         tool_choice,
     ):
+        # DEPRECATION: 仅为旧版 yunwu/zenmux 前缀配置保留，迁移完成后可删除。
         # 只有 sidecar 私有 provider 缺少 spec 时才做兼容，避免影响上游 provider。
         normalized_model = model
         if getattr(self, "_spec", None) is None:

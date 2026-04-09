@@ -10,7 +10,7 @@ specanchor:
   created: "2026-04-09"
   updated: "2026-04-09"
   last_synced: "2026-04-09"
-  last_change: "按 SpecAnchor 最新 Module Spec 模板重生，合并 legacy spec 与当前代码扫描结果"
+  last_change: "明确为旧版 yunwu/zenmux 前缀配置的迁移垫片，并登记后续删除方向"
   status: "active"
   depends_on:
     - "ava/launcher.py"
@@ -23,6 +23,7 @@ specanchor:
 - yunwu/...
 - zenmux/...
 - 不影响已有 upstream provider spec 的正常路由。
+- 仅在 provider 缺少 `_spec` 时生效，避免影响已完成 ProviderSpec 迁移的配置。
 
 ## 2. 业务规则
 - nanobot.providers.openai_compat_provider.OpenAICompatProvider._build_kwargs
@@ -54,6 +55,7 @@ specanchor:
 
 ## 5. 已知约束 & 技术债
 - [ ] 二次调用 apply_provider_prefix_patch() 必须返回 skipped。
+- [ ] 该 patch 是迁移垫片，不应演化为长期 provider 规范；旧配置迁完后应直接删除。
 
 ## 6. TODO
 - [ ] 代码行为变化后同步更新接口表、关键文件表和 module-index @ZiyanLin

@@ -7,8 +7,8 @@ specanchor:
   reviewer: "@Ziyan Lin"
   created: "2026-04-08"
   updated: "2026-04-09"
-  status: "in_progress"
-  last_change: "v3：吸收 Codex review——A 线拆成 A0 前置 gate（person attribution contract）+ A1-A3 实施；去重目标扩展到 USER.md；验证面补 test_consolidator/test_dream + 桥接专用测试；skill-creator 措辞修正"
+  status: "done"
+  last_change: "v4：选定 A0=(a)+(d)；落地 Consolidator→categorized_memory bridge 与 USER.md/MEMORY/Personal Memory 去重；收窄/删除 shadow skills；补 provider_prefix 弃用标记并完成 Dream/skills/Batch C 定向验证"
   related_modules:
     - ".specanchor/modules/ava-agent-categorized_memory.spec.md"
     - ".specanchor/modules/ava-patches-context_patch.spec.md"
@@ -16,6 +16,7 @@ specanchor:
     - ".specanchor/modules/ava-patches-skills_patch.spec.md"
     - ".specanchor/modules/ava-patches-tools_patch.spec.md"
     - ".specanchor/modules/ava-patches-channel_patch.spec.md"
+    - ".specanchor/modules/ava-patches-provider_prefix_patch.spec.md"
     - ".specanchor/modules/ava-patches-transcription_patch.spec.md"
   related_global:
     - ".specanchor/global/architecture.md"
@@ -371,7 +372,7 @@ v2 方案：在 Consolidator.archive() 和 Dream Phase 2 完成后各加 1-2 行
 
 #### Phase 0: A0 前置 Gate（research，可与 B1/B2/C 并行）
 
-- [ ] **A0**. Person Attribution Contract
+- [x] **A0**. Person Attribution Contract
   - 确认 Consolidator 路径中 `session.key` 在 `maybe_consolidate_by_tokens` 执行期间可用
   - 确认 `archive()` 返回 `bool`，不返回摘要内容——需要额外机制获取 `history_entry`（方案：wrap 后读 `history.jsonl` 末条，或 wrap `archive()` 本身捕获 LLM 输出）
   - 确认 Dream 路径中 history.jsonl 无身份信息 + cron 入口无会话上下文
@@ -381,38 +382,38 @@ v2 方案：在 Consolidator.archive() 和 Dream Phase 2 完成后各加 1-2 行
 
 #### Phase 1: 可并行的独立工作（B1/B2 + C 立即启动；A1-A3 在 A0 通过后启动）
 
-- [ ] **A1**. 在 `loop_patch` 中补 Consolidator → on_consolidate 桥接
+- [x] **A1**. 在 `loop_patch` 中补 Consolidator → on_consolidate 桥接
   - Monkey-patch `Consolidator.maybe_consolidate_by_tokens`（在 `apply_loop_patch` 中）
   - 在调用前捕获 `session.key` → `channel, chat_id`
   - 在调用后（归档成功时）获取 history_entry（读 history.jsonl 末条 or wrap archive）
   - 调用 `categorized_memory.on_consolidate(channel, chat_id, history_entry, "")`
   - person_memory_facts 传空串（Consolidator 只做摘要归档，不提取个人记忆事实）
-- [ ] **A2**. Dream 路径决策落地
+- [x] **A2**. Dream 路径决策落地
   - 若选定 (d)：在 Execute Log 中记录"Dream 管全局，不做 person 同步"
   - 若选定 (e) 或 (f)：按 A0 结论实施（但不推荐）
-- [ ] **A3**. 在 `context_patch` 中添加三层 prompt 去重逻辑
+- [x] **A3**. 在 `context_patch` 中添加三层 prompt 去重逻辑
   - 实现 `_deduplicate_memory(system_prompt_so_far, personal_memory)` 函数
   - 在 Personal Memory 注入前调用去重
   - 去重范围覆盖 system_prompt_so_far 中的 USER.md + MEMORY.md 内容
   - 策略：段落级归一化后完全匹配，保守去重
-- [ ] **B1**. 删除 4 个无行为差异的 shadow skills
+- [x] **B1**. 删除 4 个无行为差异的 shadow skills
   - `rm -rf ava/skills/github ava/skills/summarize ava/skills/weather ava/skills/skill-creator`
   - 验证 `skills_patch` 的 `patched_list_skills()` 正确回退到 nanobot/skills 版本
-- [ ] **B2**. 收窄 cron/tmux skills
+- [x] **B2**. 收窄 cron/tmux skills
   - `cron`：提取 check_status/mark_done/timezone 增量为 sidecar-only section
   - `tmux`：提取 BackgroundTaskStore 指导和 coding agent 防错为 sidecar-only section
-- [ ] **C1**. 清理 `channel_patch` 过时注释
+- [x] **C1**. 清理 `channel_patch` 过时注释
   - 更新或删除 L12-13 stream_id 相关注释
   - 验证 MessageBatcher / typing / fallback 代码不变
-- [ ] **C2**. 确认 `transcription_patch` 不动
+- [x] **C2**. 确认 `transcription_patch` 不动
   - 快速审计确认仍为纯 SOCKS5 代理注入
-- [ ] **C3**. 给 `provider_prefix_patch` 加弃用标记
+- [x] **C3**. 给 `provider_prefix_patch` 加弃用标记
   - docstring 加 DEPRECATION 注释
   - TODO.md 登记弃用时间线
 
 #### Phase 2: 依赖 Phase 1 中 A 完成的工作
 
-- [ ] **B3**. 重写 memory skill 边界说明
+- [x] **B3**. 重写 memory skill 边界说明
   - 更新 `ava/skills/memory/SKILL.md`
   - 明确：Dream 管全局记忆，memory tool 管个人记忆
   - 说明 Consolidator 桥接的 on_consolidate 同步机制
@@ -421,37 +422,37 @@ v2 方案：在 Consolidator.archive() 和 Dream Phase 2 完成后各加 1-2 行
 
 #### Phase 3: 回归验证
 
-- [ ] **V1**. Dream 同步通道——桥接专用测试（v3 新增）
+- [x] **V1**. Dream 同步通道——桥接专用测试（v3 新增）
   - 新增 `tests/patches/test_consolidation_bridge.py`：
     - 构造 mock session（key="telegram:12345"）和 mock categorized_memory
     - 调用 wrapped `maybe_consolidate_by_tokens`
     - 断言 `on_consolidate` 被调用且 channel="telegram", chat_id="12345"
     - 断言 history_entry 非空
   - 此测试是 A1 的验收条件，不可省略
-- [ ] **V2**. Dream 同步通道——已有测试回归
+- [x] **V2**. Dream 同步通道——已有测试回归
   - `uv run pytest tests/patches/test_loop_patch.py tests/patches/test_context_patch.py -q`
   - `uv run pytest tests/agent/test_consolidator.py tests/agent/test_dream.py -q`（v3 新增：确保桥接没有破坏上游 Consolidator/Dream 行为）
-- [ ] **V3**. Prompt 去重验证
+- [x] **V3**. Prompt 去重验证
   - 手动构造场景：USER.md 和 Personal Memory 中有重复段落
   - 验证去重后 Personal Memory 中该段落被移除
   - 验证不重复的段落保留完整
-- [ ] **V4**. Skills 回归
+- [x] **V4**. Skills 回归
   - `uv run pytest tests/patches/test_skills_patch.py -q`
   - 验证删除后 `patched_list_skills()` 返回的 4 个 skill 来自 nanobot/skills/
   - 验证 cron/tmux 的 sidecar 增量仍可被加载
-- [ ] **V5**. Batch C 回归
+- [x] **V5**. Batch C 回归
   - `uv run pytest tests/patches/test_channel_patch.py tests/patches/test_transcription_patch.py -q`
   - 验证 channel_patch 注释变更不影响运行时行为
-- [ ] **V6**. 全局 smoke
+- [x] **V6**. 全局 smoke
   - `python -m ava --help`
   - `python -m ava status`（如果可用）
-- [ ] **V7**. `git diff --check`
+- [x] **V7**. `git diff --check`
 
 #### Phase 4: 治理工件更新
 
-- [ ] **G1**. 更新 `.specanchor/patch_map.md`
-- [ ] **G2**. 更新 `.specanchor/TODO.md`
-- [ ] **G3**. 更新相关 module spec（按需）
+- [x] **G1**. 更新 `.specanchor/patch_map.md`
+- [x] **G2**. 更新 `.specanchor/TODO.md`
+- [x] **G3**. 更新相关 module spec（按需）
 
 ### 4.4 回滚策略
 
@@ -468,30 +469,30 @@ v2 方案：在 Consolidator.archive() 和 Dream Phase 2 完成后各加 1-2 行
 
 ## 5. Execute Log
 
-- [ ] Step 0: A0 前置 Gate——Person Attribution Contract 决策（记录于此）
-  - 决策结论：`TBD`
+- [x] Step 0: A0 前置 Gate——Person Attribution Contract 决策（记录于此）
+  - 决策结论：选定 **(a) + (d)**。Consolidator 路径在 `loop_patch` 中 wrap `maybe_consolidate_by_tokens()` 与 `archive()`，用 `session.key` 保留 person attribution；Dream 路径保持“只管理全局文件，不做 person sync”
   - on_consolidate 四个参数来源：
-    - `channel`：`TBD`
-    - `chat_id`：`TBD`
-    - `history_entry`：`TBD`
-    - `person_memory_facts`：`TBD`
-  - 选定方案组合：`TBD`
-- [ ] Step 1: Phase 1 并行执行（A1/A2/A3 + B1/B2 + C1/C2/C3）
-- [ ] Step 2: Phase 2 串行执行（B3，依赖 A 完成）
-- [ ] Step 3: Phase 3 回归验证（V1-V7）
-- [ ] Step 4: Phase 4 治理工件更新（G1-G3）
+    - `channel`：来自 `session.key.split(":", 1)[0]`
+    - `chat_id`：来自 `session.key.split(":", 1)[1]`
+    - `history_entry`：wrap `archive()` 后读取 `history.jsonl` 新写入的末条记录内容
+    - `person_memory_facts`：本轮继续传空串；Consolidator 只做归档摘要，不单独提取 person facts
+  - 选定方案组合：`(a) sidecar wrap maybe_consolidate_by_tokens/archive + (d) Dream 不做 person 同步`
+- [x] Step 1: Phase 1 并行执行（A1/A2/A3 + B1/B2 + C1/C2/C3）
+- [x] Step 2: Phase 2 串行执行（B3，依赖 A 完成）
+- [x] Step 3: Phase 3 回归验证（V1-V7）
+- [x] Step 4: Phase 4 治理工件更新（G1-G3）
 
 ## 6. Review Verdict
 
-- Spec coverage: `TBD`
-- Behavior check: `TBD`
-- Regression risk: `TBD`
-- Module Spec 需更新: `TBD`
-- Follow-ups: `TBD`
+- Spec coverage: `pass`
+- Behavior check: `pass`
+- Regression risk: `medium-low`
+- Module Spec 需更新: `ava-agent-categorized_memory` / `ava-patches-context_patch` / `ava-patches-loop_patch` / `ava-patches-skills_patch`
+- Follow-ups: `保留 provider_prefix_patch 弃用观察项；其余本 task 已收口`
 
 ## 7. Plan-Execution Diff
 
-- Any deviation from plan: `TBD`
+- Any deviation from plan: `C1 最终无需代码 diff；当前 channel_patch 注释已与“stream_id 由上游接管、sidecar 仅保留 batcher/typing/fallback”口径一致，因此仅做审计并在 Execute Log 中收口`
 
 ## Appendix: Spec 版本记录
 
@@ -500,3 +501,4 @@ v2 方案：在 Consolidator.archive() 和 Dream Phase 2 完成后各加 1-2 行
 | v1 | 2026-04-08 | 初版：Dream 三层存储重定义 + shadow skills + Batch C |
 | v2 | 2026-04-09 | Dream 方案改为"补同步通道"；明确并行依赖图；Batch C 逐 patch 判断标准；补回滚策略 |
 | v3 | 2026-04-09 | 吸收 Codex review：A 线拆成 A0 gate + A1-A3；去重覆盖 USER.md；验证面补 test_consolidator/test_dream + 桥接专用测试；skill-creator 措辞修正为"无行为差异" |
+| v4 | 2026-04-09 | A0 选 `(a)+(d)`；实现 Consolidator 桥接与 prompt 去重；完成 shadow skills 收口、provider_prefix 弃用标记、定向测试与治理工件回填 |

@@ -44,18 +44,18 @@
 
 ## P1
 
-### Dream 与 categorized_memory 仍是双真源
+### Dream / categorized_memory 边界已收口，但仍需观察 identity fallback 与保守去重
 
 - 现状：
-  - 本轮 merge 已并入 upstream `Dream` / `Consolidator` / cron 注册路径，并完成定向 pytest 与 `python -m ava` smoke；
-  - 但 sidecar 现有记忆主链仍是 `categorized_memory + history_summarizer/history_compressor`，没有把 Dream 输出桥接进分类记忆。
+  - `loop_patch` 已把 `Consolidator.maybe_consolidate_by_tokens()` / `archive()` 桥接到 `CategorizedMemoryStore.on_consolidate()`；
+  - `context_patch` 已对 `USER.md` + `memory/MEMORY.md` + Personal Memory 做保守去重；
+  - Dream 路径已明确保持“只管理全局文件，不做 person sync”。
 - 风险：
-  - prompt 同时看到 upstream 全局 memory 与 sidecar personal/source memory，容易形成语义重叠或冲突；
-  - 长期继续双轨运行时，memory tool / memory skill / Dream 文件体系会越来越难解释。
+  - `identity_map.yaml` 缺失或 session.key 无法解析时，person memory 会优雅降级为“不注入”，这需要后续 merge 继续盯住；
+  - 当前去重策略是高置信度保守去重，仍可能留下少量重复段落。
 - 后续动作：
-  - 明确哪套记忆是“写入真源”、哪套只负责读取或归档；
-  - 评估是否把 `CategorizedMemoryStore.on_consolidate()` 接到 Dream / Consolidator 输出；
-  - 若短期不统一，至少把 prompt 注入边界和 operator 文档写清楚。
+  - 下次上游改 `nanobot/agent/memory.py` / `nanobot/agent/context.py` / `nanobot/agent/loop.py` 时，优先回归 bridge 与 dedupe；
+  - 若未来要让 Dream 也参与 person sync，必须先扩展 history/schema contract，而不是继续堆 patch。
 
 ### 3. `loop_patch` 与上游 hook 体系进入同一热区
 
@@ -133,6 +133,18 @@
   - 参考 `page-agent-chat-inline-display.md` §7.1。
 
 ## P2
+
+### 9a. `provider_prefix_patch` 的弃用时间线还要继续盯
+
+- 现状：
+  - patch 现在只在 `_spec is None` 的旧 sidecar OpenAI-compatible provider 场景下剥离 `yunwu/` / `zenmux/` 前缀；
+  - 代码里已加 `DEPRECATION` 标记。
+- 风险：
+  - 如果旧配置长期不迁，兼容层会一直挂着，merge 成本持续存在；
+  - 这个 patch 容易被误解成长期 provider 规范，而它实际上只是迁移垫片。
+- 后续动作：
+  - 统计仍在使用旧前缀配置的环境；
+  - 配置全部迁到 ProviderSpec 后删除该 patch、测试与文档。
 
 ### 9. `b_config_patch` 的长期价值需要重新判断
 
