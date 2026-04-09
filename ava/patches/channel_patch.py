@@ -36,7 +36,7 @@ def apply_channel_patch() -> str:
 
     missing = [
         method_name
-        for method_name in ("send", "send_delta")
+        for method_name in ("__init__", "send", "send_delta")
         if not hasattr(TelegramChannel, method_name)
     ]
     if missing:
@@ -47,13 +47,28 @@ def apply_channel_patch() -> str:
         return f"channel_patch skipped (missing methods: {', '.join(missing)})"
 
     if (
-        getattr(TelegramChannel.send, "_ava_channel_patched", False)
+        getattr(TelegramChannel.__init__, "_ava_channel_patched", False)
+        or getattr(TelegramChannel.send, "_ava_channel_patched", False)
         or getattr(TelegramChannel.send_delta, "_ava_channel_patched", False)
     ):
         return "channel_patch already applied (skipped)"
 
     # ------------------------------------------------------------------
-    # 1. Patch send: message batching
+    # 1. Patch __init__: normalize foreign Pydantic config objects back into
+    #    TelegramChannel's own schema before upstream accesses new fields.
+    # ------------------------------------------------------------------
+    original_init = TelegramChannel.__init__
+
+    def patched_init(self: TelegramChannel, config: Any, bus: Any) -> None:
+        if not isinstance(config, dict) and hasattr(config, "model_dump"):
+            config = config.model_dump(mode="json", by_alias=True)
+        original_init(self, config, bus)
+
+    patched_init._ava_channel_patched = True
+    TelegramChannel.__init__ = patched_init
+
+    # ------------------------------------------------------------------
+    # 2. Patch send: message batching
     # ------------------------------------------------------------------
     original_send = TelegramChannel.send
 
@@ -183,7 +198,7 @@ def apply_channel_patch() -> str:
     patched_start._ava_channel_patched = True
     TelegramChannel.start = patched_start
 
-    return "TelegramChannel patched: message batching + send_delta typing fix + sidecar command handlers"
+    return "TelegramChannel patched: config normalization + message batching + send_delta typing fix + sidecar command handlers"
 
 
 register_patch("channel_extensions", apply_channel_patch)

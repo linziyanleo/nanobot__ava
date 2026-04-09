@@ -171,19 +171,22 @@ function getTurnFinalAssistantText(turn?: ChatTurnGroup): string {
   if (!turn) return '';
   const finalAssistant = [...turn.assistantSteps]
     .reverse()
-    .find((msg) => msg.role === 'assistant' && !msg.tool_calls && getContentText(msg.content));
+    .find(msg => msg.role === 'assistant' && !msg.tool_calls && getContentText(msg.content));
   return finalAssistant ? getContentText(finalAssistant.content) : '';
 }
 
-function getTurnStatus(records: TokenRecord[], iterations: TurnIterationRecord[]): {
+function getTurnStatus(
+  records: TokenRecord[],
+  iterations: TurnIterationRecord[],
+): {
   label: string;
   className: string;
 } {
   const source = records.length > 0 ? records : iterations;
-  if (source.some((item) => item.model_role === 'pending')) {
+  if (source.some(item => item.model_role === 'pending')) {
     return { label: 'Processing', className: 'bg-amber-500/15 text-amber-400' };
   }
-  if (source.some((item) => item.model_role === 'error' || /error/i.test(item.finish_reason || ''))) {
+  if (source.some(item => item.model_role === 'error' || /error/i.test(item.finish_reason || ''))) {
     return { label: 'Error', className: 'bg-rose-500/15 text-rose-400' };
   }
   return { label: 'Completed', className: 'bg-emerald-500/15 text-emerald-400' };
@@ -222,6 +225,77 @@ function ModelRoleIcon({ role }: { role: string }) {
   );
 }
 
+function normalizeToolNames(toolNames?: string): string {
+  const normalized = toolNames?.trim();
+  if (!normalized) return '';
+
+  try {
+    const parsed: unknown = JSON.parse(normalized);
+    if (Array.isArray(parsed)) {
+      return parsed
+        .map(item => {
+          if (typeof item === 'string') return item.trim();
+          if (item == null) return '';
+          return typeof item === 'object' ? JSON.stringify(item) : String(item);
+        })
+        .filter(Boolean)
+        .join(', ');
+    }
+    if (typeof parsed === 'string') {
+      return parsed.trim();
+    }
+  } catch {
+    if (normalized.startsWith('[') && normalized.endsWith(']')) {
+      return normalized
+        .slice(1, -1)
+        .split(',')
+        .map(part => part.trim().replace(/^['"]|['"]$/g, ''))
+        .filter(Boolean)
+        .join(', ');
+    }
+  }
+
+  return normalized;
+}
+
+function getCallLabel(toolNames: string, finishReason: string): string {
+  const toolLabel = normalizeToolNames(toolNames);
+  if (toolLabel) return toolLabel;
+  return finishReason === 'end_turn' || finishReason === 'stop' ? 'end' : finishReason || '-';
+}
+
+function getCallLabelTone(toolNames: string, finishReason: string): string {
+  if (normalizeToolNames(toolNames)) return 'bg-amber-500/15 text-amber-400';
+  if (finishReason === 'end_turn' || finishReason === 'stop') return 'bg-emerald-500/15 text-emerald-400';
+  return 'bg-gray-500/15 text-gray-400';
+}
+
+function CallLabelBadge({
+  label,
+  className,
+  widthClass = 'max-w-[80px]',
+  toneClass = 'bg-amber-500/15 text-amber-400',
+}: {
+  label: string;
+  className?: string;
+  widthClass?: string;
+  toneClass?: string;
+}) {
+  return (
+    <span
+      className={cn(
+        'inline-flex min-w-0 items-center justify-center rounded px-1.5 py-0.5 text-[10px] font-medium',
+        toneClass,
+        widthClass,
+        className,
+      )}
+      title={label}
+    >
+      <span className="block min-w-0 max-w-full truncate text-center">{label}</span>
+    </span>
+  );
+}
+
 function formatCacheStatus(cachedTokens: number, cacheCreationTokens: number): React.ReactNode {
   if (!cachedTokens && !cacheCreationTokens) {
     return <span className="text-[var(--text-secondary)]">-</span>;
@@ -233,7 +307,7 @@ function formatCacheStatus(cachedTokens: number, cacheCreationTokens: number): R
     parts.push(
       <span key="write" className="text-amber-400" title={`写入缓存 ${cacheCreationTokens.toLocaleString()} tokens`}>
         ✍️ {formatTokens(cacheCreationTokens)}
-      </span>
+      </span>,
     );
   }
 
@@ -241,7 +315,7 @@ function formatCacheStatus(cachedTokens: number, cacheCreationTokens: number): R
     parts.push(
       <span key="hit" className="text-emerald-400" title={`命中缓存 ${cachedTokens.toLocaleString()} tokens`}>
         🎯 {formatTokens(cachedTokens)}
-      </span>
+      </span>,
     );
   }
 
@@ -1453,6 +1527,9 @@ function RecordRow({
   expanded: boolean;
   onToggle: () => void;
 }) {
+  const callLabel = getCallLabel(r.tool_names, r.finish_reason);
+  const callToneClass = getCallLabelTone(r.tool_names, r.finish_reason);
+
   return (
     <>
       <tr
@@ -1478,15 +1555,11 @@ function RecordRow({
         <td className="px-4 py-2.5 text-center">
           {formatCacheStatus(r.cached_tokens || 0, r.cache_creation_tokens || 0)}
         </td>
-        <td className="px-4 py-2.5 text-center">
-          {r.tool_names ? (
-            <span
-              className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-amber-500/15 text-amber-400 max-w-[120px] truncate"
-              title={r.tool_names}
-            >
-              {r.tool_names}
-            </span>
-          ) : (
+        <td className="px-4 py-2.5">
+          <div className="flex justify-center">
+            <CallLabelBadge label={callLabel} toneClass={callToneClass} widthClass="w-[132px]" />
+          </div>
+          {/*
             <span
               className={`inline-block px-1.5 py-0.5 rounded text-[10px] font-medium ${
                 r.finish_reason === 'end_turn' || r.finish_reason === 'stop'
@@ -1496,7 +1569,7 @@ function RecordRow({
             >
               {r.finish_reason === 'end_turn' || r.finish_reason === 'stop' ? 'end' : r.finish_reason || '—'}
             </span>
-          )}
+          */}
         </td>
         <td className="px-4 py-2.5 text-right font-medium text-xs">{formatTokens(r.total_tokens)}</td>
         <td className="px-4 py-2.5 text-right text-xs">
@@ -1622,7 +1695,7 @@ function TurnClusterList({
 
   return (
     <div className="space-y-4">
-      {turnSummaries.map((summary) => {
+      {turnSummaries.map(summary => {
         if (summary.turn_seq == null) return null;
 
         const turnSeq = summary.turn_seq;
@@ -1657,21 +1730,32 @@ function TurnClusterList({
                         当前定位
                       </span>
                     )}
-                    <span className={cn('inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium', status.className)}>
+                    <span
+                      className={cn(
+                        'inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium',
+                        status.className,
+                      )}
+                    >
                       {status.label}
                     </span>
                   </div>
-                  <p className="mt-2 text-sm text-[var(--text-primary)] break-words">
-                    {getTurnUserPreview(chatTurn)}
-                  </p>
+                  <p className="mt-2 text-sm text-[var(--text-primary)] break-words">{getTurnUserPreview(chatTurn)}</p>
                   <div className="mt-2 flex flex-wrap gap-2 text-[11px] text-[var(--text-secondary)]">
                     {chatTurn?.startTime && (
-                      <span className="rounded-full bg-[var(--bg-tertiary)] px-2 py-0.5">{formatTime(chatTurn.startTime)}</span>
+                      <span className="rounded-full bg-[var(--bg-tertiary)] px-2 py-0.5">
+                        {formatTime(chatTurn.startTime)}
+                      </span>
                     )}
-                    <span className="rounded-full bg-[var(--bg-tertiary)] px-2 py-0.5">{summary.llm_calls} 次 LLM 调用</span>
-                    <span className="rounded-full bg-[var(--bg-tertiary)] px-2 py-0.5">{iterations.length || detailRecords.length} 条调用条目</span>
+                    <span className="rounded-full bg-[var(--bg-tertiary)] px-2 py-0.5">
+                      {summary.llm_calls} 次 LLM 调用
+                    </span>
+                    <span className="rounded-full bg-[var(--bg-tertiary)] px-2 py-0.5">
+                      {iterations.length || detailRecords.length} 条调用条目
+                    </span>
                     {chatTurn && chatTurn.toolCalls.length > 0 && (
-                      <span className="rounded-full bg-[var(--bg-tertiary)] px-2 py-0.5">{chatTurn.toolCalls.length} 个工具调用</span>
+                      <span className="rounded-full bg-[var(--bg-tertiary)] px-2 py-0.5">
+                        {chatTurn.toolCalls.length} 个工具调用
+                      </span>
                     )}
                   </div>
                 </div>
@@ -1679,7 +1763,9 @@ function TurnClusterList({
                 <div className="grid grid-cols-2 gap-2 lg:min-w-[250px]">
                   <div className="rounded-lg border border-[var(--border)] bg-[var(--bg-primary)] px-3 py-2">
                     <div className="text-[10px] text-[var(--text-secondary)]">Total</div>
-                    <div className="text-sm font-semibold text-[var(--accent)]">{formatTokens(summary.total_tokens)}</div>
+                    <div className="text-sm font-semibold text-[var(--accent)]">
+                      {formatTokens(summary.total_tokens)}
+                    </div>
                   </div>
                   <div className="rounded-lg border border-[var(--border)] bg-[var(--bg-primary)] px-3 py-2">
                     <div className="text-[10px] text-[var(--text-secondary)]">Models</div>
@@ -1693,7 +1779,9 @@ function TurnClusterList({
                   </div>
                   <div className="rounded-lg border border-[var(--border)] bg-[var(--bg-primary)] px-3 py-2">
                     <div className="text-[10px] text-[var(--text-secondary)]">Completion</div>
-                    <div className="text-sm font-semibold text-emerald-400">{formatTokens(summary.completion_tokens)}</div>
+                    <div className="text-sm font-semibold text-emerald-400">
+                      {formatTokens(summary.completion_tokens)}
+                    </div>
                   </div>
                 </div>
               </div>
@@ -1726,7 +1814,9 @@ function TurnClusterList({
                 <div>
                   <div className="flex items-center justify-between mb-2">
                     <p className="text-[var(--text-secondary)] text-xs">调用条目</p>
-                    <span className="text-[10px] text-[var(--text-secondary)]">{detailRecords.length || iterations.length} 条</span>
+                    <span className="text-[10px] text-[var(--text-secondary)]">
+                      {detailRecords.length || iterations.length} 条
+                    </span>
                   </div>
                   {loadingTurnRecords[turnSeq] ? (
                     <div className="rounded-lg border border-[var(--border)] bg-[var(--bg-primary)] px-3 py-4 text-xs text-[var(--text-secondary)]">
@@ -1740,7 +1830,7 @@ function TurnClusterList({
                     </div>
                   ) : iterations.length > 0 ? (
                     <div className="space-y-2">
-                      {iterations.map((iteration) => (
+                      {iterations.map(iteration => (
                         <TurnIterationFallback key={`${turnSeq}-${iteration.iteration}`} iteration={iteration} />
                       ))}
                     </div>
@@ -1780,12 +1870,12 @@ function TurnCallEntry({ record }: { record: TokenRecord }) {
             <span className="font-mono text-xs text-[var(--text-primary)] truncate" title={record.model}>
               {shortModel(record.model)}
             </span>
-            <span
-              className="rounded-full bg-amber-500/15 px-2 py-0.5 text-[10px] font-medium text-amber-400"
-              title={label}
-            >
-              {label}
-            </span>
+            <CallLabelBadge
+              label={record.tool_names ? getCallLabel(record.tool_names, record.finish_reason) : label}
+              className="rounded-full px-2"
+              toneClass={getCallLabelTone(record.tool_names, record.finish_reason)}
+              widthClass="max-w-[200px]"
+            />
           </div>
           <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-[11px] text-[var(--text-secondary)] md:flex md:items-center md:gap-4">
             <span>Prompt {formatTokens(record.prompt_tokens)}</span>
@@ -1868,9 +1958,12 @@ function TurnIterationFallback({ iteration }: { iteration: TurnIterationRecord }
           </span>
           <ModelRoleIcon role={iteration.model_role || 'default'} />
           <span className="font-mono text-xs text-[var(--text-primary)]">{shortModel(iteration.model)}</span>
-          <span className="rounded-full bg-amber-500/15 px-2 py-0.5 text-[10px] font-medium text-amber-400" title={label}>
-            {label}
-          </span>
+          <CallLabelBadge
+            label={iteration.tool_names ? getCallLabel(iteration.tool_names, iteration.finish_reason) : label}
+            className="rounded-full px-2"
+            toneClass={getCallLabelTone(iteration.tool_names, iteration.finish_reason)}
+            widthClass="max-w-[160px]"
+          />
         </div>
         <div className="flex flex-wrap gap-3 text-[11px] text-[var(--text-secondary)]">
           <span>P {formatTokens(iteration.prompt_tokens)}</span>
@@ -1902,7 +1995,9 @@ function PageNumbers({ current, total, onPage }: { current: number; total: numbe
     <>
       {pages.map((p, i) =>
         p === '...' ? (
-          <span key={`e${i}`} className="px-1 text-xs text-[var(--text-secondary)]">…</span>
+          <span key={`e${i}`} className="px-1 text-xs text-[var(--text-secondary)]">
+            …
+          </span>
         ) : (
           <button
             key={p}

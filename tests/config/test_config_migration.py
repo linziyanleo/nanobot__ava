@@ -232,8 +232,63 @@ def test_sidecar_save_config_preserves_inherited_schema_fields(tmp_path) -> None
     assert saved["tools"]["mcpServers"]["demo"]["enabledTools"] == ["tool_a"]
 
 
-def test_sidecar_onboard_refresh_preserves_plugin_channels_and_inherited_fields(
-    tmp_path,
+def test_sidecar_telegram_config_preserves_stream_edit_interval(tmp_path) -> None:
+    _apply_sidecar_schema_patch()
+
+    config_path = tmp_path / "config.json"
+    config_path.write_text(
+        json.dumps(
+            {
+                "channels": {
+                    "telegram": {
+                        "enabled": True,
+                        "token": "123:abc",
+                        "allowFrom": ["*"],
+                        "streamEditInterval": 1.25,
+                    }
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    config = load_config(config_path)
+    assert config.channels.telegram.stream_edit_interval == 1.25
+
+    save_config(config, config_path)
+    saved = json.loads(config_path.read_text(encoding="utf-8"))
+    assert saved["channels"]["telegram"]["streamEditInterval"] == 1.25
+
+
+def test_sidecar_telegram_config_preserves_stream_edit_interval(tmp_path) -> None:
+    _apply_sidecar_schema_patch()
+
+    config_path = tmp_path / "config.json"
+    config_path.write_text(
+        json.dumps(
+            {
+                "channels": {
+                    "telegram": {
+                        "enabled": True,
+                        "token": "123:abc",
+                        "allowFrom": ["*"],
+                        "streamEditInterval": 1.25,
+                    }
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    config = load_config(config_path)
+    assert config.channels.telegram.stream_edit_interval == 1.25
+
+    save_config(config, config_path)
+    saved = json.loads(config_path.read_text(encoding="utf-8"))
+    assert saved["channels"]["telegram"]["streamEditInterval"] == 1.25
+
+
+def test_sidecar_onboard_refresh_preserves_plugin_channels_and_inherited_fields(    tmp_path,
     monkeypatch,
 ) -> None:
     _apply_sidecar_schema_patch()
