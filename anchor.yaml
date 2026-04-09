@@ -1,0 +1,52 @@
+specanchor:
+  version: "0.4.0"
+  project_name: "nanobot-ava"
+  mode: "full"
+
+  paths:
+    global_specs: ".specanchor/global/"
+    module_specs: ".specanchor/modules/"
+    task_specs: ".specanchor/tasks/"
+    archive: ".specanchor/archive/"
+    module_index: ".specanchor/module-index.md"
+    project_codemap: ".specanchor/project-codemap.md"
+
+  sources:
+    - path: "mydocs/specs/"
+      type: "mydocs"
+      maps_to: task_specs
+      file_pattern: "**/*.md"
+      governance:
+        stale_check: true
+        frontmatter_inject: false
+        scan_on_init: true
+
+  writing_protocol:
+    schema: "sdd-riper-one"
+    schema_recommend: true
+
+  coverage:
+    scan_paths:
+      - "ava/**"
+      - "nanobot/**"
+      - "console-ui/src/**"
+      - "tests/**"
+      - "bridge/**"
+    ignore_paths:
+      - "**/__pycache__/**"
+      - "ava/console/mock_bundle/**"
+      - "console-ui/dist/**"
+      - "mydocs/**"
+      - "docs/**"
+      - "**/*.png"
+      - "**/*.gif"
+
+  check:
+    stale_days: 14
+    outdated_days: 30
+    warn_recent_commits_days: 14
+    task_base_branch: "main"
+
+  sync:
+    auto_check_on_mr: true
+    sprint_sync_reminder: false
