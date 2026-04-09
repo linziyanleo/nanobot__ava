@@ -59,7 +59,7 @@ uv run pytest tests/guardrails -q
 
 ## 当前 Patch 全景
 
-> 上次对照：upstream `e21ba5f6` (2026-04-08)
+> 上次对照：upstream `c092896` (2026-04-08)
 
 | Patch | 上游触点 | 当前职责 | 热度 | 当前判断 | 最低验证 |
 |-------|----------|----------|------|----------|----------|
@@ -128,7 +128,7 @@ upstream 在 `_register_default_tools` 新增 `GlobTool`/`GrepTool`、Web 工具
 ### 热区 4: `nanobot/channels/telegram.py` — 中
 
 - 关联 patch：`channel_patch`
-- 本轮变更：Dream 命令注册、`_normalize_telegram_command`、polling error 缩短
+- 本轮变更：Dream 命令注册、`_normalize_telegram_command`、polling error 缩短、stream edit interval
 - 策略：batch 逻辑与新命令不冲突
 
 ### 热区 5: `nanobot/agent/context.py` + `nanobot/providers/base.py` — 高

@@ -352,6 +352,10 @@ class HeartbeatPhaseConfig(Base):
     model: str = ""
 
 
+class DreamConfig(_UPSTREAM.DreamConfig):
+    """沿用上游 Dream 配置结构，供 sidecar fork 显式继承。"""
+
+
 class AgentDefaults(_UPSTREAM.AgentDefaults):
     """sidecar 扩展后的默认 agent 配置。"""
 
@@ -364,6 +368,7 @@ class AgentDefaults(_UPSTREAM.AgentDefaults):
     context_compression: ContextCompressionConfig = Field(default_factory=ContextCompressionConfig)
     in_loop_truncation: InLoopTruncationConfig = Field(default_factory=InLoopTruncationConfig)
     history_summarizer: HistorySummarizerConfig = Field(default_factory=HistorySummarizerConfig)
+    dream: DreamConfig = Field(default_factory=DreamConfig)
     heartbeat: "HeartbeatConfig" = Field(default_factory=lambda: HeartbeatConfig())
 
 
@@ -461,8 +466,14 @@ class WebSearchConfig(_UPSTREAM.WebSearchConfig):
     """沿用上游 Web 搜索配置。"""
 
 
+    provider: str = "brave"
+
+
 class WebToolsConfig(_UPSTREAM.WebToolsConfig):
     """沿用上游 Web 工具配置。"""
+
+
+    search: WebSearchConfig = Field(default_factory=WebSearchConfig)
 
 
 class ExecToolConfig(_UPSTREAM.ExecToolConfig):

@@ -56,12 +56,23 @@ from nanobot.utils.restart import (
     should_show_cli_restart_notice,
 )
 
-app = typer.Typer(
-    name="nanobot",
-    context_settings={"help_option_names": ["-h", "--help"]},
-    help=f"{__logo__} nanobot - Personal AI Assistant",
-    no_args_is_help=True,
-)
+_existing_app = globals().get("app")
+if isinstance(_existing_app, typer.Typer):
+    app = _existing_app
+    app.info.name = "nanobot"
+    app.info.context_settings = {"help_option_names": ["-h", "--help"]}
+    app.info.help = f"{__logo__} nanobot - Personal AI Assistant"
+    app.info.no_args_is_help = True
+    app.registered_commands.clear()
+    app.registered_groups.clear()
+    app.registered_callback = None
+else:
+    app = typer.Typer(
+        name="nanobot",
+        context_settings={"help_option_names": ["-h", "--help"]},
+        help=f"{__logo__} nanobot - Personal AI Assistant",
+        no_args_is_help=True,
+    )
 
 console = Console()
 EXIT_COMMANDS = {"exit", "quit", "/exit", "/quit", ":q"}

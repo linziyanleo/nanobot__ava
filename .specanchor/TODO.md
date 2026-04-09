@@ -106,16 +106,18 @@
   - 每次 upstream 改 `nanobot/channels/telegram.py`，先对照 [patch_map.md](./patch_map.md) 再决定 patch 是否收窄；
   - 一旦上游覆盖这两个边界，就删掉对应 patch 分支，而不是继续叠逻辑。
 
-### 7. 全量测试的本机环境依赖不稳定
+### 7. 全量/混合 pytest 验证策略仍不稳定
 
 - 现状：
   - 当前机器跑 `uv run pytest tests/ -q` 会在 Matrix 测试链路缺少 `nio/python-olm` 构建依赖时失败；
   - `uv sync --all-extras` 还会卡在 `python-olm`，缺 `cmake/gmake`。
+  - `tests/config/test_config_migration.py` 与 `tests/cli/test_commands.py` 在同一 pytest 进程混跑时，还会因为 `nanobot.config.schema` / `nanobot.cli.commands` 的 reload 与模块级缓存导致假失败。
 - 风险：
-  - 容易把“环境没齐”误判成“merge 代码坏了”。
+  - 容易把“环境没齐”或“测试进程状态污染”误判成“merge 代码坏了”。
 - 后续动作：
   - 补一份本机依赖安装说明，至少说明 Matrix / `python-olm` 需要的构建工具；
-  - 或者明确区分“patch/guardrails 回归”和“全量含 matrix extras 回归”。
+  - 明确区分“patch/guardrails 回归”“fresh-process 定向回归”和“全量含 matrix extras 回归”；
+  - 为 `config_migration` / `cli_commands` 这组测试补固定的拆分执行脚本或约定，避免后续重复踩单进程污染。
 
 ### 8. Page Agent headless 自动检测与配置三态
 

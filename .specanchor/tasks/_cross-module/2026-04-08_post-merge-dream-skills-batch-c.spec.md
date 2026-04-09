@@ -7,7 +7,7 @@ specanchor:
   reviewer: "@Ziyan Lin"
   created: "2026-04-08"
   status: "in_progress"
-  last_change: "Plan Approved，进入 Execute；开始收口 Dream 真源统一、shadow skills 与 Batch C follow-up"
+  last_change: "基线刷新为 merge commit 42ea7cf / upstream c092896；运行闭环刷新为 split fresh-process 330 项 pytest + ava help/status smoke 已通过"
   related_modules:
     - ".specanchor/modules/categorized_memory_spec.md"
     - ".specanchor/modules/context_patch_spec.md"
@@ -64,8 +64,8 @@ specanchor:
   - 不把所有 sidecar 定制一次性改写成纯上游接口；仅处理本 spec 命中的热区
   - 不默认修改 `nanobot/`；除非明确是 upstream bugfix / upstream PR prep
 - **Assumption**:
-  - 当前 merge 基线固定为 `upstream/main@e21ba5f6`
-  - 运行闭环已通过：206 项定向 pytest + `python -m ava --help` / `status` smoke 已验证
+  - 当前 merge 基线固定为 `upstream/main@c092896`
+  - 运行闭环已通过：split fresh-process 330 项定向 pytest + `python -m ava --help` / `status` smoke 已验证
   - 本轮 follow-up 的一等验收仍是 runtime continuity，治理优化必须排在其后
 
 ## 1.1 Context Sources
@@ -113,8 +113,8 @@ specanchor:
 - Bundle Level: `Lite`
 - Bundle File: `N/A`
 - Key Facts:
-  - merge 提交已完成：`6cf13f95`
-  - `ava/UPSTREAM_VERSION` 已更新到 `e21ba5f6675a2aa20d1f07c897b5d3e6775cc29c`
+  - merge 提交已完成：`42ea7cf`
+  - `ava/UPSTREAM_VERSION` 已更新到 `c092896922373ac56602081d7350c5f3b3941aae`
   - 当前最大未收口问题不是 merge 冲突，而是 merge 后治理：Dream 双真源、shadow skills 覆盖、Batch C patch overlap
   - `CategorizedMemoryStore.on_consolidate()` 已定义，但当前没有接到 upstream `Dream / Consolidator` 输出上
   - `skills_patch` 当前优先级会让 `ava/skills/*` 覆盖同名 upstream skills

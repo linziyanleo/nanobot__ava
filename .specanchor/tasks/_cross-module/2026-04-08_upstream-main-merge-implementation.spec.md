@@ -6,8 +6,8 @@ specanchor:
   assignee: "@Codex"
   reviewer: "@Ziyan Lin"
   created: "2026-04-08"
-  status: "in_progress"
-  last_change: "执行 upstream/main merge 冲突收口，完成 206 项定向回归与 ava startup/status smoke，并同步治理工件"
+  status: "done"
+  last_change: "完成 upstream/main@c092896 增量合并收口；split fresh-process 验证 330 项 pytest 与 ava help/status smoke 通过，并同步治理工件"
   related_modules:
     - ".specanchor/modules/schema_patch_spec.md"
     - ".specanchor/modules/onboard_patch_spec.md"
@@ -38,7 +38,7 @@ specanchor:
 - [x] 当前分支已有未提交改动是否命中本轮 merge 路径并阻塞真正执行
   - 结论：存在本地 spec 改动与一个未跟踪 task spec，但未命中 merge 阻塞路径；实际 merge 已执行并完成冲突收口
 - [x] merge 后 `patch / tools / skills` 的最小运行闭环是否完整
-  - 结论：完整。两轮定向 pytest 共 206 项通过，`uv run python -m ava --help` 与 `uv run python -m ava status` 均通过；patch、custom tools、skills loader、Dream compat 主路径均成功注册
+  - 结论：完整。分 3 个 fresh pytest 进程完成 330 项定向回归，`python -m ava --help` 与 `python -m ava status` smoke 均通过；patch、custom tools、skills loader、Dream compat 主路径均成功注册
 - [ ] 在运行闭环确认后，哪些 patch / skills 可以立即收窄或删除，哪些只应先保留并补回归
 
 ## 1. Requirements (Context)
@@ -118,7 +118,7 @@ specanchor:
 ## 2. Research Findings
 
 - 事实与约束:
-  - 当前 sidecar upstream 基线是 `7113ad34`，`v0.1.5` 是 `79234d23`，最新 `upstream/main` 已前进到 `e21ba5f6`
+  - 当前 sidecar upstream 基线是 `7113ad34`，`v0.1.5` 是 `79234d23`，本轮实际合入的最新 `upstream/main` 为 `c092896`
   - `v0.1.5` 相对当前基线暴露出的核心问题，不是 tag 独有功能，而是 shared file 与长期 patch 热区边界
   - 真正的 shared file 冲突候选只有 3 个：
     - `nanobot/agent/context.py`
@@ -209,7 +209,7 @@ specanchor:
 - [x] 3. 先做运行闭环验证：确认 merge 后 `patch / custom tools / skills` 仍能注册、加载、执行基础路径
 - [x] 4. 完成 Batch A：`schema/onboard`、Dream config/startup compat 与 `ava/templates/TOOLS.md` 的真实运行时对齐
 - [x] 5. 完成 Batch B：`loop/context/tools/templates/console/skills` 热区复核与最小必要修补
-- [ ] 6. 复核 Batch C：provider/transcription/channel 增益区，只修被 merge 打断的契约，不做额外扩改
+- [x] 6. 复核 Batch C：provider/transcription/channel 增益区，只修被 merge 打断的契约，不做额外扩改
 - [x] 7. 在运行闭环稳定后，再更新 `ava/UPSTREAM_VERSION`、`.specanchor/patch_map.md`、`.specanchor/TODO.md` 与必要 module spec
 - [x] 8. 跑最小必要回归：
   - patches: schema/onboard/context/loop/tools/console/skills/storage/transcription
@@ -225,12 +225,12 @@ specanchor:
 - [x] Step 3: reconcile `context.py` / `loader.py` / `TOOLS.md`
 - [x] Step 4: 验证 `patch / custom tools / skills` 的基础运行闭环，并确认 Dream compat 不打断现有记忆主链
 - [x] Step 5: 复核并修补 Batch A / B 热区
-- [ ] Step 6: 跑 focused pytest / guardrails / diff-check
+- [x] Step 6: 跑 split fresh-process focused pytest / guardrails / ava smoke / diff-check
 - [x] Step 7: 更新 `UPSTREAM_VERSION` 与 `.specanchor` 治理工件
 
 ## 6. Upstream 基准 Overlap 清单（供 Execute 后开发使用）
 
-> 基准：`upstream/main@e21ba5f6`
+> 基准：`upstream/main@c092896`
 > 用途：merge / reconcile 完成后，后续开发默认以上游为真源，对 sidecar 现有 patch / tools / skills 做 keep / narrow / delete / upstream 判断。
 > 第一判定原则：先看 merge 后是否还能继续正常运行。
 > 第二判定原则：只有在运行闭环稳定后，才讨论该项是否应收窄 / 删除 / 上推。
@@ -301,11 +301,11 @@ specanchor:
 ## 7. Review Verdict
 
 - Spec coverage: `merge shared files / runtime continuity / Dream compat / overlay drift 已覆盖`
-- Behavior check: `206 项定向 pytest 通过；ava startup/status smoke 通过`
-- Regression risk: `中；Matrix / 全量外部集成未跑，Batch C 仍保留增量复核空间`
+- Behavior check: `split fresh-process 定向 pytest 330 项通过（85 + 7 + 238）；ava help/status smoke 通过`
+- Regression risk: `中；Matrix / 全量外部集成未跑，且 tests/config/test_config_migration.py 与 tests/cli/test_commands.py 在单进程混跑时仍有模块状态污染风险`
 - Module Spec 需更新: `可选：context_patch_spec / tools_patch_spec / skills_patch_spec`
 - Follow-ups: `Dream 真源统一、shadow skills 收窄/删除、Batch C 增益区增量复核`
 
 ## 8. Plan-Execution Diff
 
-- Any deviation from plan: `nanobot/templates/TOOLS.md 未产生文本冲突，真正需要额外对齐的是 ava/templates/TOOLS.md；运行闭环验证优先级高于 patch 收窄治理`
+- Any deviation from plan: `nanobot/templates/TOOLS.md 未产生文本冲突，真正需要额外对齐的是 ava/templates/TOOLS.md；最终验证需拆成 fresh pytest 进程，避免 tests/config/test_config_migration.py 与 tests/cli/test_commands.py 的模块重载污染造成假失败`

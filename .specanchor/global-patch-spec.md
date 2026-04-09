@@ -122,10 +122,10 @@ register_patch("{patch_name}", apply_{module_name}_patch)
 
 ### 3.2 执行顺序
 
-Patch 按文件名字母序发现（`sorted(patches_dir.glob("*_patch.py"))`），当前 12 个 patch 的执行顺序：
+Patch 按文件名字母序发现（`sorted(patches_dir.glob("*_patch.py"))`），当前 14 个 patch 的执行顺序：
 
 ```
-a_schema_patch → b_config_patch → bus_patch → c_onboard_patch → channel_patch → console_patch → context_patch → loop_patch → skills_patch → storage_patch → tools_patch → transcription_patch
+a_schema_patch → b_config_patch → bus_patch → c_onboard_patch → channel_patch → console_patch → context_patch → loop_patch → provider_prefix_patch → skills_patch → storage_patch → templates_patch → tools_patch → transcription_patch
 ```
 
 | 序号 | 文件 | 注册名 | 职责 |
@@ -138,10 +138,12 @@ a_schema_patch → b_config_patch → bus_patch → c_onboard_patch → channel_
 | 6 | `console_patch.py` | `web_console` | Console 独立服务启动 |
 | 7 | `context_patch.py` | `context_builder` | 历史摘要+压缩+分类记忆注入 |
 | 8 | `loop_patch.py` | `agent_loop` | AgentLoop 属性注入 + token 统计 |
-| 9 | `skills_patch.py` | `skills_loader` | Skills 三源发现 + disabled filter |
-| 10 | `storage_patch.py` | `sqlite_storage` | SQLite 存储替换 + db 共享 |
-| 11 | `tools_patch.py` | `custom_tools` | 自定义工具注册 |
-| 12 | `transcription_patch.py` | `transcription_proxy` | 转写代理注入 |
+| 9 | `provider_prefix_patch.py` | `provider_prefix_compat` | OpenAI-compatible provider 剥离 sidecar 模型前缀 |
+| 10 | `skills_patch.py` | `skills_loader` | Skills 三源发现 + disabled filter |
+| 11 | `storage_patch.py` | `sqlite_storage` | SQLite 存储替换 + db 共享 |
+| 12 | `templates_patch.py` | `workspace_templates_overlay` | sidecar 模板覆盖到 workspace |
+| 13 | `tools_patch.py` | `custom_tools` | 自定义工具注册 |
+| 14 | `transcription_patch.py` | `transcription_proxy` | 转写代理注入 |
 
 **关键依赖链**：
 

@@ -14,11 +14,11 @@
 | `ava/patches/console_patch.py` | [console_patch_spec.md](console_patch_spec.md) | ✅ | Web Console 独立服务 |
 | `ava/patches/context_patch.py` | [context_patch_spec.md](context_patch_spec.md) | ✅ | 历史摘要+压缩+分类记忆注入 |
 | `ava/patches/loop_patch.py` | [loop_patch_spec.md](loop_patch_spec.md) | ✅ | AgentLoop 属性注入 + Token 统计 + Phase 0 预记录 + 实时广播 + CancelledError + LifecycleManager 初始化 |
-| `ava/patches/provider_prefix_patch.py` | — | ✅ | OpenAI-compatible provider 剥离 sidecar 模型前缀（yunwu/zenmux） |
+| `ava/patches/provider_prefix_patch.py` | [provider_prefix_patch_spec.md](provider_prefix_patch_spec.md) | ✅ | OpenAI-compatible provider 剥离 sidecar 模型前缀（yunwu/zenmux） |
 | `ava/patches/skills_patch.py` | [skills_patch_spec.md](skills_patch_spec.md) | ✅ | SkillsLoader 三源发现 + SQLite disabled filter |
 | `ava/patches/storage_patch.py` | [storage_patch_spec.md](storage_patch_spec.md) | ✅ | SQLite 存储层替换 |
 | `ava/patches/tools_patch.py` | [tools_patch_spec.md](tools_patch_spec.md) | ✅ | 8 个自定义工具注入（含 codex、page_agent、gateway_control） |
-| `ava/patches/templates_patch.py` | — | ✅ | 模板同步覆盖：`ava/templates/` → workspace |
+| `ava/patches/templates_patch.py` | [templates_patch_spec.md](templates_patch_spec.md) | ✅ | 模板同步覆盖：`ava/templates/` → workspace |
 | `ava/patches/transcription_patch.py` | [transcription_patch_spec.md](transcription_patch_spec.md) | ✅ | GroqTranscriptionProvider 代理注入 |
 
 ## 功能模块（已实现）

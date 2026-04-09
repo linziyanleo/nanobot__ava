@@ -1,23 +1,8 @@
-"""Replace nanobot.config.schema with ava fork before any other import.
-
-The fork adds or extends:
-  - AgentDefaults: vision_model, mini_model, image_gen_model, memory_tier,
-    memory_window, context_compression, in_loop_truncation, history_summarizer
-  - ConsoleConfig
-  - ClaudeCodeConfig
-  - TokenStatsConfig
-  - ApiConfig
-  - Channel config classes (TelegramConfig, FeishuConfig, etc.)
-  - GatewayConfig.console field
-
-This patch must run FIRST (alphabetically before other patches).
-Keep the `a_` prefix so it runs before the remaining patches.
-Since this completely replaces the module, config_patch.py becomes a
-no-op fallback when the fork file is missing.
-"""
+"""Replace ``nanobot.config.schema`` with the sidecar fork early in startup."""
 
 from __future__ import annotations
 
+import importlib.util
 import sys
 from pathlib import Path
 from types import ModuleType
@@ -28,94 +13,110 @@ from ava.launcher import register_patch
 
 
 def _fork_module_is_healthy(module: ModuleType) -> bool:
-    """复用已有 fork 前做最小健康检查，避免沿用被污染或旧版本的类图。"""
+    """Check whether an already-loaded fork is complete enough to reuse."""
     try:
         if "claude_code_model" in getattr(module.AgentDefaults, "model_fields", {}):
+            return False
+        if not hasattr(module, "DreamConfig"):
             return False
 
         dumped = module.Config().model_dump(mode="json", by_alias=True)
         defaults = dumped["agents"]["defaults"]
         if "visionModel" not in defaults:
             return False
+        if module.WebSearchConfig().provider != "brave":
+            return False
 
         validated = module.Config.model_validate({"gateway": {"console": {"enabled": False}}})
-        console = getattr(validated.gateway, "console", None)
-        return console is not None
+        return getattr(validated.gateway, "console", None) is not None
     except Exception:
         return False
 
 
+def _load_upstream_schema_module() -> ModuleType:
+    """Load a clean upstream schema module from disk for fork inheritance."""
+    module_name = "_ava_upstream_config_schema"
+    cached = sys.modules.get(module_name)
+    if isinstance(cached, ModuleType) and hasattr(cached, "Base") and hasattr(cached, "Config"):
+        return cached
+
+    upstream_path = Path(__file__).resolve().parents[2] / "nanobot" / "config" / "schema.py"
+    spec = importlib.util.spec_from_file_location(module_name, upstream_path)
+    if spec is None or spec.loader is None:
+        raise RuntimeError(f"Upstream schema not found at {upstream_path}")
+
+    upstream_mod = importlib.util.module_from_spec(spec)
+    sys.modules[module_name] = upstream_mod
+    spec.loader.exec_module(upstream_mod)
+    return upstream_mod
+
+
+def _sync_schema_references(schema_mod: ModuleType) -> None:
+    """Update already-imported modules to use the active schema module."""
+    config_pkg = sys.modules.get("nanobot.config")
+    if config_pkg is not None:
+        config_pkg.schema = schema_mod
+        if hasattr(schema_mod, "Config"):
+            config_pkg.Config = schema_mod.Config
+
+    loader_mod = sys.modules.get("nanobot.config.loader")
+    if loader_mod is not None and hasattr(schema_mod, "Config"):
+        loader_mod.Config = schema_mod.Config
+
+
 def apply_schema_patch() -> str:
+    """Replace ``nanobot.config.schema`` with the inherited ava fork."""
     fork_path = (Path(__file__).parent.parent / "forks" / "config" / "schema.py").resolve()
     current_schema = sys.modules.get("nanobot.config.schema")
 
-    # Only inject if not already replaced
     if getattr(current_schema, "_ava_fork", False):
         current_path = getattr(current_schema, "__file__", None)
         if current_path and Path(current_path).resolve() == fork_path and _fork_module_is_healthy(current_schema):
+            _sync_schema_references(current_schema)
             return "schema already patched (skipped)"
 
     if isinstance(current_schema, ModuleType):
         current_path = getattr(current_schema, "__file__", None)
         if current_path and Path(current_path).resolve() == fork_path and _fork_module_is_healthy(current_schema):
             current_schema._ava_fork = True
-            import nanobot.config as config_pkg
-
-            config_pkg.schema = current_schema
-
-            try:
-                import nanobot.config.loader as loader_mod
-
-                loader_mod.Config = current_schema.Config
-            except Exception:
-                pass
-
+            _sync_schema_references(current_schema)
             logger.info("Reused existing ava fork for nanobot.config.schema")
             return "nanobot.config.schema already points to ava fork (reused existing module)"
 
     try:
-        import importlib
-        import importlib.util
-
         if not fork_path.exists():
-            return f"Fork schema not found at {fork_path} — skipped"
+            return f"Fork schema not found at {fork_path} - skipped"
+
+        if isinstance(current_schema, ModuleType) and not getattr(current_schema, "_ava_fork", False):
+            upstream_schema = current_schema
+        else:
+            upstream_schema = _load_upstream_schema_module()
 
         spec = importlib.util.spec_from_file_location("nanobot.config.schema", fork_path)
-        fork_mod = importlib.util.module_from_spec(spec)
-        fork_mod._ava_fork = True  # marker
-        original_schema = sys.modules.get("nanobot.config.schema")
-        fork_mod._ava_upstream_schema = original_schema
+        if spec is None or spec.loader is None:
+            raise RuntimeError(f"Unable to load fork schema at {fork_path}")
 
-        # 先注册 fork 模块，再执行文件；这样 Pydantic 在解析前向引用时会绑定当前 fork，
-        # 不会把同名类型错误解析回上游 schema。
+        fork_mod = importlib.util.module_from_spec(spec)
+        fork_mod._ava_fork = True
+        fork_mod._ava_upstream_schema = upstream_schema
+
+        # Register the fork before execution so forward refs bind to the fork.
         sys.modules["nanobot.config.schema"] = fork_mod
 
         try:
             spec.loader.exec_module(fork_mod)
         except Exception:
-            if original_schema is not None:
-                sys.modules["nanobot.config.schema"] = original_schema
+            if current_schema is not None:
+                sys.modules["nanobot.config.schema"] = current_schema
             else:
                 sys.modules.pop("nanobot.config.schema", None)
             raise
 
-        # Replace in sys.modules
         sys.modules["nanobot.config.schema"] = fork_mod
-
-        # Also patch the nanobot.config package's schema attribute
-        import nanobot.config as config_pkg
-        config_pkg.schema = fork_mod
-
-        # Update Config reference in loader (it uses `from ... import Config`)
-        try:
-            import nanobot.config.loader as loader_mod
-            loader_mod.Config = fork_mod.Config
-        except Exception:
-            pass
+        _sync_schema_references(fork_mod)
 
         logger.info("Replaced nanobot.config.schema with ava fork")
         return "nanobot.config.schema replaced with inherited ava fork (sidecar config extensions enabled)"
-
     except Exception as exc:
         logger.error("Failed to apply schema_patch: {}", exc)
         return f"schema_patch FAILED: {exc}"
