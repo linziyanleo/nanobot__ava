@@ -20,14 +20,14 @@ memory/
 └── persons/
     └── <person>/
         ├── MEMORY.md      # 个人长期记忆
-        ├── HISTORY.md     # 个人时间线
+        ├── history.jsonl   # 个人时间线（JSONL 格式，与全局 history.jsonl 结构一致）
         └── sources/       # 渠道级笔记 (<channel>_<id>.md)
 ```
 
 ## Ownership Boundary
 
 - Dream 会读取 `history.jsonl`，并维护 `SOUL.md`、`USER.md`、`memory/MEMORY.md`
-- `memory` 工具负责 person 维度的 `MEMORY.md` / `HISTORY.md` / `sources/*`
+- `memory` 工具负责 person 维度的 `MEMORY.md` / `history.jsonl` / `sources/*`
 - `CategorizedMemoryStore.on_consolidate()` 会在会话压缩后把归档摘要同步到 person history
 - Dream **不会**回写 person memory；person sync 只走 sidecar bridge
 
@@ -35,7 +35,7 @@ memory/
 
 - 全局：`SOUL.md`、`USER.md`、`memory/MEMORY.md`
 - 个人：身份解析成功后，附加 `memory/persons/<person>/MEMORY.md`
-- 历史：`history.jsonl` 和各 person `HISTORY.md` 默认不直接注入，通过检索或 consolidate 使用
+- 历史：全局 `history.jsonl` 和各 person `history.jsonl` 默认不直接注入，通过检索或 consolidate 使用
 
 ## Identity Resolution
 
@@ -75,7 +75,7 @@ persons:
 - 身份信息（"位置: 杭州"）
 - 长期目标、重要约定
 
-**HISTORY.md / history.jsonl** — 时间线事件与归档摘要：
+**history.jsonl** — 时间线事件与归档摘要：
 
 - 对话摘要、关键决策
 - 一次性事件记录
@@ -96,7 +96,7 @@ persons:
 
 - 优先用 `memory(search_history, ...)` 或 repo 内置搜索工具检索
 - 需要精确时间点时，按时间戳或关键词查 `history.jsonl`
-- person 相关历史优先查 `memory/persons/<person>/HISTORY.md`
+- person 相关历史优先查 `memory/persons/<person>/history.jsonl`
 
 ## Writing Guidelines
 

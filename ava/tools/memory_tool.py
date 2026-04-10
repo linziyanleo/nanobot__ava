@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import subprocess
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -187,37 +186,24 @@ class MemoryTool(Tool):
         else:
             target = self._store.resolve_person(self._channel, self._chat_id)
 
-        # When time/channel filter is set, skip HISTORY.md and go directly to sessions.
         if not has_advanced_filter and content:
-            search_paths = []
             memory_dir = self._store._workspace / "memory"
+            matches: list[str] = []
 
-            global_history = memory_dir / "HISTORY.md"
+            global_history = memory_dir / "history.jsonl"
             if global_history.exists():
-                search_paths.append(str(global_history))
+                matches.extend(self._search_history_jsonl(global_history, content.lower()))
 
             if target:
-                person_history = memory_dir / "persons" / target / "HISTORY.md"
+                person_history = memory_dir / "persons" / target / "history.jsonl"
                 if person_history.exists():
-                    search_paths.append(str(person_history))
+                    matches.extend(self._search_history_jsonl(person_history, content.lower()))
 
-            if search_paths:
-                try:
-                    result = subprocess.run(
-                        ["grep", "-i", "-n", content, *search_paths],
-                        capture_output=True, text=True, timeout=5,
-                    )
-                    output = result.stdout.strip()
-                    if output:
-                        lines = output.split("\n")
-                        if len(lines) > 50:
-                            lines = lines[:50]
-                            output = "\n".join(lines) + "\n... (truncated, 50+ matches)"
-                        else:
-                            output = "\n".join(lines)
-                        return f"Search results for '{content}':\n{output}"
-                except (subprocess.TimeoutExpired, FileNotFoundError):
-                    pass
+            if matches:
+                if len(matches) > 50:
+                    matches = matches[:50]
+                    matches.append("... (truncated, 50+ matches)")
+                return f"Search results for '{content}':\n" + "\n".join(matches)
 
         session_results = self._search_sessions(content, target, since, until, channel)
         if session_results:
@@ -238,6 +224,31 @@ class MemoryTool(Tool):
 
         query_desc = f"'{content}'" if content else "given filters"
         return f"No matches found for {query_desc} in history."
+
+    @staticmethod
+    def _search_history_jsonl(jsonl_path: Path, query_lower: str) -> list[str]:
+        """Search a JSONL history file, return matching formatted lines."""
+        results: list[str] = []
+        try:
+            with open(jsonl_path, encoding="utf-8") as f:
+                for line in f:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    try:
+                        record = json.loads(line)
+                    except json.JSONDecodeError:
+                        continue
+                    content = record.get("content", "")
+                    if not isinstance(content, str):
+                        continue
+                    if query_lower not in content.lower():
+                        continue
+                    ts = record.get("timestamp", "")
+                    results.append(f"[{ts}] {content}")
+        except OSError:
+            pass
+        return results
 
     _SESSIONS_MAX_RESULTS = 20
     _SESSIONS_MAX_CHARS = 500

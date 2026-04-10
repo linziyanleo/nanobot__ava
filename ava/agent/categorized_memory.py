@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import json
+import re
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -149,7 +152,7 @@ class CategorizedMemoryStore:
         return self._person_dir(person_name) / "MEMORY.md"
 
     def _person_history_file(self, person_name: str) -> Path:
-        return self._person_dir(person_name) / "HISTORY.md"
+        return self._person_dir(person_name) / "history.jsonl"
 
     def _source_dir(self, person_name: str) -> Path:
         return ensure_dir(self._person_dir(person_name) / "sources")
@@ -172,10 +175,74 @@ class CategorizedMemoryStore:
         self._person_memory_file(person_name).write_text(content, encoding="utf-8")
         logger.debug("Person memory written: {}", person_name)
 
+    _LEGACY_TIMESTAMP_RE = re.compile(r"^\[(\d{4}-\d{2}-\d{2} \d{2}:\d{2})\]\s*")
+
     def append_person_history(self, person_name: str, entry: str) -> None:
+        self._maybe_migrate_person_history(person_name)
         f = self._person_history_file(person_name)
+        record = {"timestamp": datetime.now().strftime("%Y-%m-%d %H:%M"), "content": entry.rstrip()}
         with open(f, "a", encoding="utf-8") as fh:
-            fh.write(entry.rstrip() + "\n\n")
+            fh.write(json.dumps(record, ensure_ascii=False) + "\n")
+
+    def _maybe_migrate_person_history(self, person_name: str) -> None:
+        """One-time migration: person HISTORY.md -> history.jsonl, backup as HISTORY.md.bak."""
+        person_dir = self._person_dir(person_name)
+        legacy = person_dir / "HISTORY.md"
+        if not legacy.exists():
+            return
+        jsonl = self._person_history_file(person_name)
+        if jsonl.exists() and jsonl.stat().st_size > 0:
+            return
+
+        try:
+            text = legacy.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            logger.exception("Failed to read person HISTORY.md for migration: {}", person_name)
+            return
+
+        entries = self._parse_legacy_person_history(text, legacy)
+        try:
+            if entries:
+                with open(jsonl, "a", encoding="utf-8") as fh:
+                    for e in entries:
+                        fh.write(json.dumps(e, ensure_ascii=False) + "\n")
+
+            backup = person_dir / "HISTORY.md.bak"
+            suffix = 2
+            while backup.exists():
+                backup = person_dir / f"HISTORY.md.bak.{suffix}"
+                suffix += 1
+            legacy.replace(backup)
+            logger.info("Migrated person HISTORY.md to history.jsonl ({} entries): {}", len(entries), person_name)
+        except Exception:
+            logger.exception("Failed to migrate person HISTORY.md: {}", person_name)
+
+    def _parse_legacy_person_history(self, text: str, legacy_path: Path) -> list[dict[str, str]]:
+        """Parse legacy `[timestamp] content` entries into JSONL-compatible dicts."""
+        normalized = text.replace("\r\n", "\n").replace("\r", "\n").strip()
+        if not normalized:
+            return []
+
+        try:
+            fallback_ts = datetime.fromtimestamp(legacy_path.stat().st_mtime).strftime("%Y-%m-%d %H:%M")
+        except OSError:
+            fallback_ts = datetime.now().strftime("%Y-%m-%d %H:%M")
+
+        entries: list[dict[str, str]] = []
+        for block in normalized.split("\n\n"):
+            block = block.strip()
+            if not block:
+                continue
+            m = self._LEGACY_TIMESTAMP_RE.match(block)
+            if m:
+                ts = m.group(1)
+                content = block[m.end():].strip()
+            else:
+                ts = fallback_ts
+                content = block
+            if content:
+                entries.append({"timestamp": ts, "content": content})
+        return entries
 
     # ── Source-level memory ──
 

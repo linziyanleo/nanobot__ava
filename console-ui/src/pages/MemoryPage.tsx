@@ -6,11 +6,8 @@ import {
   Save,
   RefreshCw,
   Calendar,
-  X,
-  Pencil,
   Globe,
   User,
-  Check,
   ChevronLeft,
 } from 'lucide-react';
 import { api } from '../api/client';
@@ -41,28 +38,20 @@ interface DiaryEntry {
 
 function parseHistoryEntries(
   content: string,
-): Array<{ date: string; text: string; startLine: number; endLine: number }> {
-  const entries: Array<{ date: string; text: string; startLine: number; endLine: number }> = [];
-  const lines = content.split('\n');
-  let currentEntry: { date: string; text: string; startLine: number; endLine: number } | null = null;
-
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i];
-    const match = line.match(/^\[(\d{4}-\d{2}-\d{2}[^\]]*)\](.*)/);
-    if (match) {
-      if (currentEntry) {
-        currentEntry.endLine = i - 1;
-        entries.push(currentEntry);
-      }
-      currentEntry = { date: match[1], text: match[2].trim(), startLine: i, endLine: i };
-    } else if (currentEntry && line.trim()) {
-      currentEntry.text += '\n' + line;
-      currentEntry.endLine = i;
+): Array<{ date: string; text: string }> {
+  const entries: Array<{ date: string; text: string }> = [];
+  for (const line of content.split('\n')) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+    try {
+      const record = JSON.parse(trimmed) as { timestamp?: string; content?: string };
+      entries.push({
+        date: record.timestamp || '',
+        text: record.content || '',
+      });
+    } catch {
+      // skip malformed lines
     }
-  }
-  if (currentEntry) {
-    currentEntry.endLine = lines.length - 1;
-    entries.push(currentEntry);
   }
   return entries.reverse();
 }
@@ -122,8 +111,6 @@ function MemoryContent({ scope }: { scope: MemoryScope }) {
   const [memoryEdit, setMemoryEdit] = useState('');
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
-  const [editingEntry, setEditingEntry] = useState<number | null>(null);
-  const [editingText, setEditingText] = useState('');
   const { canEdit } = useAuth();
 
   const basePath = scope.type === 'global' ? 'workspace/memory' : `workspace/memory/persons/${scope.key}`;
@@ -133,7 +120,7 @@ function MemoryContent({ scope }: { scope: MemoryScope }) {
     try {
       const [mem, hist] = await Promise.all([
         api<FileData>(`/files/read?path=${basePath}/MEMORY.md`).catch(() => null),
-        api<FileData>(`/files/read?path=${basePath}/HISTORY.md`).catch(() => null),
+        api<FileData>(`/files/read?path=${basePath}/history.jsonl`).catch(() => null),
       ]);
       setMemoryData(mem);
       setMemoryEdit(mem?.content || '');
@@ -145,7 +132,6 @@ function MemoryContent({ scope }: { scope: MemoryScope }) {
 
   useEffect(() => {
     loadFiles();
-    setEditingEntry(null);
   }, [loadFiles]);
 
   const saveMemory = async () => {
@@ -164,40 +150,6 @@ function MemoryContent({ scope }: { scope: MemoryScope }) {
     } finally {
       setSaving(false);
     }
-  };
-
-  const saveHistoryEntry = async (idx: number) => {
-    if (!historyData) return;
-    const entries = parseHistoryEntries(historyData.content);
-    const entry = entries[idx];
-    if (!entry) return;
-
-    // Rebuild content with edited entry
-    const lines = historyData.content.split('\n');
-    const newEntryText = `[${entry.date}] ${editingText}`;
-    const newLines = [...lines.slice(0, entry.startLine), newEntryText, ...lines.slice(entry.endLine + 1)];
-    const newContent = newLines.join('\n');
-
-    setSaving(true);
-    setMessage(null);
-    try {
-      const result = await api<FileData>('/files/write', {
-        method: 'PUT',
-        body: JSON.stringify({ path: historyData.path, content: newContent, expected_mtime: historyData.mtime }),
-      });
-      setHistoryData({ ...historyData, content: newContent, mtime: result.mtime });
-      setEditingEntry(null);
-      setMessage({ type: 'success', text: '保存成功' });
-    } catch (err: unknown) {
-      setMessage({ type: 'error', text: err instanceof Error ? err.message : '保存失败' });
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const startEditEntry = (idx: number, text: string) => {
-    setEditingEntry(idx);
-    setEditingText(text);
   };
 
   const historyEntries = historyData ? parseHistoryEntries(historyData.content) : [];
@@ -307,54 +259,11 @@ function MemoryContent({ scope }: { scope: MemoryScope }) {
                 key={idx}
                 className="bg-[var(--bg-secondary)] border border-[var(--border)] rounded-lg overflow-hidden"
               >
-                <div className="flex items-start justify-between px-4 py-3">
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2 mb-1">
-                      <span className="text-xs text-[var(--accent)] font-mono shrink-0">[{entry.date}]</span>
-                    </div>
-                    {editingEntry === idx ? (
-                      <textarea
-                        value={editingText}
-                        onChange={e => setEditingText(e.target.value)}
-                        placeholder="编辑记录内容..."
-                        className="w-full p-2 rounded-lg bg-[var(--bg-primary)] border border-[var(--border)] text-sm text-[var(--text-primary)] resize-y min-h-[80px]"
-                        autoFocus
-                      />
-                    ) : (
-                      <p className="text-sm text-[var(--text-primary)] whitespace-pre-wrap">{entry.text}</p>
-                    )}
+                <div className="px-4 py-3">
+                  <div className="flex items-center gap-2 mb-1">
+                    <span className="text-xs text-[var(--accent)] font-mono shrink-0">[{entry.date}]</span>
                   </div>
-                  {canEdit() && (
-                    <div className="flex items-center gap-1 ml-3 shrink-0">
-                      {editingEntry === idx ? (
-                        <>
-                          <button
-                            onClick={() => saveHistoryEntry(idx)}
-                            disabled={saving}
-                            title="保存"
-                            className="p-1.5 rounded-lg text-[var(--success)] hover:bg-[var(--success)]/10"
-                          >
-                            <Check className="w-4 h-4" />
-                          </button>
-                          <button
-                            onClick={() => setEditingEntry(null)}
-                            title="取消"
-                            className="p-1.5 rounded-lg text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)]"
-                          >
-                            <X className="w-4 h-4" />
-                          </button>
-                        </>
-                      ) : (
-                        <button
-                          onClick={() => startEditEntry(idx, entry.text)}
-                          title="编辑"
-                          className="p-1.5 rounded-lg text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-tertiary)]"
-                        >
-                          <Pencil className="w-4 h-4" />
-                        </button>
-                      )}
-                    </div>
-                  )}
+                  <p className="text-sm text-[var(--text-primary)] whitespace-pre-wrap">{entry.text}</p>
                 </div>
               </div>
             ))
