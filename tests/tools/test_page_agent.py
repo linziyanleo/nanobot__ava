@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -56,6 +57,9 @@ class TestToolInterface:
     def test_required_fields(self, tool):
         assert tool.parameters["required"] == ["action"]
 
+    def test_default_screenshot_dir(self, tool):
+        assert tool._get_screenshot_dir() == Path.home() / ".nanobot" / "media" / "screenshots"
+
 
 class TestDisabled:
     @pytest.mark.asyncio
@@ -77,7 +81,7 @@ class TestExecuteValidation:
     @pytest.mark.asyncio
     async def test_screenshot_missing_session(self, tool):
         result = await tool.execute(action="screenshot")
-        assert "session_id is required" in result.lower()
+        assert "session_id or url is required" in result.lower()
 
     @pytest.mark.asyncio
     async def test_get_page_info_missing_session(self, tool):

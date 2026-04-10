@@ -259,7 +259,11 @@ def apply_loop_patch() -> str:
             from ava.console.services.media_service import MediaService
             from nanobot.config.paths import get_media_dir as _get_media_dir
             media_dir = _get_media_dir() / "generated"
-            self.media_service = MediaService(media_dir=media_dir, db=db)
+            self.media_service = MediaService(
+                media_dir=media_dir,
+                screenshot_dir=media_dir.parent / "screenshots",
+                db=db,
+            )
         except Exception as exc:
             logger.warning("Failed to init MediaService: {}", exc)
             self.media_service = None

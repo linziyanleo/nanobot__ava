@@ -1003,4 +1003,4 @@ class PageAgentTool(Tool):
             custom = getattr(self._config, "screenshot_dir", "")
             if custom:
                 return Path(custom).expanduser()
-        return Path.home() / ".nanobot" / "media" / "generated"
+        return Path.home() / ".nanobot" / "media" / "screenshots"

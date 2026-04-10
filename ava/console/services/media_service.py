@@ -10,10 +10,12 @@ from ava.console.models import MediaRecord
 
 
 class MediaService:
-    def __init__(self, media_dir: Path | None = None, db: Any | None = None):
+    def __init__(self, media_dir: Path | None = None, db: Any | None = None, screenshot_dir: Path | None = None):
         self._media_dir = media_dir or (Path.home() / ".nanobot" / "media" / "generated")
+        self._screenshot_dir = screenshot_dir or (self._media_dir.parent / "screenshots")
         self._records_file = self._media_dir / "records.jsonl"
         self._db = db
+        self._migrate_legacy_screenshots()
 
     @property
     def _use_db(self) -> bool:
@@ -132,12 +134,91 @@ class MediaService:
             "size": size,
         }
 
+    def _extract_filename(self, image_ref: str) -> str | None:
+        normalized = image_ref.replace("\\", "/")
+        filename = normalized.split("/")[-1]
+        if not filename or filename in {".", ".."}:
+            return None
+        return filename
+
+    def _iter_lookup_paths(self, filename: str):
+        seen: set[str] = set()
+        for base_dir in (self._media_dir, self._screenshot_dir):
+            path = base_dir / filename
+            key = str(path)
+            if key in seen:
+                continue
+            seen.add(key)
+            yield path
+
+    def _iter_delete_paths(self, filename: str):
+        seen: set[str] = set()
+        for base_dir in (self._screenshot_dir, self._media_dir):
+            path = base_dir / filename
+            key = str(path)
+            if key in seen:
+                continue
+            seen.add(key)
+            yield path
+
+    def _ensure_legacy_symlink(self, legacy_path: Path, target_path: Path) -> None:
+        if not target_path.exists():
+            return
+        try:
+            if legacy_path.is_symlink() and legacy_path.resolve(strict=False) == target_path.resolve(strict=False):
+                return
+        except OSError:
+            pass
+
+        try:
+            if legacy_path.exists() or legacy_path.is_symlink():
+                legacy_path.unlink()
+            legacy_path.symlink_to(target_path)
+        except Exception:
+            pass
+
+    def _migrate_legacy_screenshots(self) -> None:
+        if self._screenshot_dir == self._media_dir or not self._media_dir.exists():
+            return
+
+        self._screenshot_dir.mkdir(parents=True, exist_ok=True)
+        for legacy_path in sorted(self._media_dir.glob("page-agent-*.png")):
+            target_path = self._screenshot_dir / legacy_path.name
+            if legacy_path.is_symlink():
+                self._ensure_legacy_symlink(legacy_path, target_path)
+                continue
+            if not legacy_path.is_file():
+                continue
+
+            try:
+                if not target_path.exists():
+                    legacy_path.replace(target_path)
+                else:
+                    legacy_path.unlink()
+            except Exception:
+                continue
+
+            self._ensure_legacy_symlink(legacy_path, target_path)
+
+    def _delete_output_images(self, image_refs: list[str]) -> None:
+        for image_ref in image_refs:
+            filename = self._extract_filename(image_ref)
+            if not filename:
+                continue
+            for path in self._iter_delete_paths(filename):
+                if not (path.exists() or path.is_symlink()):
+                    continue
+                try:
+                    path.unlink()
+                except Exception:
+                    pass
+
     def get_image_path(self, filename: str) -> Path | None:
         if "/" in filename or "\\" in filename or ".." in filename:
             return None
-        path = self._media_dir / filename
-        if path.is_file():
-            return path
+        for path in self._iter_lookup_paths(filename):
+            if path.is_file():
+                return path
         return None
 
     def delete_record(self, record_id: str) -> bool:
@@ -162,14 +243,7 @@ class MediaService:
                 except json.JSONDecodeError:
                     pass
             
-            for img_path in output_images:
-                filename = img_path.split("/")[-1] if "/" in img_path else img_path
-                full_path = self._media_dir / filename
-                if full_path.is_file():
-                    try:
-                        full_path.unlink()
-                    except Exception:
-                        pass  # Best effort deletion
+            self._delete_output_images(output_images)
             
             # Delete database record
             self._db.execute("DELETE FROM media_records WHERE id = ?", (record_id,))
@@ -203,14 +277,7 @@ class MediaService:
             raise ValueError(f"Record {record_id} not found")
         
         # Delete image files
-        for img_path in deleted_images:
-            filename = img_path.split("/")[-1] if "/" in img_path else img_path
-            full_path = self._media_dir / filename
-            if full_path.is_file():
-                try:
-                    full_path.unlink()
-                except Exception:
-                    pass
+        self._delete_output_images(deleted_images)
         
         # Rewrite records file
         self._records_file.write_text("\n".join(new_lines) + "\n" if new_lines else "", "utf-8")
